@@ -92,3 +92,26 @@ func TestInstantiateRejectsBadRequiresReference(t *testing.T) {
 		t.Fatal("want error for bad ${...} reference in requires")
 	}
 }
+
+func TestInstantiateInterpolatesHeaders(t *testing.T) {
+	tmpl := manifest.Template{
+		Params: map[string]manifest.Param{
+			"region": {Type: "string", Required: true},
+		},
+		Produces: manifest.Produces{
+			MCPServer: &manifest.MCPServer{
+				Transport: "http",
+				URL:       "https://mcp.example.com",
+				Headers:   map[string]string{"X-Region": "${params.region}"},
+			},
+		},
+	}
+	inst := manifest.MCPServer{Params: map[string]any{"region": "eu-west-1"}}
+	out, err := Instantiate("svc", inst, tmpl, map[string]any{})
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	if out.MCPServer.Headers["X-Region"] != "eu-west-1" {
+		t.Errorf("headers = %v, want X-Region=eu-west-1", out.MCPServer.Headers)
+	}
+}
