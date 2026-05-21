@@ -175,3 +175,71 @@ func TestValidateAcceptsWellFormedChannels(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateRejectsHTTPMCPWithoutURL(t *testing.T) {
+	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
+		"s": {Transport: "http"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "no url") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "mcpServers.s" {
+		t.Errorf("path = %q, want mcpServers.s", d.Path)
+	}
+}
+
+func TestValidateRejectsHTTPMCPWithStdioFields(t *testing.T) {
+	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
+		"s": {Transport: "http", URL: "https://x", Command: "npx"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "stdio-only fields") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "mcpServers.s" {
+		t.Errorf("path = %q, want mcpServers.s", d.Path)
+	}
+}
+
+func TestValidateRejectsStdioMCPWithHeaders(t *testing.T) {
+	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
+		"s": {Command: "echo", Headers: map[string]string{"X": "y"}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "http-only fields") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateAcceptsHTTPMCPWithURLAndHeaders(t *testing.T) {
+	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
+		"s": {Transport: "http", URL: "https://x", Headers: map[string]string{"X": "y"}},
+	}}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateRejectsStdioMCPWithURL(t *testing.T) {
+	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
+		"s": {Command: "echo", URL: "https://x"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "http-only fields") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsHTTPTemplateWithoutURL(t *testing.T) {
+	m := &Manifest{Version: 1, Templates: map[string]Template{
+		"t": {Produces: Produces{MCPServer: &MCPServer{Transport: "http"}}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "no url") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "templates.t" {
+		t.Errorf("path = %q, want templates.t", d.Path)
+	}
+}

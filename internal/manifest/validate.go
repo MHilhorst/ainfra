@@ -40,6 +40,9 @@ func Validate(m *Manifest) error {
 			}
 			continue
 		}
+		if d := validateMCPTransport(srv, "mcpServers."+id); d != nil {
+			return d
+		}
 		if packageLaunchers[srv.Command] && srv.Version == "" {
 			return &diag.Diagnostic{
 				Summary: "package-launched server must pin an exact version",
@@ -52,6 +55,9 @@ func Validate(m *Manifest) error {
 	for _, id := range slices.Sorted(maps.Keys(m.Templates)) {
 		tmpl := m.Templates[id]
 		if srv := tmpl.Produces.MCPServer; srv != nil {
+			if d := validateMCPTransport(*srv, "templates."+id); d != nil {
+				return d
+			}
 			if packageLaunchers[srv.Command] && srv.Version == "" {
 				return &diag.Diagnostic{
 					Summary: "package-launched server must pin an exact version",
@@ -132,6 +138,42 @@ func Validate(m *Manifest) error {
 	}
 	if err := validateTools(m.Tools); err != nil {
 		return err
+	}
+	return nil
+}
+
+// validateMCPTransport enforces the disjoint field sets of the two MCP
+// transports (spec §5.2): a transport: http server needs a url and rejects the
+// stdio launch fields; a stdio server (the default) rejects the http-only url
+// and headers fields. Both transports share one struct, so this is an explicit
+// check, not a structural guarantee.
+func validateMCPTransport(srv MCPServer, path string) *diag.Diagnostic {
+	if srv.Transport == "http" {
+		if srv.URL == "" {
+			return &diag.Diagnostic{
+				Summary: "http MCP server declares no url",
+				Path:    path,
+				Detail:  "A transport: http server is reached over HTTP and needs an endpoint.",
+				Hint:    "Add a url field, e.g.  url: https://mcp.example.com/sse",
+			}
+		}
+		if srv.Command != "" || len(srv.Args) > 0 || srv.Version != "" {
+			return &diag.Diagnostic{
+				Summary: "http MCP server declares stdio-only fields",
+				Path:    path,
+				Detail:  "command, args, and version apply only to transport: stdio.",
+				Hint:    "Remove them, or set transport: stdio.",
+			}
+		}
+		return nil
+	}
+	if srv.URL != "" || len(srv.Headers) > 0 {
+		return &diag.Diagnostic{
+			Summary: "stdio MCP server declares http-only fields",
+			Path:    path,
+			Detail:  "url and headers apply only to transport: http.",
+			Hint:    "Remove them, or set transport: http.",
+		}
 	}
 	return nil
 }
