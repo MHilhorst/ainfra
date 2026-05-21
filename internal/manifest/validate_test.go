@@ -29,7 +29,7 @@ func TestValidateRejectsUnknownTemplate(t *testing.T) {
 		"s": {Template: "missing"},
 	}}
 	err := Validate(m)
-	if err == nil || !strings.Contains(err.Error(), "missing") {
+	if err == nil || !strings.Contains(err.Error(), "unknown template") {
 		t.Fatalf("want unknown-template error, got %v", err)
 	}
 }
