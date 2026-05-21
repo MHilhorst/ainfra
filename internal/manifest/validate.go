@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/agent"
 	"github.com/MHilhorst/ainfra/internal/diag"
 )
 
@@ -121,14 +122,6 @@ func Validate(m *Manifest) error {
 				Hint:    "Add a source field pointing at the context file (e.g. ./rules/team-claude.md).",
 			}
 		}
-		if r.Target == "" {
-			return &diag.Diagnostic{
-				Summary: "rule declares no target",
-				Path:    "rules." + id,
-				Detail:  fmt.Sprintf("Rule %q does not say where the file should land.", id),
-				Hint:    "Add a target field, e.g.  target: CLAUDE.md",
-			}
-		}
 	}
 	if err := validateTools(m.Tools); err != nil {
 		return err
@@ -179,6 +172,129 @@ func validateTools(t *Tools) error {
 	return nil
 }
 
+// agentFileFor names the source file for each layer, used to tag diagnostics
+// raised by the cross-layer agent checks.
+var agentFileFor = map[Layer]string{
+	LayerRepo:     "ainfra.yaml",
+	LayerPersonal: "ainfra.personal.yaml",
+	LayerTeam:     "(team layer)",
+}
+
+// channelEntry is one channel entry flattened for the capability check.
+type channelEntry struct {
+	channel string
+	id      string // empty for the singleton tools channel
+	agents  []string
+}
+
+// path renders the diagnostic Path for an entry.
+func (e channelEntry) path() string {
+	if e.id == "" {
+		return e.channel
+	}
+	return e.channel + "." + e.id
+}
+
+// collectEntries flattens every channel entry of m into a slice. Entries
+// within each channel are sorted by id; channels themselves are emitted in a
+// fixed order so the capability check always reports the same first error.
+func collectEntries(m *Manifest) []channelEntry {
+	var out []channelEntry
+	for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
+		out = append(out, channelEntry{agent.ChannelMCPServers, id, m.MCPServers[id].Agents})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
+		out = append(out, channelEntry{agent.ChannelSkills, id, m.Skills[id].Agents})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
+		out = append(out, channelEntry{agent.ChannelPlugins, id, m.Plugins[id].Agents})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
+		out = append(out, channelEntry{agent.ChannelRules, id, m.Rules[id].Agents})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {
+		out = append(out, channelEntry{agent.ChannelCLITools, id, m.CLITools[id].Agents})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Hooks)) {
+		out = append(out, channelEntry{agent.ChannelHooks, id, m.Hooks[id].Agents})
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Commands)) {
+		out = append(out, channelEntry{agent.ChannelCommands, id, m.Commands[id].Agents})
+	}
+	if m.Tools != nil {
+		out = append(out, channelEntry{agent.ChannelTools, "", m.Tools.Agents})
+	}
+	return out
+}
+
+// checkEntryAgent applies the spec §3.2 gating rules to one entry against the
+// resolved target agent. It returns nil when the entry is acceptable.
+func checkEntryAgent(e channelEntry, target agent.ID) *diag.Diagnostic {
+	for _, a := range e.agents {
+		if !agent.Known(a) {
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("unknown agent %q in agents:", a),
+				Path:    e.path(),
+				Detail:  fmt.Sprintf("Entry %q gates to agent %q, which ainfra does not know.", e.path(), a),
+				Hint:    "Valid agents: claude-code, codex.",
+			}
+		}
+	}
+	// A non-empty agents: list that omits the target deliberately scopes this
+	// entry away from the target — cleanly skipped, not an error.
+	if len(e.agents) > 0 && !slices.Contains(e.agents, string(target)) {
+		return nil
+	}
+	if agent.Supports(target, e.channel) {
+		return nil
+	}
+	if len(e.agents) > 0 {
+		// agents: lists the target, yet the target cannot render this channel.
+		return &diag.Diagnostic{
+			Summary: fmt.Sprintf("agent %q cannot render the %s channel", target, e.channel),
+			Path:    e.path(),
+			Detail:  fmt.Sprintf("Entry %q is gated to agent %q, but %q has no %s channel.", e.path(), target, target, e.channel),
+			Hint:    fmt.Sprintf("Remove %q from this entry's agents: list.", target),
+		}
+	}
+	return &diag.Diagnostic{
+		Summary: fmt.Sprintf("the %s channel is not supported by agent %q", e.channel, target),
+		Path:    e.path(),
+		Detail:  fmt.Sprintf("The resolved agent is %q, which cannot render the %s channel.", target, e.channel),
+		Hint:    "Gate this entry away with  agents: [claude-code]  — or change the agent field.",
+	}
+}
+
+// validateAgentCapabilities resolves the target agent, rejects an unknown
+// agent id, and checks every channel entry against the agent's capabilities
+// (spec §3.1, §3.2).
+func validateAgentCapabilities(layers map[Layer]*Manifest) error {
+	id, setLayer, _ := ResolveAgent(layers)
+	if !agent.Known(id) {
+		return &diag.Diagnostic{
+			Summary: fmt.Sprintf("unknown agent %q", id),
+			File:    agentFileFor[setLayer],
+			Path:    "agent",
+			Detail:  fmt.Sprintf("The agent field selects which AI agent ainfra renders for; %q is not one ainfra knows.", id),
+			Hint:    "Valid agents: claude-code, codex.",
+		}
+	}
+	target := agent.ID(id)
+	for _, ln := range []Layer{LayerTeam, LayerRepo, LayerPersonal} {
+		m, ok := layers[ln]
+		if !ok {
+			continue
+		}
+		for _, e := range collectEntries(m) {
+			if d := checkEntryAgent(e, target); d != nil {
+				d.File = agentFileFor[ln]
+				return d
+			}
+		}
+	}
+	return nil
+}
+
 // ValidateAll validates every present layer. It builds a cross-layer template
 // map first, so a lower layer may reference a template defined in a higher
 // one, then tags each diagnostic with the offending layer's file name.
@@ -194,11 +310,6 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 			}
 		}
 	}
-	fileFor := map[Layer]string{
-		LayerRepo:     "ainfra.yaml",
-		LayerPersonal: "ainfra.personal.yaml",
-		LayerTeam:     "(team layer)",
-	}
 	for _, ln := range order {
 		m, ok := layers[ln]
 		if !ok {
@@ -212,10 +323,10 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 		}
 		if err := Validate(toValidate); err != nil {
 			if d, ok := err.(*diag.Diagnostic); ok && d.File == "" {
-				d.File = fileFor[ln]
+				d.File = agentFileFor[ln]
 			}
 			return err
 		}
 	}
-	return nil
+	return validateAgentCapabilities(layers)
 }
