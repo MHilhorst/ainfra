@@ -32,8 +32,12 @@ ainfra version
 
 A developer joining a team runs `ainfra plan` then `ainfra apply`. Someone
 authoring a setup runs `ainfra init`, edits `ainfra.yaml`, then `ainfra lock`.
-See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough and the
-`examples/multi-database/` worked example.
+
+The [`ainfra.yaml`](ainfra.yaml) at the repository root is a worked showcase —
+a small team setup (MCP servers, a CLI tool, a hook) you can read in 30 seconds
+and try with `ainfra validate`. See [docs/quickstart.md](docs/quickstart.md)
+for the full walkthrough and [`examples/multi-database/`](examples/multi-database/)
+for the hardest case.
 
 Run `ainfra --help` for the command list, or `ainfra <command> --help` for
 per-command detail.
@@ -76,6 +80,7 @@ validated *on paper* against five scenarios — see
 ## Repository layout
 
 ```
+ainfra.yaml      Showcase manifest — a small team setup, the read-in-30s example
 cmd/ainfra/      CLI entry point and command definitions
 internal/
   cli/           command registry, dispatch, flags, help
