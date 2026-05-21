@@ -24,9 +24,10 @@ func RunLock(dir string) error {
 	if err != nil {
 		return err
 	}
-	// Build a merged template map so lower layers can reference templates from
-	// higher layers (e.g. personal layer reusing a repo-layer template).
+	// Merge templates and the targets vocabulary across layers, so a lower
+	// layer can reference a template or a target label declared higher up.
 	allTemplates := map[string]manifest.Template{}
+	targetSet := map[string]bool{}
 	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
 		if m, ok := layers[layerName]; ok {
 			for name, tmpl := range m.Templates {
@@ -34,20 +35,19 @@ func RunLock(dir string) error {
 					allTemplates[name] = tmpl
 				}
 			}
+			for _, t := range m.Targets {
+				targetSet[t] = true
+			}
 		}
 	}
+	allTargets := slices.Sorted(maps.Keys(targetSet))
 
-	// Validate each layer. For layers that reference cross-layer templates,
-	// inject the merged template map so the existence check passes.
+	// Validate each layer against the merged templates and vocabulary.
 	for _, m := range layers {
-		toValidate := m
-		if len(m.Templates) < len(allTemplates) {
-			// Shallow copy with merged templates so cross-layer refs validate.
-			copied := *m
-			copied.Templates = allTemplates
-			toValidate = &copied
-		}
-		if err := manifest.Validate(toValidate); err != nil {
+		copied := *m
+		copied.Templates = allTemplates
+		copied.Targets = allTargets
+		if err := manifest.Validate(&copied); err != nil {
 			return err
 		}
 	}
@@ -100,6 +100,7 @@ func RunLock(dir string) error {
 			BackgroundServices: map[string]lockfile.Entry{},
 			Hooks:              map[string]lockfile.Entry{},
 			Commands:           map[string]lockfile.Entry{},
+			ScheduledJobs:      map[string]lockfile.Entry{},
 			CLITools:           map[string]lockfile.Entry{},
 		}}
 
@@ -175,6 +176,20 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		for _, id := range slices.Sorted(maps.Keys(m.ScheduledJobs)) {
+			j := m.ScheduledJobs[id]
+			node := "job:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, j.Requires)
+			lock.Entries.ScheduledJobs[id] = lockfile.Entry{
+				Layer:  string(layerName),
+				RunsOn: j.RunsOn,
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"schedule": j.Schedule, "command": j.Command, "source": j.Source,
+					"runsOn": j.RunsOn, "description": j.Description,
+				}),
+			}
+		}
 	}
 
 	if _, err := g.TopoSort(); err != nil {
@@ -237,7 +252,8 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 		return &lockfile.Lock{Version: 1, GeneratedAt: l.GeneratedAt, Entries: lockfile.Entries{
 			MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
 			Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
-			CLITools: map[string]lockfile.Entry{}}}
+			ScheduledJobs: map[string]lockfile.Entry{},
+			CLITools:      map[string]lockfile.Entry{}}}
 	}
 	committed, personal = mk(), mk()
 	route := func(dst func(*lockfile.Lock) map[string]lockfile.Entry, src map[string]lockfile.Entry) {
@@ -253,5 +269,6 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.BackgroundServices }, l.Entries.BackgroundServices)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Hooks }, l.Entries.Hooks)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Commands }, l.Entries.Commands)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.ScheduledJobs }, l.Entries.ScheduledJobs)
 	return committed, personal
 }
