@@ -119,7 +119,8 @@ func RunLock(dir string) error {
 			entry.Version = out.MCPServer.Version
 			entry.ContentHash = lockfile.ContentHash(map[string]any{
 				"command": out.MCPServer.Command, "version": out.MCPServer.Version,
-				"env": toAnyMap(out.MCPServer.Env),
+				"url": out.MCPServer.URL,
+				"env": toAnyMap(out.MCPServer.Env), "headers": toAnyMap(out.MCPServer.Headers),
 			})
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
 		}

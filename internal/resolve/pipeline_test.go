@@ -101,3 +101,47 @@ commands:
 		t.Fatalf("clean hook+command manifest must not error: %v", err)
 	}
 }
+
+func TestLockPipelineHashesHeadersForDrift(t *testing.T) {
+	run := func(token string) string {
+		dir := t.TempDir()
+		manifestYAML := `version: 1
+templates:
+  api:
+    params: { tok: { type: string, required: true } }
+    produces:
+      mcpServer:
+        transport: http
+        url: https://mcp.example.com
+        headers: { Authorization: "${params.tok}" }
+mcpServers:
+  svc: { template: api, params: { tok: "` + token + `" } }
+`
+		if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := RunLock(dir); err != nil {
+			t.Fatalf("RunLock: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+		if err != nil {
+			t.Fatalf("lock not written: %v", err)
+		}
+		return string(data)
+	}
+	hashLine := func(lock string) string {
+		for _, line := range strings.Split(lock, "\n") {
+			if strings.Contains(line, "contentHash:") {
+				return strings.TrimSpace(line)
+			}
+		}
+		return ""
+	}
+	a, b := run("token-one"), run("token-two")
+	if hashLine(a) == "" {
+		t.Fatal("no contentHash in lock")
+	}
+	if hashLine(a) == hashLine(b) {
+		t.Errorf("a header change did not affect contentHash: %q", hashLine(a))
+	}
+}
