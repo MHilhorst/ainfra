@@ -14,6 +14,7 @@ type Entries struct {
 	BackgroundServices map[string]Entry `yaml:"backgroundServices"`
 	Hooks              map[string]Entry `yaml:"hooks"`
 	Commands           map[string]Entry `yaml:"commands"`
+	ScheduledJobs      map[string]Entry `yaml:"scheduledJobs"`
 	CLITools           map[string]Entry `yaml:"cliTools"`
 }
 
@@ -27,5 +28,6 @@ type Entry struct {
 	ToolsetHash     string         `yaml:"toolsetHash,omitempty"`
 	Constraint      string         `yaml:"constraint,omitempty"`
 	ResolvedVersion string         `yaml:"resolvedVersion,omitempty"`
+	RunsOn          []string       `yaml:"runsOn,omitempty"`
 	ContentHash     string         `yaml:"contentHash"`
 }

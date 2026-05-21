@@ -75,9 +75,9 @@ func Validate(m *Manifest) error {
 			}
 		}
 	}
-	for _, t := range m.Host.Targets {
+	for i, t := range m.Host.Targets {
 		if !vocabulary[t] {
-			return fmt.Errorf("host.targets: %q is not in the declared targets vocabulary", t)
+			return fmt.Errorf("host.targets[%d]: %q is not in the declared targets vocabulary", i, t)
 		}
 	}
 	return nil
