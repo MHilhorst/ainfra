@@ -259,6 +259,34 @@ when the server is reachable at `lock` time, a `toolsetHash` of its advertised
 tool list) so that a tampered package or a changed toolset fails `check` loudly.
 See [lockfile-schema.md §3](lockfile-schema.md#3-entry-shape).
 
+### 5.2 HTTP transport — `url` and `headers`
+
+> Added by Iteration 5 — closes assessment gap #2.
+
+A `transport: http` server is reached over HTTP rather than launched as a
+subprocess. It declares a `url` (required) and optional request `headers`:
+
+```yaml
+mcpServers:
+  linear:
+    transport: http
+    url: https://mcp.linear.app/sse
+    headers:
+      Authorization: "Bearer ${secret.token}"
+    secret:
+      token: { mode: direct, ref: "op://Engineering/linear/mcp" }
+```
+
+The two transports use disjoint field sets, enforced at validation:
+
+- `transport: http` requires `url`; `command` / `args` / `version` are rejected.
+- `transport: stdio` (the default) requires neither; `url` / `headers` are
+  rejected.
+
+Header values interpolate exactly like `env` (§4.4). A header that resolves
+from a secret follows the same rule as a secret-bearing `env` value — it may be
+written only to gitignored client config, never a committed file (the design doc's failure-modes table).
+
 ---
 
 ## 6. Preconditions — verify-only
@@ -278,6 +306,14 @@ preconditions:
 `check` fails loudly with `remediation` text. The tool never tries to satisfy a
 precondition.
 
+The `file-exists` check takes a `path` and an optional `mode` (an octal string
+such as `"0600"`). When `mode` is set, the check also verifies the file's
+permission bits, flagging an over-permissive credential file. This is how a
+CLI tool's dependency on a credential file is expressed — ainfra checks the
+file, and deliberately never writes it (the environment primitive stays
+reference-only, §3). A `cliTool` points at such a precondition with `requires`
+(§7).
+
 ---
 
 ## 7. CLI tooling — installable substrate
@@ -293,6 +329,33 @@ cliTools:
       command: "mysql --version"
       versionRegex: 'Ver (\d+\.\d+\.\d+)'
 ```
+
+> Added by Iteration 5: a `cliTool` also accepts `env`, `secret`, and
+> `requires`.
+
+```yaml
+cliTools:
+  aws-cli:
+    versionConstraint: ">=2.0"
+    install:
+      brew: { formula: awscli }
+    env:                                # written to the Claude Code settings.json env block
+      AWS_REGION: "eu-west-1"
+    secret:                             # inline secret bindings, as on an mcpServer
+      ssoToken: { mode: direct, ref: "op://Engineering/aws/sso" }
+    requires:
+      - precondition: aws-credentials   # a credential file ainfra checks, never writes
+```
+
+A `cliTool`'s `env` is delivered through a Claude Code `settings.json` env
+block, so it reaches every Bash tool call in a session — where the
+credential-needing CLIs run. `secret` declares inline secret bindings,
+referenced from `env` as `${secret.<name>}`. `requires` declares dependency
+edges (§9), typically a `file-exists` precondition for a credential file.
+
+> CLI tool and non-templated MCP server *resolution* at lock time (env/headers
+> interpolation, graph edges, lock entries) is owned by the follow-up plan for
+> non-templated entries; Iteration 5 adds and validates the fields.
 
 If no `install` adapter matches the host OS, the tool falls back to
 declare-and-check: it verifies presence and version and, on failure, prints an
