@@ -20,6 +20,14 @@ func TestColorizerForceOff(t *testing.T) {
 	}
 }
 
+func TestColorizerDisabledByNoColorEnv(t *testing.T) {
+	t.Setenv("NO_COLOR", "1")
+	c := NewColorizer(&bytes.Buffer{}, false)
+	if got := c.Green("+"); got != "+" {
+		t.Errorf("NO_COLOR Green(%q) = %q, want %q", "+", got, "+")
+	}
+}
+
 func TestColorizerEnabledWraps(t *testing.T) {
 	c := Colorizer{enabled: true}
 	got := c.Green("+")
