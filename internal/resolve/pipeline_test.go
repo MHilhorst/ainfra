@@ -303,6 +303,47 @@ rules:
 	}
 }
 
+func TestLockPipelineResolvesCLITools(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+cliTools:
+  jq:
+    versionConstraint: ">=1.6"
+    install:
+      brew: { formula: jq }
+    check:
+      command: jq --version
+  gh:
+    versionConstraint: ">=2.0"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	for _, id := range []string{"jq", "gh"} {
+		e, ok := lock.Entries.CLITools[id]
+		if !ok {
+			t.Errorf("lock missing cliTools entry %q", id)
+			continue
+		}
+		if e.ContentHash == "" {
+			t.Errorf("cliTools[%q] has no contentHash", id)
+		}
+	}
+	if e := lock.Entries.CLITools["jq"]; e.Constraint != ">=1.6" {
+		t.Errorf("cliTools[jq] constraint = %q, want >=1.6", e.Constraint)
+	}
+	if e := lock.Entries.CLITools["gh"]; e.Constraint != ">=2.0" {
+		t.Errorf("cliTools[gh] constraint = %q, want >=2.0", e.Constraint)
+	}
+}
+
 func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
 	// A hook and a command both depending on the same cliTool is not a cycle;

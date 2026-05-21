@@ -250,6 +250,19 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {
+			t := m.CLITools[id]
+			g.AddNode("cli:" + id)
+			lock.Entries.CLITools[id] = lockfile.Entry{
+				Layer:      string(layerName),
+				Constraint: t.VersionConstraint,
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"versionConstraint": t.VersionConstraint,
+					"install":           t.Install,
+					"check":             t.Check,
+				}),
+			}
+		}
 	}
 
 	if _, err := g.TopoSort(); err != nil {
