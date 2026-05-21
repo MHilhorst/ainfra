@@ -145,3 +145,47 @@ mcpServers:
 		t.Errorf("a header change did not affect contentHash: %q", hashLine(a))
 	}
 }
+
+func TestLockPipelineHashesArgsForDrift(t *testing.T) {
+	run := func(arg string) string {
+		dir := t.TempDir()
+		manifestYAML := `version: 1
+templates:
+  api:
+    params: { host: { type: string, required: true } }
+    produces:
+      mcpServer:
+        command: npx
+        version: "1.0.0"
+        args: ["-y", "` + arg + `"]
+mcpServers:
+  svc: { template: api, params: { host: x } }
+`
+		if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := RunLock(dir); err != nil {
+			t.Fatalf("RunLock: %v", err)
+		}
+		data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+		if err != nil {
+			t.Fatalf("lock not written: %v", err)
+		}
+		return string(data)
+	}
+	hashLine := func(lock string) string {
+		for _, line := range strings.Split(lock, "\n") {
+			if strings.Contains(line, "contentHash:") {
+				return strings.TrimSpace(line)
+			}
+		}
+		return ""
+	}
+	a, b := run("pkg-one"), run("pkg-two")
+	if hashLine(a) == "" {
+		t.Fatal("no contentHash in lock")
+	}
+	if hashLine(a) == hashLine(b) {
+		t.Errorf("an args change did not affect contentHash: %q", hashLine(a))
+	}
+}
