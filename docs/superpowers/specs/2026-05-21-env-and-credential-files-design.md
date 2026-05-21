@@ -160,9 +160,14 @@ cliTools:
       - precondition: aws-credentials
 ```
 
-The dependency graph (§9) already walks precondition edges; the only change is
-that a `cliTool` node may now own one. `internal/graph` is expected to handle
-this generically — the implementation plan verifies that and adds a test.
+The `requires` edge-wiring helper (`resolve.addRequireEdges`) already handles
+`cliTool` and `precondition` edges generically. But the lock pipeline does not
+yet iterate `cliTools` — non-templated-entry resolution is explicitly deferred
+in the codebase (`pipeline.go`: *"fully-inlined mcpServers are handled by the
+follow-up plan"*). So `requires` on a `cliTool` parses and validates now, and
+becomes graph-active when that follow-up plan lands CLI tool resolution. This
+iteration adds and documents the field; it does not build CLI tool lock-time
+resolution.
 
 ---
 
@@ -181,8 +186,11 @@ MCP `env` already carries this exact unresolved question; `headers` and CLI
 
 ### 4.2 Lockfile
 
-The new fields are ordinary manifest content. They fold into the existing
-`manifestHash` and per-entry `contentHash` with no lockfile schema change.
+The new fields are ordinary manifest content with no lockfile schema change. A
+templated MCP server's per-entry `contentHash` gains `url` and `headers` so a
+change to either is caught as drift. CLI tool fields ride the merged-manifest
+hash; CLI tools get no dedicated lock entry until the non-templated follow-up
+plan (§7).
 
 ### 4.3 JSON Schema
 
@@ -211,10 +219,10 @@ No new struct types. No lockfile change.
 - `internal/manifest/types.go` — the five fields above.
 - `internal/manifest/validate.go` (+ `validate_test.go`) — the transport
   field-set coupling rules (§1.1).
-- `internal/resolve/` — route `headers` and `cliTools.env` through the same
-  interpolation path as `mcpServers.env` (`template.go` / `pipeline.go`).
-- `internal/graph/` — confirm a `cliTool`→`precondition` edge resolves; add a
-  test.
+- `internal/resolve/template.go` — interpolate a template-produced server's
+  `headers`, mirroring how `env` is already interpolated.
+- `internal/resolve/pipeline.go` — fold `url` and `headers` into the templated
+  MCP server `contentHash` so drift detection covers them.
 - `spec/manifest-schema.md` — §5 (`url` + `headers`), §6 (`file-exists`
   `mode`), §7 (CLI `env` / `secret` / `requires`).
 - `docs/assessment-vs-real-config.md` — add an "Iteration 5" section; move gaps
@@ -231,6 +239,10 @@ No new struct types. No lockfile change.
 Deliberately excluded:
 
 - **ainfra writing secret files.** See §3 — this is the secret manager's job.
+- **CLI tool and non-templated MCP server lock-time resolution** — env/headers
+  interpolation, graph edges, and lock entries for non-templated entries. Owned
+  by the existing follow-up plan for non-templated entries; this iteration is a
+  schema iteration.
 - **Per-key committed-vs-local routing internals.** Phase 3 apply mechanics.
 - **Bare-terminal CLI env** outside Claude Code sessions. See §2.1.
 - **The remaining open gaps** #1 (scheduled jobs), #3 (plugin git+subpath),
