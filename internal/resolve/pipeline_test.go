@@ -170,6 +170,50 @@ mcpServers:
 	}
 }
 
+func TestLockPipelineRecordsRequiresOnExistingChannels(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+cliTools:
+  node: { versionConstraint: ">=20" }
+  ssh: { versionConstraint: ">=8" }
+templates:
+  tun:
+    params: { host: { type: string, required: true } }
+    resolved: { tunnelPort: { kind: allocated-port } }
+    produces:
+      mcpServer:
+        command: npx
+        version: "1.0.0"
+        requires: [ { service: "${instance.id}-tunnel" } ]
+      backgroundService:
+        id: "${instance.id}-tunnel"
+        kind: ssh-tunnel
+        requires: [ { cliTool: ssh } ]
+mcpServers:
+  db-a: { template: tun, params: { host: a.example } }
+hooks:
+  guard: { event: Stop, command: "echo x", requires: [ { cliTool: node } ] }
+commands:
+  ship: { source: ./ship.md, requires: [ { cliTool: node } ] }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("lock not written: %v", err)
+	}
+	out := string(data)
+	for _, want := range []string{"svc:db-a-tunnel", "cli:ssh", "cli:node"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lock missing requires ref %q\n---\n%s", want, out)
+		}
+	}
+}
+
 func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
 	// A hook and a command both depending on the same cliTool is not a cycle;

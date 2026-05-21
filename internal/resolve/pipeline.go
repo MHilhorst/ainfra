@@ -126,6 +126,7 @@ func RunLock(dir string) error {
 				"version": out.MCPServer.Version, "transport": out.MCPServer.Transport,
 				"env": toAnyMap(out.MCPServer.Env),
 			})
+			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
 		}
 		lock.Entries.MCPServers[ti.id] = entry
@@ -133,6 +134,7 @@ func RunLock(dir string) error {
 			g.AddNode("svc:" + out.Service.ID)
 			lock.Entries.BackgroundServices[out.Service.ID] = lockfile.Entry{
 				Layer: string(ti.layer), Resolved: resolved,
+				Requires:    requireRefs(out.Service.Requires),
 				ContentHash: lockfile.ContentHash(out.Service.Spec),
 			}
 			addRequireEdges(g, "svc:"+out.Service.ID, out.Service.Requires)
@@ -152,7 +154,8 @@ func RunLock(dir string) error {
 			g.AddNode(node)
 			addRequireEdges(g, node, h.Requires)
 			lock.Entries.Hooks[id] = lockfile.Entry{
-				Layer: string(layerName),
+				Layer:    string(layerName),
+				Requires: requireRefs(h.Requires),
 				ContentHash: lockfile.ContentHash(map[string]any{
 					"event": h.Event, "matcher": h.Matcher, "command": h.Command,
 					"source": h.Source, "timeout": h.Timeout,
@@ -165,8 +168,9 @@ func RunLock(dir string) error {
 			g.AddNode(node)
 			addRequireEdges(g, node, c.Requires)
 			lock.Entries.Commands[id] = lockfile.Entry{
-				Layer:   string(layerName),
-				Version: c.Version,
+				Layer:    string(layerName),
+				Version:  c.Version,
+				Requires: requireRefs(c.Requires),
 				ContentHash: lockfile.ContentHash(map[string]any{
 					"source": c.Source, "description": c.Description, "version": c.Version,
 				}),
