@@ -214,15 +214,14 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			})
 		}
 
-		// tools (one entry per layer that declares a tools block)
+		// tools (fixed ID "tools" so desired matches the ID Observe returns)
 		if m.Tools != nil {
-			toolID := string(layerName)
-			if !markSeen(seen, "tools", toolID) {
+			if !markSeen(seen, "tools", "tools") {
 				continue
 			}
-			entry := merged.tools[toolID]
+			entry := merged.tools["tools"]
 			result["tools"] = append(result["tools"], provider.Resource{
-				ID:          toolID,
+				ID:          "tools",
 				Channel:     "tools",
 				Layer:       entry.Layer,
 				ContentHash: entry.ContentHash,

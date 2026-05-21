@@ -81,6 +81,7 @@ func TestToolsApply_Create(t *testing.T) {
 	}
 	env := provider.Env{FS: mem, Root: "/repo"}
 
+	// Use []any as in previous tests — should still work.
 	plan := provider.ChannelPlan{
 		Channel: "tools",
 		Changes: []provider.Change{
@@ -140,6 +141,75 @@ func TestToolsApply_Create(t *testing.T) {
 
 	if doc["disabledTools"] == nil {
 		t.Error("disabledTools should be present")
+	}
+}
+
+// TestToolsApply_Create_StringSlice exercises the []string path that the
+// renderer actually produces (m.Tools.Builtins.Disabled is []string, not []any).
+func TestToolsApply_Create_StringSlice(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	existing := `{"hooks":{"foreign":{"event":"SessionStart","command":"echo hi"}}}`
+	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(existing), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	// disabled is []string — the type RenderResources actually puts in the payload.
+	plan := provider.ChannelPlan{
+		Channel: "tools",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "tools",
+				Resource: provider.Resource{
+					ID:      "tools",
+					Channel: "tools",
+					Payload: map[string]any{
+						"disabled": []string{"WebSearch", "computer"},
+						"allow":    []string{"Read", "Write"},
+						"deny":     []string{"Bash(rm *)"},
+					},
+				},
+			},
+		},
+	}
+
+	p := channels.Tools{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+
+	raw, err := mem.ReadFile("/repo/.claude/settings.json")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+
+	if doc["disabledTools"] == nil {
+		t.Error("disabledTools should be present when disabled is []string")
+	}
+	dt, ok := doc["disabledTools"].([]any)
+	if !ok {
+		t.Fatalf("disabledTools type = %T, want []any (JSON array)", doc["disabledTools"])
+	}
+	if len(dt) != 2 {
+		t.Errorf("disabledTools length = %d, want 2", len(dt))
+	}
+
+	perms, ok := doc["permissions"].(map[string]any)
+	if !ok {
+		t.Fatal("permissions not a map")
+	}
+	if perms["allow"] == nil {
+		t.Error("permissions.allow should be present")
 	}
 }
 

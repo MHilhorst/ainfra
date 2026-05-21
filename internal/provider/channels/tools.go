@@ -85,9 +85,7 @@ func (Tools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 				desiredPerms["deny"] = deny
 			}
 			if disabled, ok := c.Resource.Payload["disabled"]; ok {
-				if d, ok := disabled.([]any); ok {
-					desiredDisabled = d
-				}
+				desiredDisabled = toAnySlice(disabled)
 			}
 		} else if c.Kind == provider.ChangeDelete {
 			isDelete = true
@@ -138,6 +136,23 @@ func (Tools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 		Channel: "tools",
 		Applied: applied,
 	}, nil
+}
+
+// toAnySlice normalizes a disabled/allow/deny payload value into []any so that
+// both the []string the renderer produces and the []any used in tests are handled
+// correctly. Unrecognised types are silently ignored (returns nil).
+func toAnySlice(v any) []any {
+	switch t := v.(type) {
+	case []any:
+		return t
+	case []string:
+		out := make([]any, len(t))
+		for i, s := range t {
+			out[i] = s
+		}
+		return out
+	}
+	return nil
 }
 
 // removeTopLevelKey removes a top-level key from the JSON file at path.

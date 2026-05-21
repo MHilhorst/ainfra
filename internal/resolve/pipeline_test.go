@@ -150,7 +150,8 @@ tools:
 		t.Fatalf("lock not written: %v", err)
 	}
 	out := string(data)
-	for _, want := range []string{"tools:", "repo:", "contentHash:"} {
+	// The map key is now the fixed string "tools"; the layer field records "repo".
+	for _, want := range []string{"tools:", "layer: repo", "contentHash:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lock missing %q\n---\n%s", want, out)
 		}

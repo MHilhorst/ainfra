@@ -239,9 +239,12 @@ func RunLock(dir string) error {
 			}
 		}
 		if m.Tools != nil {
-			node := "tools:" + string(layerName)
-			g.AddNode(node)
-			lock.Entries.Tools[string(layerName)] = lockfile.Entry{
+			// All layers share the fixed key "tools" so the desired ID matches the
+			// observed ID returned by Tools.Observe. If multiple layers define tools:,
+			// the later layer (personal > repo > team) wins; last-write is acceptable
+			// for this increment.
+			g.AddNode("tools")
+			lock.Entries.Tools["tools"] = lockfile.Entry{
 				Layer: string(layerName),
 				ContentHash: lockfile.ContentHash(map[string]any{
 					"disabled": m.Tools.Builtins.Disabled,

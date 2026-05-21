@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -113,6 +114,134 @@ commands:
 		code := run([]string{"--chdir", dir, "check"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("check (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		combined := out.String() + errOut.String()
+		if !strings.Contains(combined, "No drift") {
+			t.Errorf("check (after apply): expected 'No drift', got: %q", combined)
+		}
+	}
+
+	// Step 5: second plan — must show no changes.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("plan (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		combined := out.String() + errOut.String()
+		if !strings.Contains(combined, "No changes") {
+			t.Errorf("plan (after apply): expected 'No changes', got: %q", combined)
+		}
+	}
+}
+
+// TestE2EToolsChannel exercises the tools channel end-to-end: apply writes
+// disabledTools and permissions into settings.json, check exits 0 (no drift),
+// and a second plan shows no changes. This is the regression guard for the
+// resource-ID mismatch (Bug 1) and the []string disabledTools drop (Bug 2).
+func TestE2EToolsChannel(t *testing.T) {
+	dir := t.TempDir()
+
+	manifest := `version: 1
+tools:
+  builtins:
+    disabled:
+      - WebSearch
+  permissions:
+    allow:
+      - "Read(*)"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 1: lock.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "lock"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("lock: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+	}
+
+	// Step 2: plan — must report pending changes.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("plan (before apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		combined := out.String() + errOut.String()
+		if strings.Contains(combined, "No changes") {
+			t.Errorf("plan (before apply): expected pending changes, got 'No changes': %q", combined)
+		}
+	}
+
+	// Step 3: apply --yes — must write disabledTools and permissions.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("apply --yes: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+
+		settingsFile := filepath.Join(dir, ".claude", "settings.json")
+		raw, err := os.ReadFile(settingsFile)
+		if err != nil {
+			t.Fatalf("apply --yes: cannot read settings.json: %v", err)
+		}
+
+		var doc map[string]any
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("apply --yes: settings.json not valid JSON: %v", err)
+		}
+
+		// disabledTools must contain "WebSearch".
+		dt, ok := doc["disabledTools"]
+		if !ok {
+			t.Errorf("apply --yes: disabledTools missing from settings.json: %s", string(raw))
+		} else {
+			arr, ok := dt.([]any)
+			if !ok {
+				t.Errorf("apply --yes: disabledTools is %T, want []any", dt)
+			} else {
+				found := false
+				for _, v := range arr {
+					if s, ok := v.(string); ok && s == "WebSearch" {
+						found = true
+					}
+				}
+				if !found {
+					t.Errorf("apply --yes: disabledTools does not contain 'WebSearch': %v", arr)
+				}
+			}
+		}
+
+		// permissions.allow must contain "Read(*)".
+		perms, ok := doc["permissions"].(map[string]any)
+		if !ok {
+			t.Errorf("apply --yes: permissions missing or wrong type in settings.json: %s", string(raw))
+		} else {
+			allow, _ := perms["allow"].([]any)
+			found := false
+			for _, v := range allow {
+				if s, ok := v.(string); ok && s == "Read(*)" {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("apply --yes: permissions.allow does not contain 'Read(*)': %v", allow)
+			}
+		}
+	}
+
+	// Step 4: check — must exit 0 (no drift). This is the regression guard for Bug 1.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "check"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("check (after apply): code=%d stdout=%q stderr=%q\n(non-zero exit means tools channel still reports drift — resource ID mismatch not fully fixed)",
+				code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
 		if !strings.Contains(combined, "No drift") {
