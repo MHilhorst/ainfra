@@ -28,6 +28,8 @@ func LoadLayers(dir string) (map[Layer]*Manifest, error) {
 	return out, nil
 }
 
+// loadFile reads and minimally validates a manifest file. It returns the raw
+// os error on read failure so callers can test it with os.IsNotExist.
 func loadFile(path string) (*Manifest, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {

@@ -30,7 +30,9 @@ func TestLoadLayersTagsEachLayer(t *testing.T) {
 
 func TestLoadLayersPersonalOptional(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "ai-stack.yaml"), []byte("version: 1\n"), 0o644)
+	if err := os.WriteFile(filepath.Join(dir, "ai-stack.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	layers, err := LoadLayers(dir)
 	if err != nil {
 		t.Fatalf("LoadLayers: %v", err)
