@@ -203,8 +203,9 @@ func (e channelEntry) path() string {
 	return e.channel + "." + e.id
 }
 
-// collectEntries flattens every channel entry of m into a deterministic,
-// sorted slice so the capability check reports a stable first error.
+// collectEntries flattens every channel entry of m into a slice. Entries
+// within each channel are sorted by id; channels themselves are emitted in a
+// fixed order so the capability check always reports the same first error.
 func collectEntries(m *Manifest) []channelEntry {
 	var out []channelEntry
 	for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
@@ -317,11 +318,6 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 			}
 		}
 	}
-	fileFor := map[Layer]string{
-		LayerRepo:     "ainfra.yaml",
-		LayerPersonal: "ainfra.personal.yaml",
-		LayerTeam:     "(team layer)",
-	}
 	for _, ln := range order {
 		m, ok := layers[ln]
 		if !ok {
@@ -335,7 +331,7 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 		}
 		if err := Validate(toValidate); err != nil {
 			if d, ok := err.(*diag.Diagnostic); ok && d.File == "" {
-				d.File = fileFor[ln]
+				d.File = agentFileFor[ln]
 			}
 			return err
 		}

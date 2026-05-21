@@ -230,6 +230,9 @@ func TestValidateAllRejectsUngatedChannelUnsupportedByAgent(t *testing.T) {
 	if d.Path != "hooks.gofmt" {
 		t.Errorf("path = %q, want hooks.gofmt", d.Path)
 	}
+	if d.File != "ainfra.yaml" {
+		t.Errorf("file = %q, want ainfra.yaml", d.File)
+	}
 	if d.Hint == "" {
 		t.Error("expected a hint suggesting agents: gating")
 	}
