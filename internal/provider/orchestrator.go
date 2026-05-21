@@ -49,7 +49,19 @@ func (o *Orchestrator) PlanAll(desired *lockfile.Lock) (map[string]ChannelPlan, 
 		if err != nil {
 			return nil, err
 		}
-		plan := DiffResources(p.Channel(), desiredByCh[p.Channel()], observed, priorByCh[p.Channel()])
+		priorForCh := priorByCh[p.Channel()]
+		priorByID := make(map[string]Resource, len(priorForCh))
+		for _, r := range priorForCh {
+			priorByID[r.ID] = r
+		}
+		for i, obs := range observed {
+			if obs.ContentHash == "" {
+				if pr, ok := priorByID[obs.ID]; ok {
+					observed[i].ContentHash = pr.ContentHash
+				}
+			}
+		}
+		plan := DiffResources(p.Channel(), desiredByCh[p.Channel()], observed, priorForCh)
 		result[ch] = plan
 	}
 	return result, nil

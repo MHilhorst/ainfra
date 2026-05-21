@@ -1,6 +1,9 @@
 package provider
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func res(id, hash string) Resource { return Resource{ID: id, ContentHash: hash} }
 
@@ -35,5 +38,32 @@ func TestDiffResources(t *testing.T) {
 	}
 	if _, ok := find(p, "foreign"); ok {
 		t.Error("a resource owned by neither prior nor desired must be left alone")
+	}
+}
+
+func TestDiffResourcesCarriesResource(t *testing.T) {
+	desiredNew := Resource{ID: "new", Channel: "skills", ContentHash: "h3", Payload: map[string]any{"k": "v"}}
+	priorGone := Resource{ID: "gone", Channel: "skills", ContentHash: "h4"}
+
+	desired := []Resource{desiredNew}
+	observed := []Resource{}
+	prior := []Resource{priorGone}
+
+	p := DiffResources("skills", desired, observed, prior)
+
+	create, ok := find(p, "new")
+	if !ok {
+		t.Fatal("expected a create change for 'new'")
+	}
+	if !reflect.DeepEqual(create.Resource, desiredNew) {
+		t.Errorf("create change Resource = %+v, want %+v", create.Resource, desiredNew)
+	}
+
+	del, ok := find(p, "gone")
+	if !ok {
+		t.Fatal("expected a delete change for 'gone'")
+	}
+	if !reflect.DeepEqual(del.Resource, priorGone) {
+		t.Errorf("delete change Resource = %+v, want %+v", del.Resource, priorGone)
 	}
 }

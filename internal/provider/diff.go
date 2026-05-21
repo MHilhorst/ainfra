@@ -19,12 +19,13 @@ func DiffResources(channel string, desired, observed, prior []Resource) ChannelP
 	d, o, pr := byID(desired), byID(observed), byID(prior)
 
 	plan := ChannelPlan{Channel: channel}
-	for id := range pr {
+	for id, prior := range pr {
 		if _, stillWanted := d[id]; !stillWanted {
 			plan.Changes = append(plan.Changes, Change{
-				Kind:   ChangeDelete,
-				ID:     id,
-				Detail: channel + " " + id + " removed from manifest",
+				Kind:     ChangeDelete,
+				ID:       id,
+				Detail:   channel + " " + id + " removed from manifest",
+				Resource: prior,
 			})
 		}
 	}
@@ -33,15 +34,24 @@ func DiffResources(channel string, desired, observed, prior []Resource) ChannelP
 		switch {
 		case !onMachine:
 			plan.Changes = append(plan.Changes, Change{
-				Kind: ChangeCreate, ID: id, Detail: channel + " " + id + " not present",
+				Kind:     ChangeCreate,
+				ID:       id,
+				Detail:   channel + " " + id + " not present",
+				Resource: want,
 			})
 		case got.ContentHash != want.ContentHash:
 			plan.Changes = append(plan.Changes, Change{
-				Kind: ChangeUpdate, ID: id, Detail: channel + " " + id + " differs from lockfile",
+				Kind:     ChangeUpdate,
+				ID:       id,
+				Detail:   channel + " " + id + " differs from lockfile",
+				Resource: want,
 			})
 		default:
 			plan.Changes = append(plan.Changes, Change{
-				Kind: ChangeNoop, ID: id, Detail: channel + " " + id + " up to date",
+				Kind:     ChangeNoop,
+				ID:       id,
+				Detail:   channel + " " + id + " up to date",
+				Resource: want,
 			})
 		}
 	}

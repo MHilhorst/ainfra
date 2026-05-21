@@ -38,10 +38,15 @@ type Resource struct {
 }
 
 // Change is one planned mutation of a single resource.
+//
+// Resource holds the target resource for the change: the desired resource for
+// ChangeCreate, ChangeUpdate, and ChangeNoop; the prior resource for
+// ChangeDelete. Providers use this to read the payload they must render.
 type Change struct {
-	Kind   ChangeKind
-	ID     string
-	Detail string
+	Kind     ChangeKind
+	ID       string
+	Detail   string
+	Resource Resource
 }
 
 // ChannelPlan is the set of changes one provider would make.
