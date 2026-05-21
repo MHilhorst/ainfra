@@ -1,6 +1,7 @@
 package lockfile
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -10,10 +11,15 @@ func TestWriteThenReadRoundTrips(t *testing.T) {
 	lock := &Lock{
 		Version:     1,
 		GeneratedAt: "2026-05-21T00:00:00Z",
-		Entries: Entries{MCPServers: map[string]Entry{
-			"analytics-db": {Layer: "repo", ContentHash: "sha256:abc",
-				Resolved: map[string]any{"tunnelPort": 13306}},
-		}},
+		Entries: Entries{
+			MCPServers: map[string]Entry{
+				"analytics-db": {Layer: "repo", ContentHash: "sha256:abc",
+					Resolved: map[string]any{"tunnelPort": 13306}},
+			},
+			BackgroundServices: map[string]Entry{
+				"analytics-db-tunnel": {Layer: "repo", ContentHash: "sha256:def"},
+			},
+		},
 	}
 	path := filepath.Join(dir, "ai-stack.lock")
 	if err := Write(path, lock); err != nil {
@@ -24,7 +30,10 @@ func TestWriteThenReadRoundTrips(t *testing.T) {
 		t.Fatalf("Read: %v", err)
 	}
 	if got.Entries.MCPServers["analytics-db"].ContentHash != "sha256:abc" {
-		t.Errorf("round-trip lost data: %+v", got)
+		t.Errorf("round-trip lost mcpServer data: %+v", got)
+	}
+	if got.Entries.BackgroundServices["analytics-db-tunnel"].ContentHash != "sha256:def" {
+		t.Errorf("round-trip lost backgroundService data: %+v", got)
 	}
 }
 
@@ -33,7 +42,32 @@ func TestReadMissingFileReturnsEmptyLock(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read of missing file should not error: %v", err)
 	}
-	if got.Version != 1 || len(got.Entries.MCPServers) != 0 {
-		t.Errorf("want empty v1 lock, got %+v", got)
+	if got.Version != 1 ||
+		len(got.Entries.MCPServers) != 0 ||
+		len(got.Entries.BackgroundServices) != 0 ||
+		len(got.Entries.CLITools) != 0 {
+		t.Errorf("want empty v1 lock with all maps non-nil, got %+v", got)
 	}
+}
+
+func TestReadSparseFileInitialisesMaps(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ai-stack.lock")
+	// A lockfile with no entries section at all.
+	if err := writeFile(t, path, "version: 1\n"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	// All three maps must be non-nil so a caller can write into them.
+	got.Entries.MCPServers["x"] = Entry{}
+	got.Entries.BackgroundServices["y"] = Entry{}
+	got.Entries.CLITools["z"] = Entry{}
+}
+
+func writeFile(t *testing.T, path, body string) error {
+	t.Helper()
+	return os.WriteFile(path, []byte(body), 0o644)
 }

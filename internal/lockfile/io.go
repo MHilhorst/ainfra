@@ -1,6 +1,8 @@
 package lockfile
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -8,14 +10,12 @@ import (
 
 // Read loads a lockfile. A missing file is not an error: it returns an empty
 // v1 lock, so a first run resolves cleanly (spec §7 — both lock files optional).
+// The three Entries maps are always non-nil on return, so callers may write
+// into them directly even if the file on disk omitted an entries section.
 func Read(path string) (*Lock, error) {
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return &Lock{Version: 1, Entries: Entries{
-			MCPServers:         map[string]Entry{},
-			BackgroundServices: map[string]Entry{},
-			CLITools:           map[string]Entry{},
-		}}, nil
+	if errors.Is(err, fs.ErrNotExist) {
+		return ensureMaps(&Lock{Version: 1}), nil
 	}
 	if err != nil {
 		return nil, err
@@ -24,7 +24,22 @@ func Read(path string) (*Lock, error) {
 	if err := yaml.Unmarshal(data, &l); err != nil {
 		return nil, err
 	}
-	return &l, nil
+	return ensureMaps(&l), nil
+}
+
+// ensureMaps initialises any nil Entries channel map so callers can write into
+// the returned lock without a nil-map panic.
+func ensureMaps(l *Lock) *Lock {
+	if l.Entries.MCPServers == nil {
+		l.Entries.MCPServers = map[string]Entry{}
+	}
+	if l.Entries.BackgroundServices == nil {
+		l.Entries.BackgroundServices = map[string]Entry{}
+	}
+	if l.Entries.CLITools == nil {
+		l.Entries.CLITools = map[string]Entry{}
+	}
+	return l
 }
 
 // Write serializes a lock to path with a do-not-edit header.
