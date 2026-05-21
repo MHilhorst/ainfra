@@ -48,6 +48,14 @@ func Instantiate(id string, inst manifest.MCPServer, tmpl manifest.Template, res
 			}
 			srv.Env[k] = ev
 		}
+		srv.Headers = map[string]string{}
+		for k, v := range src.Headers {
+			hv, err := Interpolate(v, scope)
+			if err != nil {
+				return Instance{}, err
+			}
+			srv.Headers[k] = hv
+		}
 		var err error
 		srv.Requires, err = interpolateRequires(src.Requires, scope)
 		if err != nil {

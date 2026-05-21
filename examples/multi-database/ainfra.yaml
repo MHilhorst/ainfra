@@ -21,6 +21,14 @@ preconditions:
       host: bastion.tvt.internal
     remediation: "Connect the team VPN, then re-run: ainfra check"
 
+  mysql-defaults-file:
+    description: The mysql client reads connection defaults from ~/.my.cnf.
+    check:
+      type: file-exists
+      path: ~/.my.cnf
+      mode: "0600"
+    remediation: "Create ~/.my.cnf with a [client] section, then: chmod 600 ~/.my.cnf"
+
 # --- Installable substrate ---------------------------------------------------
 cliTools:
   ssh:
@@ -37,6 +45,10 @@ cliTools:
     check:
       command: "mysql --version"
       versionRegex: 'Ver (\d+\.\d+\.\d+)'
+    env:
+      MYSQL_HISTFILE: /dev/null         # team-wide CLI default, delivered via settings.json env
+    requires:
+      - precondition: mysql-defaults-file
   node:
     versionConstraint: ">=20"
     install:
@@ -127,6 +139,15 @@ mcpServers:
     template: mysql-over-ssh-tunnel
     params:  { host: reporting-db.tvt.internal, database: reporting, sshUser: deploy }
     secret:  { dbPassword: { ref: "op://Engineering/reporting-db/ro-password" }, sshKey: bastion-ssh-key }
+
+  # A non-templated HTTP MCP server: an endpoint plus auth headers (Iteration 5).
+  linear:
+    transport: http
+    url: https://mcp.linear.app/sse
+    headers:
+      Authorization: "Bearer ${secret.token}"
+    secret:
+      token: { mode: direct, ref: "op://Engineering/linear/mcp-token" }
 
 # --- Hooks: lifecycle automation, layered and lockable like any channel ------
 hooks:

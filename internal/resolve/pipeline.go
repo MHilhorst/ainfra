@@ -125,7 +125,8 @@ func RunLock(dir string) error {
 			entry.ContentHash = lockfile.ContentHash(map[string]any{
 				"command": out.MCPServer.Command, "args": out.MCPServer.Args,
 				"version": out.MCPServer.Version, "transport": out.MCPServer.Transport,
-				"env": toAnyMap(out.MCPServer.Env),
+				"url": out.MCPServer.URL,
+				"env": toAnyMap(out.MCPServer.Env), "headers": toAnyMap(out.MCPServer.Headers),
 			})
 			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
@@ -192,7 +193,8 @@ func RunLock(dir string) error {
 				ContentHash: lockfile.ContentHash(map[string]any{
 					"command": srv.Command, "args": srv.Args,
 					"version": srv.Version, "transport": srv.Transport,
-					"env": toAnyMap(srv.Env),
+					"url": srv.URL,
+					"env": toAnyMap(srv.Env), "headers": toAnyMap(srv.Headers),
 				}),
 			}
 		}

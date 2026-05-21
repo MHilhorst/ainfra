@@ -38,7 +38,7 @@ schema extension · Gap = not expressible.
 | Real-repo surface | `ainfra` channel | Verdict |
 |---|---|---|
 | stdio MCP servers (`npx`/`uvx`) | `mcpServers` | Clean — `@latest` users must pin (§5.1) |
-| HTTP MCP servers with auth `headers` | `mcpServers` | Bends — schema has no `headers` map |
+| HTTP MCP servers with auth `headers` | `mcpServers` | Clean — `url` + `headers` added (Iteration 5) |
 | build-from-source MCP binary | `mcpServers` + `cliTools` | Bends — declare-and-check only |
 | 2 MySQL servers → SSH tunnels → VPN | `templates` + `backgroundService` + `precondition` | **Clean — best fit**, improves on the status quo |
 | 38 skills | `plugins` (bundled) | Clean as a bundle |
@@ -50,7 +50,7 @@ schema extension · Gap = not expressible.
 | CLI tools via `brew` / `npm -g` | `cliTools` | Clean — pinned npm globals are a strong fit |
 | CLI tools via `pip` / `composer` / source | `cliTools` | Gap — no `pip`/`composer` adapter |
 | `op://` secrets, shared + personal vaults | environment primitive | **Clean — strong fit** (`scope` = the two vaults) |
-| secrets materialised to *files* | environment | Gap — env primitive does env vars, not files |
+| secrets materialised to *files* | environment | Clean (verify-only) — ainfra checks the file via a precondition; never writes it (Iteration 5) |
 | tunnel→VPN, MCP→binary dependencies | `requires` graph | **Clean — strongest fit** |
 | **7 hooks** | **`hooks` (NEW — Iteration 3)** | **Clean — channel added by this change** |
 | **9 slash commands** | **`commands` (NEW — Iteration 3)** | **Clean — channel added by this change** |
@@ -95,7 +95,24 @@ one hook and one command end-to-end.
 
 This converts the two biggest "Gap" rows above into "Clean."
 
-## 5. Gaps still open
+## 5. Iteration 5 — what this change adds
+
+Three schema additions, closing two more gaps:
+
+- **`mcpServers.url` + `headers`** (manifest §5.2) — HTTP MCP servers can
+  declare an endpoint and auth headers.
+- **`cliTools.env` / `secret` / `requires`** (manifest §7) — CLI tools get
+  environment variables (delivered via the Claude Code `settings.json` env
+  block), inline secret bindings, and dependency edges.
+- **`file-exists` precondition `mode`** (manifest §6) — secret-to-file is
+  modelled verify-only: ainfra checks a credential file exists with the right
+  permissions and never writes it, keeping the environment primitive
+  reference-only.
+
+This is a schema iteration; CLI tool and non-templated MCP *resolution* at lock
+time is deferred to the follow-up plan for non-templated entries.
+
+## 6. Gaps still open
 
 These are recorded honestly; they are *not* closed by Iteration 3:
 
@@ -104,20 +121,17 @@ These are recorded honestly; they are *not* closed by Iteration 3:
    (`docs/superpowers/specs/2026-05-21-scheduled-jobs-design.md`). It was built
    as Iteration 4 and then reverted from `main`; it is deferred for now, not
    abandoned.
-2. **HTTP MCP `headers`.** A small schema addition for `transport: http`.
-3. **Plugin `source` git + subpath.** Real marketplaces use GitHub sources.
-4. **`pip` / `composer` `cliTool` adapters**, and acceptance that
+2. **Plugin `source` git + subpath.** Real marketplaces use GitHub sources.
+3. **`pip` / `composer` `cliTool` adapters**, and acceptance that
    build-from-source binaries stay declare-and-check.
-5. **Secret-to-file.** Some CLIs read a credential *file*; the environment
-   primitive resolves env vars only.
-6. **Per-developer `rules` templating.** The real `CLAUDE.md` is rendered per
+4. **Per-developer `rules` templating.** The real `CLAUDE.md` is rendered per
    developer; the `rules` channel is static-file-oriented.
 
-The **permission `ask` tier** was previously listed here; the `tools` channel
-now models the full three-tier `allow` / `ask` / `deny` policy, so that gap is
-closed.
+**HTTP MCP `headers`** and **secret-to-file** were previously listed here;
+Iteration 5 closes both (see §5). The **permission `ask` tier** was closed
+earlier by the three-tier `tools` channel.
 
-## 6. The honest bottom line
+## 7. The honest bottom line
 
 Where `ainfra` fits, it replaces imperative scripts (`tvt sync`,
 `install-tunnels.sh`, hand-edited `.mcp.json`) with one declarative manifest and

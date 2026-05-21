@@ -63,8 +63,10 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			entry := merged.mcpServers[id]
 			var args []string
 			var envMap map[string]string
+			var headersMap map[string]string
 			cmd := srv.Command
 			transport := srv.Transport
+			url := srv.URL
 
 			// For templated servers, use the instantiated values from the lock.
 			if srv.Template != "" {
@@ -79,10 +81,13 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 					args = inst.MCPServer.Args
 					envMap = inst.MCPServer.Env
 					transport = inst.MCPServer.Transport
+					url = inst.MCPServer.URL
+					headersMap = inst.MCPServer.Headers
 				}
 			} else {
 				args = srv.Args
 				envMap = srv.Env
+				headersMap = srv.Headers
 			}
 
 			payload := map[string]any{
@@ -90,6 +95,8 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				"args":      args,
 				"env":       envMap,
 				"transport": transport,
+				"url":       url,
+				"headers":   headersMap,
 			}
 			result["mcpServers"] = append(result["mcpServers"], provider.Resource{
 				ID:          id,
