@@ -50,6 +50,33 @@ func TestInstantiateRejectsMissingRequiredParam(t *testing.T) {
 	}
 }
 
+func TestInstantiateDoesNotAliasTemplateBetweenInstances(t *testing.T) {
+	tmpl := manifest.Template{
+		Produces: manifest.Produces{
+			MCPServer: &manifest.MCPServer{
+				Command: "npx",
+				Version: "1.0.0",
+				Args:    []string{"-y", "pkg"},
+			},
+		},
+	}
+	a, err := Instantiate("a", manifest.MCPServer{Template: "t"}, tmpl, nil)
+	if err != nil {
+		t.Fatalf("Instantiate a: %v", err)
+	}
+	b, err := Instantiate("b", manifest.MCPServer{Template: "t"}, tmpl, nil)
+	if err != nil {
+		t.Fatalf("Instantiate b: %v", err)
+	}
+	a.MCPServer.Args[0] = "MUTATED"
+	if b.MCPServer.Args[0] == "MUTATED" {
+		t.Error("instance b aliases instance a's Args")
+	}
+	if tmpl.Produces.MCPServer.Args[0] == "MUTATED" {
+		t.Error("instance a aliases the template's Args")
+	}
+}
+
 func TestInstantiateRejectsBadRequiresReference(t *testing.T) {
 	tmpl := manifest.Template{
 		Produces: manifest.Produces{

@@ -53,6 +53,15 @@ func Instantiate(id string, inst manifest.MCPServer, tmpl manifest.Template, res
 		if err != nil {
 			return Instance{}, err
 		}
+		if len(src.Args) > 0 {
+			srv.Args = append([]string(nil), src.Args...)
+		}
+		if src.Enabled != nil {
+			b := *src.Enabled
+			srv.Enabled = &b
+		}
+		srv.Params = nil
+		srv.Secret = nil
 		out.MCPServer = &srv
 	}
 	if src := tmpl.Produces.BackgroundService; src != nil {
@@ -71,11 +80,19 @@ func Instantiate(id string, inst manifest.MCPServer, tmpl manifest.Template, res
 		if err != nil {
 			return Instance{}, err
 		}
+		if svc.Lifecycle, err = InterpolateMap(src.Lifecycle, scope); err != nil {
+			return Instance{}, err
+		}
+		if svc.Check, err = InterpolateMap(src.Check, scope); err != nil {
+			return Instance{}, err
+		}
 		out.Service = &svc
 	}
 	return out, nil
 }
 
+// interpolateRequires returns a fresh slice of Require with every ${...}
+// reference in each edge expanded; it fails on the first bad reference.
 func interpolateRequires(reqs []manifest.Require, scope Scope) ([]manifest.Require, error) {
 	out := make([]manifest.Require, len(reqs))
 	for i, r := range reqs {
