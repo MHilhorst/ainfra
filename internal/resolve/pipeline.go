@@ -93,6 +93,9 @@ func RunLock(dir string) error {
 			Hooks:              map[string]lockfile.Entry{},
 			Commands:           map[string]lockfile.Entry{},
 			CLITools:           map[string]lockfile.Entry{},
+			Skills:             map[string]lockfile.Entry{},
+			Plugins:            map[string]lockfile.Entry{},
+			Rules:              map[string]lockfile.Entry{},
 		}}
 
 	for _, ti := range insts {
@@ -167,6 +170,48 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
+			s := m.Skills[id]
+			node := "skill:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, s.Requires)
+			lock.Entries.Skills[id] = lockfile.Entry{
+				Layer:    string(layerName),
+				Version:  s.Version,
+				Requires: requireRefs(s.Requires),
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"source": s.Source, "version": s.Version, "target": "",
+				}),
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
+			p := m.Plugins[id]
+			node := "plugin:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, p.Requires)
+			lock.Entries.Plugins[id] = lockfile.Entry{
+				Layer:    string(layerName),
+				Version:  p.Version,
+				Requires: requireRefs(p.Requires),
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"source": p.Source, "version": p.Version,
+				}),
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
+			r := m.Rules[id]
+			node := "rule:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, r.Requires)
+			lock.Entries.Rules[id] = lockfile.Entry{
+				Layer:    string(layerName),
+				Version:  r.Version,
+				Requires: requireRefs(r.Requires),
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"source": r.Source, "version": r.Version, "target": r.Target,
+				}),
+			}
+		}
 	}
 
 	if _, err := g.TopoSort(); err != nil {
@@ -188,22 +233,29 @@ func toAnyMap(m map[string]string) map[string]any {
 	return out
 }
 
-// addRequireEdges registers a graph node for each dependency declared by an
-// entry and connects fromNode to it. Service, cliTool, and precondition edges
-// are all wired so the topo-sort and cycle check span every channel.
-func addRequireEdges(g *graph.Graph, fromNode string, reqs []manifest.Require) {
+// requireRefs converts an entry's requires edges into the node-ref strings the
+// dependency graph uses ("cli:node", "svc:tunnel", "pre:internet"). The lock
+// stores these per entry so plan/apply/check can rebuild the graph without
+// re-reading the manifest.
+func requireRefs(reqs []manifest.Require) []string {
+	var refs []string
 	for _, r := range reqs {
 		switch {
 		case r.Service != "":
-			g.AddNode("svc:" + r.Service)
-			g.AddEdge(fromNode, "svc:"+r.Service)
+			refs = append(refs, "svc:"+r.Service)
 		case r.CLITool != "":
-			g.AddNode("cli:" + r.CLITool)
-			g.AddEdge(fromNode, "cli:"+r.CLITool)
+			refs = append(refs, "cli:"+r.CLITool)
 		case r.Precondition != "":
-			g.AddNode("pre:" + r.Precondition)
-			g.AddEdge(fromNode, "pre:"+r.Precondition)
+			refs = append(refs, "pre:"+r.Precondition)
 		}
+	}
+	return refs
+}
+
+func addRequireEdges(g *graph.Graph, fromNode string, reqs []manifest.Require) {
+	for _, ref := range requireRefs(reqs) {
+		g.AddNode(ref)
+		g.AddEdge(fromNode, ref)
 	}
 }
 
@@ -229,7 +281,8 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 		return &lockfile.Lock{Version: 1, GeneratedAt: l.GeneratedAt, Entries: lockfile.Entries{
 			MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
 			Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
-			CLITools: map[string]lockfile.Entry{}}}
+			CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
+			Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{}}}
 	}
 	committed, personal = mk(), mk()
 	route := func(dst func(*lockfile.Lock) map[string]lockfile.Entry, src map[string]lockfile.Entry) {
@@ -245,5 +298,8 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.BackgroundServices }, l.Entries.BackgroundServices)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Hooks }, l.Entries.Hooks)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Commands }, l.Entries.Commands)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Skills }, l.Entries.Skills)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Plugins }, l.Entries.Plugins)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Rules }, l.Entries.Rules)
 	return committed, personal
 }

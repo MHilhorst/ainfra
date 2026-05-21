@@ -82,6 +82,38 @@ commands:
 	}
 }
 
+func TestLockPipelineResolvesSkillsPluginsRules(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+cliTools:
+  node: { versionConstraint: ">=20" }
+skills:
+  debug:
+    source: ./skills/debug
+    requires: [ { cliTool: node } ]
+plugins:
+  tvt: { source: "npm:@acme/tvt@2.0.1", version: "2.0.1" }
+rules:
+  team: { target: CLAUDE.md, source: ./rules/team.md }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("lock not written: %v", err)
+	}
+	out := string(data)
+	for _, want := range []string{"skills:", "debug", "plugins:", "tvt", "rules:", "team", "cli:node"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lock missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
 func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
 	// A hook and a command both depending on the same cliTool is not a cycle;
