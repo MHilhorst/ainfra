@@ -28,12 +28,16 @@ func Interpolate(s string, scope Scope) (string, error) {
 			"resolved": scope.Resolved, "secret": scope.Secret,
 		}[ns]
 		if !ok {
-			bad = fmt.Errorf("unknown namespace %q in %q", ns, m)
+			if bad == nil {
+				bad = fmt.Errorf("unknown namespace %q in %q", ns, m)
+			}
 			return m
 		}
 		v, ok := table[key]
 		if !ok {
-			bad = fmt.Errorf("unknown reference %q", m)
+			if bad == nil {
+				bad = fmt.Errorf("unknown reference %q", m)
+			}
 			return m
 		}
 		return fmt.Sprintf("%v", v)

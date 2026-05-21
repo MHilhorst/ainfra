@@ -1,6 +1,9 @@
 package resolve
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestInterpolateNamespaces(t *testing.T) {
 	scope := Scope{
@@ -30,5 +33,19 @@ func TestInterpolateUnknownReferenceErrors(t *testing.T) {
 	_, err := Interpolate("${params.nope}", Scope{Params: map[string]any{}})
 	if err == nil {
 		t.Fatal("want error for unknown reference")
+	}
+}
+
+func TestInterpolateUnknownNamespaceErrors(t *testing.T) {
+	_, err := Interpolate("${bogus.key}", Scope{})
+	if err == nil {
+		t.Fatal("want error for unknown namespace")
+	}
+}
+
+func TestInterpolateReportsFirstError(t *testing.T) {
+	_, err := Interpolate("${params.first} ${params.second}", Scope{Params: map[string]any{}})
+	if err == nil || !strings.Contains(err.Error(), "first") {
+		t.Fatalf("want error naming the first bad reference, got %v", err)
 	}
 }
