@@ -102,11 +102,14 @@ hash the declared config, record an `Entry`, add `requires` edges to the graph.
 - **`ManifestHash`** — the `Lock` struct has the field; `RunLock` never sets
   it. Populate it (hash of the merged, resolved manifest input). The staleness
   warning in §6 reads it.
-- **`applyOrder`** — `RunLock` builds the dependency graph and calls
-  `TopoSort`, then discards the result. Persist the sorted node list as
-  `Lock.ApplyOrder []string` so the provider orchestrator can walk channels in
-  dependency order without rebuilding the graph from the manifest (which
-  `plan`/`apply`/`check` do not load).
+- **Per-entry `requires`** — `RunLock` builds the dependency graph from each
+  entry's `requires:` edges, then discards it. Persist those edges *on each
+  lock entry* as `Entry.Requires []string` (node-refs: `cli:node`,
+  `svc:tunnel`, `pre:internet`). The orchestrator rebuilds and topo-sorts the
+  graph from the merged locks at `plan`/`apply`/`check` time. A single global
+  `Lock.ApplyOrder` was rejected: it would write personal-layer node-refs into
+  the committed `ainfra.lock`, which `splitByLayer` exists to prevent. Each
+  lock stays self-describing — its own entries and their edges only.
 
 ## 3. Part B — The provider layer
 
@@ -264,9 +267,10 @@ are thin wrappers over it. Each command:
    On mismatch, prints a **warning** (not an error): the lockfile is stale, run
    `ainfra lock`. The command still proceeds against the lockfile as written.
 3. Loads `.ainfra/applied.lock` (empty on first run).
-4. Walks providers in `Lock.ApplyOrder` so CLI tools and preconditions are
-   observed/applied before the channels that `require:` them. For each:
-   `Observe`, then `Diff`.
+4. Rebuilds the dependency graph from the merged locks' per-entry `requires`
+   node-refs and topo-sorts it, so CLI tools and preconditions are
+   observed/applied before the channels that `require:` them. Walks providers
+   in that order; for each: `Observe`, then `Diff`.
 
 Then they diverge:
 
@@ -320,8 +324,9 @@ This spec is large; `writing-plans` decomposes it into these plans, built in
 order:
 
 1. **Schema completion** — manifest types, validation, resolution into the
-   lockfile, the new `Entries` maps, `ManifestHash`, `applyOrder`, inline-MCP
-   resolution.
+   lockfile, the new `Entries` maps, `ManifestHash`, per-entry `requires`,
+   inline-MCP resolution. Planned in
+   `docs/superpowers/plans/2026-05-21-phase-3-schema-completion.md`.
 2. **Provider foundation** — the `Provider` interface, `Env`, `Filesystem` /
    `CommandRunner` and their fakes, `fsmerge`, the orchestrator skeleton, and
    the applied-state ledger.
