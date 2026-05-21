@@ -124,7 +124,7 @@ func Validate(m *Manifest) error {
 				Summary: "plugin declares no source",
 				Path:    "plugins." + id,
 				Detail:  fmt.Sprintf("Plugin %q has no source.", id),
-				Hint:    "Add a source field — an npm: ref or a marketplace ref.",
+				Hint:    "Add a source field — an npm: ref.",
 			}
 		}
 		if isRemoteSource(p.Source) && p.Version == "" {

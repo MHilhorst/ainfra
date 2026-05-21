@@ -152,6 +152,9 @@ func TestValidateRejectsSkillWithoutSource(t *testing.T) {
 	if !strings.Contains(d.Summary, "source") {
 		t.Errorf("summary = %q", d.Summary)
 	}
+	if d.Path != "skills.s" {
+		t.Errorf("path = %q, want skills.s", d.Path)
+	}
 }
 
 func TestValidateRejectsRemotePluginWithoutVersion(t *testing.T) {
@@ -161,5 +164,15 @@ func TestValidateRejectsRemotePluginWithoutVersion(t *testing.T) {
 	d := asDiagnostic(t, Validate(m))
 	if !strings.Contains(d.Summary, "pin an exact version") {
 		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateAcceptsValidSkillsAndPlugins(t *testing.T) {
+	m := &Manifest{Version: 1,
+		Skills:  map[string]Skill{"s": {Source: "git+https://github.com/acme/skills.git", Version: "1.4.0"}},
+		Plugins: map[string]Plugin{"p": {Source: "npm:@acme/p", Version: "2.0.1"}},
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
