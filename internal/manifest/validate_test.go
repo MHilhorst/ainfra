@@ -3,15 +3,35 @@ package manifest
 import (
 	"strings"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/diag"
 )
+
+func asDiagnostic(t *testing.T, err error) *diag.Diagnostic {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected an error, got nil")
+	}
+	d, ok := err.(*diag.Diagnostic)
+	if !ok {
+		t.Fatalf("error is %T, want *diag.Diagnostic: %v", err, err)
+	}
+	return d
+}
 
 func TestValidateRejectsFloatingMCPVersion(t *testing.T) {
 	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
 		"s": {Command: "npx", Args: []string{"-y", "pkg@latest"}},
 	}}
-	err := Validate(m)
-	if err == nil || !strings.Contains(err.Error(), "pin an exact version") {
-		t.Fatalf("want pinned-version error, got %v", err)
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "pin an exact version") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "mcpServers.s" {
+		t.Errorf("path = %q, want mcpServers.s", d.Path)
+	}
+	if d.Hint == "" {
+		t.Error("expected a hint")
 	}
 }
 
@@ -28,9 +48,9 @@ func TestValidateRejectsUnknownTemplate(t *testing.T) {
 	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
 		"s": {Template: "missing"},
 	}}
-	err := Validate(m)
-	if err == nil || !strings.Contains(err.Error(), "unknown template") {
-		t.Fatalf("want unknown-template error, got %v", err)
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "unknown template") {
+		t.Errorf("summary = %q", d.Summary)
 	}
 }
 
@@ -38,9 +58,9 @@ func TestValidateRejectsUnknownHookEvent(t *testing.T) {
 	m := &Manifest{Version: 1, Hooks: map[string]Hook{
 		"h": {Event: "OnEverything", Command: "echo x"},
 	}}
-	err := Validate(m)
-	if err == nil || !strings.Contains(err.Error(), "event") {
-		t.Fatalf("want hook-event error, got %v", err)
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "event") {
+		t.Errorf("summary = %q", d.Summary)
 	}
 }
 
@@ -48,9 +68,9 @@ func TestValidateRejectsHookWithoutCommand(t *testing.T) {
 	m := &Manifest{Version: 1, Hooks: map[string]Hook{
 		"h": {Event: "SessionStart"},
 	}}
-	err := Validate(m)
-	if err == nil || !strings.Contains(err.Error(), "command") {
-		t.Fatalf("want missing-command error, got %v", err)
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "command") {
+		t.Errorf("summary = %q", d.Summary)
 	}
 }
 
@@ -58,9 +78,9 @@ func TestValidateRejectsCommandWithoutSource(t *testing.T) {
 	m := &Manifest{Version: 1, Commands: map[string]Command{
 		"c": {Description: "no source"},
 	}}
-	err := Validate(m)
-	if err == nil || !strings.Contains(err.Error(), "source") {
-		t.Fatalf("want missing-source error, got %v", err)
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "source") {
+		t.Errorf("summary = %q", d.Summary)
 	}
 }
 
@@ -75,5 +95,31 @@ func TestValidateAcceptsValidHooksAndCommands(t *testing.T) {
 	}
 	if err := Validate(m); err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateAllSetsFileFromLayer(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1},
+		LayerPersonal: {Version: 1, MCPServers: map[string]MCPServer{
+			"bad": {Command: "npx"},
+		}},
+	}
+	d := asDiagnostic(t, ValidateAll(layers))
+	if d.File != "ainfra.personal.yaml" {
+		t.Errorf("file = %q, want ainfra.personal.yaml", d.File)
+	}
+}
+
+func TestValidateAllResolvesCrossLayerTemplate(t *testing.T) {
+	// The personal layer uses a template defined only in the repo layer.
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Templates: map[string]Template{"t": {}}},
+		LayerPersonal: {Version: 1, MCPServers: map[string]MCPServer{
+			"mine": {Template: "t"},
+		}},
+	}
+	if err := ValidateAll(layers); err != nil {
+		t.Fatalf("cross-layer template should validate: %v", err)
 	}
 }
