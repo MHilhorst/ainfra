@@ -47,18 +47,28 @@ func (m *MemFilesystem) MkdirAll(p string, _ os.FileMode) error {
 	return nil
 }
 
-// ReadDir returns the base names of files whose path has dir as their immediate
-// parent directory. A directory that has no files and is not recorded in Dirs
-// returns an os.ErrNotExist error, matching os.ReadDir semantics.
+// ReadDir returns the base names of entries (files and directories) whose path
+// has dir as their immediate parent directory. A directory that has no entries
+// and is not recorded in Dirs returns an os.ErrNotExist error, matching
+// os.ReadDir semantics.
 func (m *MemFilesystem) ReadDir(dir string) ([]string, error) {
-	var names []string
+	seen := map[string]bool{}
 	for p := range m.Files {
 		if filepath.Dir(p) == dir {
-			names = append(names, filepath.Base(p))
+			seen[filepath.Base(p)] = true
 		}
 	}
-	if len(names) == 0 && !m.Dirs[dir] {
+	for p := range m.Dirs {
+		if filepath.Dir(p) == dir {
+			seen[filepath.Base(p)] = true
+		}
+	}
+	if len(seen) == 0 && !m.Dirs[dir] {
 		return nil, &os.PathError{Op: "open", Path: dir, Err: os.ErrNotExist}
+	}
+	names := make([]string, 0, len(seen))
+	for name := range seen {
+		names = append(names, name)
 	}
 	sort.Strings(names)
 	return names, nil
