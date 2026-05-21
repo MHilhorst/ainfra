@@ -23,6 +23,10 @@ type Manifest struct {
 	MCPServers         map[string]MCPServer         `yaml:"mcpServers"`
 	Hooks              map[string]Hook              `yaml:"hooks"`
 	Commands           map[string]Command           `yaml:"commands"`
+	Skills             map[string]Skill             `yaml:"skills"`
+	Plugins            map[string]Plugin            `yaml:"plugins"`
+	Rules              map[string]Rule              `yaml:"rules"`
+	Tools              *Tools                       `yaml:"tools"`
 }
 
 // Source names a team/org layer to extend.
@@ -101,18 +105,19 @@ type Produces struct {
 
 // MCPServer is an MCP channel entry or template body (spec §5).
 type MCPServer struct {
-	Template    string            `yaml:"template"`
-	Params      map[string]any    `yaml:"params"`
-	Secret      map[string]any    `yaml:"secret"`
-	Transport   string            `yaml:"transport"`
-	Command     string            `yaml:"command"`
-	Args        []string          `yaml:"args"`
-	Version     string            `yaml:"version"`
-	Env         map[string]string `yaml:"env"`
-	Via         string            `yaml:"via"`
-	Requires    []Require         `yaml:"requires"`
-	Enabled     *bool             `yaml:"enabled"`
-	Overridable bool              `yaml:"overridable"`
+	Template     string            `yaml:"template"`
+	Params       map[string]any    `yaml:"params"`
+	Secret       map[string]any    `yaml:"secret"`
+	Transport    string            `yaml:"transport"`
+	Command      string            `yaml:"command"`
+	Args         []string          `yaml:"args"`
+	Version      string            `yaml:"version"`
+	Env          map[string]string `yaml:"env"`
+	Capabilities map[string]any    `yaml:"capabilities"`
+	Via          string            `yaml:"via"`
+	Requires     []Require         `yaml:"requires"`
+	Enabled      *bool             `yaml:"enabled"`
+	Overridable  bool              `yaml:"overridable"`
 }
 
 // Hook is a Claude Code hook — automation bound to a lifecycle event (spec §11).
@@ -142,4 +147,55 @@ type Require struct {
 	Service      string `yaml:"service"`
 	CLITool      string `yaml:"cliTool"`
 	Precondition string `yaml:"precondition"`
+}
+
+// Skill is an externally-sourced SKILL.md bundle ainfra materializes into
+// .claude/skills/ (spec §10). Skills a repo commits to its own .claude/skills/
+// arrive with git clone and are out of scope.
+type Skill struct {
+	Source      string    `yaml:"source"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Plugin is an installable plugin bundle (spec §10).
+type Plugin struct {
+	Source      string    `yaml:"source"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Rule is a static context file — CLAUDE.md or similar (spec §10).
+type Rule struct {
+	Target      string    `yaml:"target"`
+	Source      string    `yaml:"source"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Tools is the built-in tooling channel — a singleton, not an id-keyed map
+// (spec §10). Its list fields union-merge across layers (spec §1.1).
+type Tools struct {
+	Builtins    *Builtins    `yaml:"builtins"`
+	Permissions *Permissions `yaml:"permissions"`
+}
+
+// Builtins toggles Claude Code's built-in tools.
+type Builtins struct {
+	Disabled []string `yaml:"disabled"`
+}
+
+// Permissions is the three-tier tool permission policy. When a pattern lands
+// in more than one tier after the layer union, the stricter tier wins:
+// deny > ask > allow (spec §1.1).
+type Permissions struct {
+	Allow []string `yaml:"allow"`
+	Ask   []string `yaml:"ask"`
+	Deny  []string `yaml:"deny"`
 }
