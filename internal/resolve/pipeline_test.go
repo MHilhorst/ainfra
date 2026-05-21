@@ -225,6 +225,30 @@ commands:
 	}
 }
 
+func TestLockPipelineRecordsManifestHash(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+rules:
+  team: { target: CLAUDE.md, source: ./rules/team.md }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("lock not written: %v", err)
+	}
+	if !strings.Contains(string(data), "manifestHash: sha256:") {
+		t.Errorf("ainfra.lock missing manifestHash\n---\n%s", data)
+	}
+	if !strings.Contains(string(data), "team") {
+		t.Errorf("ainfra.lock dropped the rules entry\n---\n%s", data)
+	}
+}
+
 func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
 	// A hook and a command both depending on the same cliTool is not a cycle;

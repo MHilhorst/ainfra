@@ -256,10 +256,25 @@ func RunLock(dir string) error {
 	}
 
 	committed, personal := splitByLayer(lock)
+	committed.ManifestHash = manifestHash(layers, manifest.LayerTeam, manifest.LayerRepo)
+	personal.ManifestHash = manifestHash(layers, manifest.LayerPersonal)
 	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
 		return err
 	}
 	return lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal)
+}
+
+// manifestHash hashes only the named layers, so the committed lock's hash
+// depends on team+repo input alone and a personal-layer edit never dirties
+// the committed ainfra.lock.
+func manifestHash(layers map[manifest.Layer]*manifest.Manifest, want ...manifest.Layer) string {
+	subset := map[string]*manifest.Manifest{}
+	for _, ln := range want {
+		if m, ok := layers[ln]; ok {
+			subset[string(ln)] = m
+		}
+	}
+	return lockfile.ContentHash(subset)
 }
 
 func toAnyMap(m map[string]string) map[string]any {
