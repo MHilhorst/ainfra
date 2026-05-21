@@ -1,0 +1,92 @@
+package main
+
+import (
+	"bytes"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestApplyYesWritesFile(t *testing.T) {
+	dir := t.TempDir()
+
+	// Write a command source file.
+	srcContent := "# Hello command\n"
+	if err := os.WriteFile(filepath.Join(dir, "hello.md"), []byte(srcContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "version: 1\ncommands:\n  hello:\n    source: hello.md\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Lock first.
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("apply --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
+	}
+
+	// Expect the command file to be written.
+	dest := filepath.Join(dir, ".claude", "commands", "hello.md")
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("apply --yes: expected %s to be written, got: %v", dest, err)
+	}
+
+	// Applied ledger should exist.
+	ledger := filepath.Join(dir, ".ainfra", "applied.lock")
+	if _, err := os.Stat(ledger); err != nil {
+		t.Errorf("apply --yes: expected applied ledger at %s, got: %v", ledger, err)
+	}
+}
+
+func TestApplySecondRunNothingToDo(t *testing.T) {
+	dir := t.TempDir()
+
+	srcContent := "# Hello command\n"
+	if err := os.WriteFile(filepath.Join(dir, "hello.md"), []byte(srcContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "version: 1\ncommands:\n  hello:\n    source: hello.md\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	if code := run([]string{"--chdir", dir, "apply", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("first apply failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("second apply: code=%d out=%q err=%q", code, out.String(), errOut.String())
+	}
+	combined := out.String() + errOut.String()
+	if !strings.Contains(combined, "Nothing to do") {
+		t.Errorf("second apply: expected 'Nothing to do', got: %q", combined)
+	}
+}
+
+func TestApplyNoLockFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	if code == 0 {
+		t.Fatal("apply without lock: expected non-zero exit, got 0")
+	}
+	combined := out.String() + errOut.String()
+	if !strings.Contains(combined, "ainfra lock") {
+		t.Errorf("apply without lock: expected 'ainfra lock' hint, got: %q", combined)
+	}
+}

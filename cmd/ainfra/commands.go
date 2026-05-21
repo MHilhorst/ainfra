@@ -4,10 +4,14 @@ import (
 	"flag"
 	"fmt"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/provider"
+	"github.com/MHilhorst/ainfra/internal/provider/precond"
 	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/ui"
 	"github.com/MHilhorst/ainfra/internal/version"
@@ -129,6 +133,96 @@ func runPlan(ctx cli.Context) int {
 	return 0
 }
 
+func newApplyCommand() *cli.Command {
+	var yes bool
+	return &cli.Command{
+		Name:      "apply",
+		Summary:   "Reconcile the environment to match the manifest",
+		UsageLine: "ainfra apply [--yes]",
+		Example:   "ainfra apply --yes",
+		SetFlags:  func(fs *flag.FlagSet) { fs.BoolVar(&yes, "yes", false, "skip confirmation prompt") },
+		Run: func(ctx cli.Context) int {
+			return runApply(ctx, yes)
+		},
+	}
+}
+
+func runApply(ctx cli.Context, yes bool) int {
+	dir := ctx.Dir
+	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+
+	lockPath := filepath.Join(dir, "ainfra.lock")
+	if !fileExists(lockPath) {
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first"))
+		return 1
+	}
+
+	committed, err := lockfile.Read(lockPath)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
+	if err != nil {
+		personal = &lockfile.Lock{}
+	}
+	merged := mergeLocks(committed, personal)
+	warnIfStale(ctx, dir, committed)
+
+	orch := provider.NewOrchestrator(dir, buildEnv(dir), allProviders())
+	plans, err := orch.PlanAll(merged)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
+	// Check if there is anything to do.
+	allEmpty := true
+	for _, p := range plans {
+		if !p.Empty() {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		fmt.Fprintln(ctx.Stdout, "Nothing to do.")
+		return 0
+	}
+
+	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+	ui.RenderPlan(ctx.Stdout, c, plans)
+
+	// Check preconditions before applying.
+	if failures := checkPreconditions(dir, buildEnv(dir)); len(failures) > 0 {
+		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
+		for _, f := range failures {
+			fmt.Fprintf(ctx.Stderr, "  %s: %s\n", f.ID, f.Remediation)
+		}
+		return 1
+	}
+
+	// Confirm unless --yes.
+	if !yes {
+		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Do you want to apply these changes? (yes/no): ")
+		if err != nil {
+			ui.RenderError(ctx.Stderr, errColor, err)
+			return 1
+		}
+		if !ok {
+			fmt.Fprintln(ctx.Stdout, "Aborted.")
+			return 0
+		}
+	}
+
+	if err := orch.ApplyAll(merged); err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
+	fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	return 0
+}
+
 // newPendingCommand builds a command whose real behavior is not yet
 // implemented. It prints a clear message and exits 1.
 func newPendingCommand(name, summary, describes string) *cli.Command {
@@ -147,14 +241,58 @@ func newPendingCommand(name, summary, describes string) *cli.Command {
 	}
 }
 
-func newApplyCommand() *cli.Command {
-	return newPendingCommand("apply",
-		"Reconcile the environment to match the manifest",
-		"apply will show the plan, ask for confirmation, then reconcile each channel.")
-}
-
 func newCheckCommand() *cli.Command {
 	return newPendingCommand("check",
 		"Verify the environment matches the lockfile; report drift",
 		"check will compare the observed environment against ainfra.lock and report drift.")
+}
+
+// checkPreconditions loads the manifest layers and runs all declared
+// preconditions. Returns any failures.
+func checkPreconditions(dir string, env provider.Env) []precond.Failure {
+	layers, err := manifest.LoadLayers(dir)
+	if err != nil {
+		return nil
+	}
+	var ps []precond.Precondition
+	seen := map[string]bool{}
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		m, ok := layers[layerName]
+		if !ok {
+			continue
+		}
+		ids := make([]string, 0, len(m.Preconditions))
+		for id := range m.Preconditions {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			p := m.Preconditions[id]
+			cmd := shellCommand(p.Check)
+			ps = append(ps, precond.Precondition{
+				ID:          id,
+				Command:     cmd,
+				Remediation: p.Remediation,
+			})
+		}
+	}
+	return precond.CheckAll(env, ps)
+}
+
+// shellCommand extracts the shell command from a manifest precondition check
+// map. The check map may have a "shell" key whose value is the command string.
+func shellCommand(check map[string]any) string {
+	if check == nil {
+		return ""
+	}
+	if v, ok := check["shell"]; ok {
+		if s, ok := v.(string); ok {
+			return strings.TrimSpace(s)
+		}
+	}
+	return ""
 }
