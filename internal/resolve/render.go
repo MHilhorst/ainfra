@@ -90,6 +90,12 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				headersMap = srv.Headers
 			}
 
+			secSrv := &manifest.MCPServer{Env: envMap, Headers: headersMap, URL: url}
+			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers)); err != nil {
+				return nil, err
+			}
+			envMap, headersMap, url = secSrv.Env, secSrv.Headers, secSrv.URL
+
 			payload := map[string]any{
 				"command":   cmd,
 				"args":      args,
@@ -358,6 +364,24 @@ func mergeLockEntries(committed, personal *lockfile.Lock) mergedEntries {
 		rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
 		tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
 	}
+}
+
+// collectSecrets merges top-level secrets: from all layers; higher layers take
+// precedence (same logic as collectTemplates).
+func collectSecrets(layers map[manifest.Layer]*manifest.Manifest) map[string]manifest.Secret {
+	all := map[string]manifest.Secret{}
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		m, ok := layers[layerName]
+		if !ok {
+			continue
+		}
+		for name, s := range m.Secrets {
+			if _, exists := all[name]; !exists {
+				all[name] = s
+			}
+		}
+	}
+	return all
 }
 
 // collectTemplates merges templates from all layers; lower layers take
