@@ -65,9 +65,9 @@ rules:              {}      # channel 4 — CLAUDE.md / context files
 tools:              {}      # channel 5 — built-in toggles + permissions
 hooks:              {}      # channel 7 — lifecycle automation (§11)
 commands:           {}      # channel 8 — slash commands (§12)
-scheduledJobs:        {}      # channel 9 — cron-style targeted jobs (§13)
-targets:              []      # the governed target vocabulary (§13)
-host:                 {}      # this machine's target labels (§13)
+scheduledJobs:      {}      # channel 9 — cron-style targeted jobs (§13)
+targets:            []      # the governed target vocabulary (§13)
+host:               {}      # this machine's target labels (§13)
 ```
 
 (Channel 6, CLI tooling, has no manifest key of its own — it is the `cliTools`
@@ -439,7 +439,8 @@ hash; for git/npm sources the pinned `version` is recorded too.
 > job runs on designated machines only, never reproduced everywhere. See
 > `docs/superpowers/specs/2026-05-21-scheduled-jobs-design.md`.
 
-The team layer declares a governed vocabulary of target labels:
+The target vocabulary is a list of labels, declared by convention in the team
+layer but accepted at any layer (all layers' `targets` are merged):
 
 ```yaml
 targets: [hub, laptop, ci]    # open to extend, but team-agreed

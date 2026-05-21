@@ -154,7 +154,8 @@ scheduledJobs:
 func TestLockPipelineAcceptsCrossLayerVocabulary(t *testing.T) {
 	dir := t.TempDir()
 	// The repo manifest's job targets `hub`, but `hub` is declared only in the
-	// team layer's vocabulary. The merged vocabulary must make this valid.
+	// personal layer's vocabulary. The merged vocabulary (repo + personal) must
+	// make this job validate.
 	repo := `version: 1
 scheduledJobs:
   triage:
