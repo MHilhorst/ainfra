@@ -180,7 +180,7 @@ func RunLock(dir string) error {
 				Version:  s.Version,
 				Requires: requireRefs(s.Requires),
 				ContentHash: lockfile.ContentHash(map[string]any{
-					"source": s.Source, "version": s.Version, "target": "",
+					"source": s.Source, "version": s.Version,
 				}),
 			}
 		}
