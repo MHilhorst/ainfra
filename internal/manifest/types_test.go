@@ -40,6 +40,48 @@ mcpServers:
 	}
 }
 
+func TestManifestUnmarshalsCredentialAndRequiresFields(t *testing.T) {
+	src := []byte(`
+version: 1
+cliTools:
+  aws-cli:
+    versionConstraint: ">=2.0"
+    env:
+      AWS_REGION: eu-west-1
+    secret:
+      ssoToken: { mode: direct, ref: "op://Engineering/aws/sso" }
+    requires:
+      - precondition: aws-credentials
+mcpServers:
+  linear:
+    transport: http
+    url: https://mcp.linear.app/sse
+    headers:
+      Authorization: "Bearer xyz"
+`)
+	var m Manifest
+	if err := yaml.Unmarshal(src, &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	tool := m.CLITools["aws-cli"]
+	if tool.Env["AWS_REGION"] != "eu-west-1" {
+		t.Errorf("cliTool env = %v", tool.Env)
+	}
+	if _, ok := tool.Secret["ssoToken"]; !ok {
+		t.Errorf("cliTool secret not parsed: %v", tool.Secret)
+	}
+	if len(tool.Requires) != 1 || tool.Requires[0].Precondition != "aws-credentials" {
+		t.Errorf("cliTool requires not parsed: %v", tool.Requires)
+	}
+	srv := m.MCPServers["linear"]
+	if srv.Transport != "http" || srv.URL != "https://mcp.linear.app/sse" {
+		t.Errorf("http server not parsed: %+v", srv)
+	}
+	if srv.Headers["Authorization"] != "Bearer xyz" {
+		t.Errorf("headers not parsed: %v", srv.Headers)
+	}
+}
+
 func TestManifestUnmarshalsHooksAndCommands(t *testing.T) {
 	src := []byte(`
 version: 1

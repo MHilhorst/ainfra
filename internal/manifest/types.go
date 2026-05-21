@@ -42,11 +42,15 @@ type Precondition struct {
 	Remediation string         `yaml:"remediation"`
 }
 
-// CLITool is an installable substrate binary (spec §7).
+// CLITool is an installable substrate binary (spec §7). Env, Secret, and
+// Requires let a tool carry credentials and declare precondition dependencies.
 type CLITool struct {
 	VersionConstraint string                    `yaml:"versionConstraint"`
 	Install           map[string]map[string]any `yaml:"install"`
 	Check             map[string]any            `yaml:"check"`
+	Env               map[string]string         `yaml:"env"`
+	Secret            map[string]any            `yaml:"secret"`
+	Requires          []Require                 `yaml:"requires"`
 	Overridable       bool                      `yaml:"overridable"`
 }
 
@@ -109,10 +113,12 @@ type MCPServer struct {
 	Params       map[string]any    `yaml:"params"`
 	Secret       map[string]any    `yaml:"secret"`
 	Transport    string            `yaml:"transport"`
+	URL          string            `yaml:"url"`
 	Command      string            `yaml:"command"`
 	Args         []string          `yaml:"args"`
 	Version      string            `yaml:"version"`
 	Env          map[string]string `yaml:"env"`
+	Headers      map[string]string `yaml:"headers"`
 	Capabilities map[string]any    `yaml:"capabilities"`
 	Via          string            `yaml:"via"`
 	Requires     []Require         `yaml:"requires"`
