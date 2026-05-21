@@ -143,11 +143,12 @@ func TestValidateRejectsPluginWithoutSource(t *testing.T) {
 	}
 }
 
-func TestValidateRejectsRuleWithoutTarget(t *testing.T) {
+func TestValidateAcceptsRuleWithoutTarget(t *testing.T) {
+	// A rule's destination is renderer-owned (multi-agent renderers spec §3.3);
+	// an explicit target is an optional override, not a requirement.
 	m := &Manifest{Version: 1, Rules: map[string]Rule{"r": {Source: "./r.md"}}}
-	d := asDiagnostic(t, Validate(m))
-	if !strings.Contains(d.Summary, "no target") {
-		t.Errorf("summary = %q", d.Summary)
+	if err := Validate(m); err != nil {
+		t.Fatalf("a rule without an explicit target must validate: %v", err)
 	}
 }
 

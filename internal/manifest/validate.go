@@ -122,14 +122,6 @@ func Validate(m *Manifest) error {
 				Hint:    "Add a source field pointing at the context file (e.g. ./rules/team-claude.md).",
 			}
 		}
-		if r.Target == "" {
-			return &diag.Diagnostic{
-				Summary: "rule declares no target",
-				Path:    "rules." + id,
-				Detail:  fmt.Sprintf("Rule %q does not say where the file should land.", id),
-				Hint:    "Add a target field, e.g.  target: CLAUDE.md",
-			}
-		}
 	}
 	if err := validateTools(m.Tools); err != nil {
 		return err
