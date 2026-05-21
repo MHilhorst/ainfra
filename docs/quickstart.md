@@ -70,8 +70,11 @@ it:
 ainfra --chdir examples/multi-database lock
 ```
 
-The regenerated `ainfra.lock` has four MCP servers with distinct,
-tool-allocated tunnel ports.
+Each of the four database servers gets a distinct, tool-allocated tunnel port
+— no port is ever typed by hand. The example also carries a personal layer
+(`ainfra.personal.yaml`), so `ainfra lock` reports five MCP servers in total:
+four committed to `ainfra.lock`, one resolved separately into
+`ainfra.personal.lock`.
 
 ## Command reference
 
