@@ -5,6 +5,7 @@ import (
 	"fmt"
 	iofs "io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/fsmerge"
@@ -66,7 +67,6 @@ func (Skills) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Apply
 		}
 
 		if !env.DryRun {
-			var err error
 			switch c.Kind {
 			case provider.ChangeCreate, provider.ChangeUpdate:
 				if env.Fetch == nil {
@@ -80,24 +80,19 @@ func (Skills) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Apply
 				}
 				dir := skillDir(env, c.ID)
 				for relPath, content := range bundle {
-					if writeErr := fsmerge.WriteOwnedFile(env.FS, filepath.Join(dir, relPath), content); writeErr != nil {
+					abs := filepath.Join(dir, relPath)
+					if abs != dir && !strings.HasPrefix(abs, dir+string(filepath.Separator)) {
+						return provider.ApplyResult{}, fmt.Errorf("skills: bundle key %q escapes the skill directory", relPath)
+					}
+					if writeErr := fsmerge.WriteOwnedFile(env.FS, abs, content); writeErr != nil {
 						return provider.ApplyResult{}, writeErr
 					}
 				}
 			case provider.ChangeDelete:
-				dir := skillDir(env, c.ID)
-				files, readErr := env.FS.ReadDir(dir)
-				if readErr != nil && !errors.Is(readErr, iofs.ErrNotExist) {
-					return provider.ApplyResult{}, readErr
+				skillDir := skillDir(env, c.ID)
+				if removeErr := env.FS.RemoveAll(skillDir); removeErr != nil {
+					return provider.ApplyResult{}, removeErr
 				}
-				for _, f := range files {
-					if removeErr := env.FS.Remove(filepath.Join(dir, f)); removeErr != nil {
-						return provider.ApplyResult{}, removeErr
-					}
-				}
-			}
-			if err != nil {
-				return provider.ApplyResult{}, err
 			}
 		}
 

@@ -238,6 +238,92 @@ func TestSkillsApply_DryRun(t *testing.T) {
 	}
 }
 
+func TestSkillsApply_DeleteNestedBundle(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	// Pre-populate a skill with a nested file to simulate a bundle that had subdirectories.
+	if err := mem.MkdirAll("/repo/.claude/skills/nested-skill", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.WriteFile("/repo/.claude/skills/nested-skill/prompt.md", []byte("top"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.MkdirAll("/repo/.claude/skills/nested-skill/examples", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.WriteFile("/repo/.claude/skills/nested-skill/examples/demo.md", []byte("demo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	plan := provider.ChannelPlan{
+		Channel: "skills",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeDelete,
+				ID:   "nested-skill",
+				Resource: provider.Resource{
+					ID:      "nested-skill",
+					Channel: "skills",
+				},
+			},
+		},
+	}
+
+	p := channels.Skills{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+
+	// Both files (including nested) must be gone.
+	if _, err := mem.ReadFile("/repo/.claude/skills/nested-skill/prompt.md"); err == nil {
+		t.Error("prompt.md still exists after Delete")
+	}
+	if _, err := mem.ReadFile("/repo/.claude/skills/nested-skill/examples/demo.md"); err == nil {
+		t.Error("examples/demo.md still exists after Delete")
+	}
+}
+
+func TestSkillsApply_BundleKeyEscape(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	fake := fetch.FakeFetcher{
+		Bundles: map[string]fetch.Bundle{
+			"evil-source": {
+				"../escape.md": []byte("escaped"),
+			},
+		},
+	}
+	env := provider.Env{FS: mem, Root: "/repo", Fetch: fake}
+
+	plan := provider.ChannelPlan{
+		Channel: "skills",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "evil-skill",
+				Resource: provider.Resource{
+					ID:      "evil-skill",
+					Channel: "skills",
+					Payload: map[string]any{
+						"source":  "evil-source",
+						"version": "",
+					},
+				},
+			},
+		},
+	}
+
+	p := channels.Skills{}
+	_, err := p.Apply(env, plan)
+	if err == nil {
+		t.Fatal("Apply: expected error for bundle key escaping skill directory, got nil")
+	}
+}
+
 func TestSkillsApply_FetchError(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	fetchErr := errors.New("network failure")

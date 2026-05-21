@@ -42,6 +42,21 @@ func (m *MemFilesystem) Remove(p string) error {
 	return nil
 }
 
+func (m *MemFilesystem) RemoveAll(p string) error {
+	prefix := p + "/"
+	for path := range m.Files {
+		if path == p || strings.HasPrefix(path, prefix) {
+			delete(m.Files, path)
+		}
+	}
+	for path := range m.Dirs {
+		if path == p || strings.HasPrefix(path, prefix) {
+			delete(m.Dirs, path)
+		}
+	}
+	return nil
+}
+
 func (m *MemFilesystem) MkdirAll(p string, _ os.FileMode) error {
 	m.Dirs[p] = true
 	return nil

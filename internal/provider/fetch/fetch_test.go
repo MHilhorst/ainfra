@@ -57,6 +57,18 @@ func TestLocalFetcher_RelativeSource(t *testing.T) {
 	}
 }
 
+func TestLocalFetcher_RelativeSourceEscape(t *testing.T) {
+	root := t.TempDir()
+	f := fetch.LocalFetcher{Root: root}
+	_, err := f.Fetch("../outside", "")
+	if err == nil {
+		t.Fatal("expected error for source escaping fetch root, got nil")
+	}
+	if !strings.Contains(err.Error(), "escapes") {
+		t.Errorf("error message does not mention escaping: %v", err)
+	}
+}
+
 func TestLocalFetcher_RemoteSchemeGit(t *testing.T) {
 	f := fetch.LocalFetcher{Root: "/irrelevant"}
 	_, err := f.Fetch("git+https://github.com/example/repo", "v1.0.0")

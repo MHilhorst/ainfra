@@ -19,6 +19,9 @@ type Filesystem interface {
 	// ReadDir returns the base names of entries in the given directory.
 	// A missing directory returns an error satisfying os.IsNotExist.
 	ReadDir(path string) ([]string, error)
+	// RemoveAll removes path and any children it contains, like os.RemoveAll.
+	// It returns nil if the path does not exist.
+	RemoveAll(path string) error
 }
 
 // CommandRunner runs an external command and returns its combined output.
@@ -44,6 +47,7 @@ func (OSFilesystem) WriteFile(p string, d []byte, m os.FileMode) error { return 
 func (OSFilesystem) Remove(p string) error                             { return os.Remove(p) }
 func (OSFilesystem) Stat(p string) (os.FileInfo, error)                { return os.Stat(p) }
 func (OSFilesystem) MkdirAll(p string, m os.FileMode) error            { return os.MkdirAll(p, m) }
+func (OSFilesystem) RemoveAll(p string) error { return os.RemoveAll(p) }
 func (OSFilesystem) ReadDir(p string) ([]string, error) {
 	entries, err := os.ReadDir(p)
 	if err != nil {

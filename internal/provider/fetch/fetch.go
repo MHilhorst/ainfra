@@ -35,6 +35,9 @@ func (l LocalFetcher) Fetch(source, version string) (Bundle, error) {
 	resolved := source
 	if !filepath.IsAbs(source) {
 		resolved = filepath.Join(l.Root, source)
+		if resolved != l.Root && !strings.HasPrefix(resolved, l.Root+string(filepath.Separator)) {
+			return nil, fmt.Errorf("fetch: source %q escapes the fetch root", source)
+		}
 	}
 
 	bundle := make(Bundle)

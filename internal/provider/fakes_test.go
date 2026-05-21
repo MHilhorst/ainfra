@@ -76,6 +76,29 @@ func TestMemFilesystemReadDir(t *testing.T) {
 	}
 }
 
+func TestMemFilesystemRemoveAll(t *testing.T) {
+	fs := NewMemFilesystem()
+	if err := fs.WriteFile("/a/f1", []byte("one"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.WriteFile("/a/sub/f2", []byte("two"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.RemoveAll("/a"); err != nil {
+		t.Fatalf("RemoveAll: %v", err)
+	}
+	if _, err := fs.ReadFile("/a/f1"); !os.IsNotExist(err) {
+		t.Errorf("/a/f1 after RemoveAll: got %v, want not-exist", err)
+	}
+	if _, err := fs.ReadFile("/a/sub/f2"); !os.IsNotExist(err) {
+		t.Errorf("/a/sub/f2 after RemoveAll: got %v, want not-exist", err)
+	}
+	// RemoveAll on absent path must not error (matches os.RemoveAll semantics).
+	if err := fs.RemoveAll("/nonexistent"); err != nil {
+		t.Errorf("RemoveAll absent path: %v", err)
+	}
+}
+
 func TestFakeRunner(t *testing.T) {
 	r := NewFakeRunner()
 	r.Script["brew --version"] = FakeResult{Output: []byte("Homebrew 4.0")}
