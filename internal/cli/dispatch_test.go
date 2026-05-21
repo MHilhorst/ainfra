@@ -92,3 +92,19 @@ func TestDispatchChdirIsPassedToContext(t *testing.T) {
 		t.Errorf("--chdir: code=%d out=%q", code, out.String())
 	}
 }
+
+func TestDispatchVersionFlagAfterChdir(t *testing.T) {
+	var out bytes.Buffer
+	code := dispatchRegistry(&out, &bytes.Buffer{}).Dispatch([]string{"--chdir", "/tmp/x", "--version"})
+	if code != 0 || !strings.Contains(out.String(), "ainfra 0.0.0-test") {
+		t.Errorf("--version after --chdir: code=%d out=%q", code, out.String())
+	}
+}
+
+func TestDispatchShortHelpForCommand(t *testing.T) {
+	var out bytes.Buffer
+	code := dispatchRegistry(&out, &bytes.Buffer{}).Dispatch([]string{"lock", "-h"})
+	if code != 0 || !strings.Contains(out.String(), "ainfra lock") {
+		t.Errorf("lock -h: code=%d out=%q", code, out.String())
+	}
+}

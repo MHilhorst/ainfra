@@ -4,11 +4,11 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
@@ -62,33 +62,28 @@ func (r *Registry) lookup(name string) *Command {
 // Dispatch parses args (the process args after the program name), selects and
 // runs a command, and returns the process exit code.
 //
-// Global flags (--chdir, --no-color) may appear before the command name;
-// --no-color is also accepted after it. --help/-h and --version/-v are
-// recognized as leading shortcuts.
+// Global flags (--chdir, --no-color, --version/-v) may appear in any order
+// before the command name. --help/-h before a command prints the overview;
+// after a command it prints that command's help.
 func (r *Registry) Dispatch(args []string) int {
-	// Leading --help/--version shortcuts, before any command name.
-	for _, a := range args {
-		if !strings.HasPrefix(a, "-") {
-			break
-		}
-		switch a {
-		case "-h", "--help":
-			r.printOverview()
-			return 0
-		case "-v", "--version":
-			fmt.Fprintf(r.stdout, "ainfra %s\n", r.version)
-			return 0
-		}
-	}
-
 	// Global flags that precede the command name.
 	global := flag.NewFlagSet("ainfra", flag.ContinueOnError)
 	global.SetOutput(io.Discard)
 	noColor := global.Bool("no-color", false, "disable colored output")
 	chdir := global.String("chdir", "", "run as if started in this directory")
+	showVersion := global.Bool("version", false, "print the ainfra version")
+	showV := global.Bool("v", false, "print the ainfra version")
 	if err := global.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			r.printOverview()
+			return 0
+		}
 		ui.RenderError(r.stderr, ui.NewColorizer(r.stderr, false), err)
 		return 1
+	}
+	if *showVersion || *showV {
+		fmt.Fprintf(r.stdout, "ainfra %s\n", r.version)
+		return 0
 	}
 	rest := global.Args()
 	if len(rest) == 0 {
@@ -107,23 +102,22 @@ func (r *Registry) Dispatch(args []string) int {
 		return 2
 	}
 
-	// Per-command flag set. --help and --no-color are accepted on every
-	// command; --no-color here merges with the global one.
+	// Per-command flag set. --no-color is accepted after the command too;
+	// --help/-h print this command's help via flag.ErrHelp.
 	fs := flag.NewFlagSet(cmd.Name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	if cmd.SetFlags != nil {
 		cmd.SetFlags(fs)
 	}
-	helpWanted := fs.Bool("help", false, "show help for this command")
 	localNoColor := fs.Bool("no-color", false, "disable colored output")
 	if err := fs.Parse(cmdArgs); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			r.printCommandHelp(cmd)
+			return 0
+		}
 		cz := ui.NewColorizer(r.stderr, *noColor)
 		ui.RenderError(r.stderr, cz, fmt.Errorf("%s: %v", cmd.Name, err))
 		return 1
-	}
-	if *helpWanted {
-		r.printCommandHelp(cmd)
-		return 0
 	}
 
 	dir := *chdir

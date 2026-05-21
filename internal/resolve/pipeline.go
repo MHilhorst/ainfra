@@ -37,19 +37,11 @@ func RunLock(dir string) error {
 		}
 	}
 
-	// Validate each layer. For layers that reference cross-layer templates,
-	// inject the merged template map so the existence check passes.
-	for _, m := range layers {
-		toValidate := m
-		if len(m.Templates) < len(allTemplates) {
-			// Shallow copy with merged templates so cross-layer refs validate.
-			copied := *m
-			copied.Templates = allTemplates
-			toValidate = &copied
-		}
-		if err := manifest.Validate(toValidate); err != nil {
-			return err
-		}
+	// Validate every layer. ValidateAll merges templates across layers (so a
+	// lower layer may use a higher layer's template) and tags each diagnostic
+	// with its source file — the same check `ainfra validate` runs.
+	if err := manifest.ValidateAll(layers); err != nil {
+		return err
 	}
 
 	prior, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))

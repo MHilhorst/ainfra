@@ -28,8 +28,14 @@ func runLock(ctx cli.Context) int {
 		return 1
 	}
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	committed, _ := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.lock"))
-	personal, _ := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.personal.lock"))
+	committed, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.lock"))
+	if err != nil {
+		committed = &lockfile.Lock{}
+	}
+	personal, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.personal.lock"))
+	if err != nil {
+		personal = &lockfile.Lock{}
+	}
 	fmt.Fprintln(ctx.Stdout, "ainfra: resolved "+lockSummary(committed, personal))
 	fmt.Fprintln(ctx.Stdout, "        wrote ainfra.lock and ainfra.personal.lock")
 	ui.Next(ctx.Stdout, c, "run 'ainfra plan' to preview changes.")
