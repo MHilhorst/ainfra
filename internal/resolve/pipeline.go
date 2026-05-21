@@ -181,6 +181,8 @@ func RunLock(dir string) error {
 			node := "job:" + id
 			g.AddNode(node)
 			addRequireEdges(g, node, j.Requires)
+			// runsOn is hashed so a target change triggers drift; it is also
+			// stored structurally for the apply-phase machine-target filter.
 			lock.Entries.ScheduledJobs[id] = lockfile.Entry{
 				Layer:  string(layerName),
 				RunsOn: j.RunsOn,

@@ -150,3 +150,26 @@ scheduledJobs:
 		t.Fatal("want validation error for runsOn outside the vocabulary")
 	}
 }
+
+func TestLockPipelineAcceptsCrossLayerVocabulary(t *testing.T) {
+	dir := t.TempDir()
+	// The repo manifest's job targets `hub`, but `hub` is declared only in the
+	// team layer's vocabulary. The merged vocabulary must make this valid.
+	repo := `version: 1
+scheduledJobs:
+  triage:
+    schedule: "0 */4 * * *"
+    command: echo triage
+    runsOn: [hub]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(repo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"),
+		[]byte("version: 1\ntargets: [hub]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("cross-layer vocabulary must validate: %v", err)
+	}
+}
