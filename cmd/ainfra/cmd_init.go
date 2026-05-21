@@ -15,16 +15,19 @@ import (
 // starterManifest is the ainfra.yaml a fresh `ainfra init` writes.
 const starterManifest = `version: 1
 
-# ainfra manifest — your team's Claude Code setup as config-as-code.
+# ainfra manifest — your team's AI coding agent setup as config-as-code.
 # Schema: spec/manifest-schema.md   Guide: docs/quickstart.md
+
+# Which AI coding agent ainfra renders for: claude-code (default) or codex.
+agent: claude-code
 
 # CLI tools the other channels depend on.
 cliTools: {}
 
-# MCP servers to land in each developer's .mcp.json.
+# MCP servers to land in each developer's agent config.
 mcpServers: {}
 
-# Hooks, commands, skills, plugins, and CLAUDE.md rules go here too —
+# Hooks, commands, skills, plugins, and rules go here too —
 # see spec/manifest-schema.md for the full schema.
 `
 

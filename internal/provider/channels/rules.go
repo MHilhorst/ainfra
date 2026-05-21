@@ -2,7 +2,6 @@ package channels
 
 import (
 	"errors"
-	"fmt"
 	iofs "io/fs"
 	"path/filepath"
 	"strings"
@@ -74,7 +73,8 @@ func (Rules) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 			case provider.ChangeCreate, provider.ChangeUpdate:
 				target, _ := c.Resource.Payload["target"].(string)
 				if target == "" {
-					return provider.ApplyResult{}, fmt.Errorf("rule %q has no target", c.ID)
+					// target is optional; when omitted the renderer defaults to CLAUDE.md.
+					target = "CLAUDE.md"
 				}
 				content, _ := c.Resource.Payload["content"].(string)
 				err = fsmerge.WriteOwnedFile(env.FS, fragmentPath(env, c.ID), []byte(content))

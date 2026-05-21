@@ -161,6 +161,10 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 					content = string(raw)
 				}
 			}
+			ruleTarget := r.Target
+			if ruleTarget == "" {
+				ruleTarget = "CLAUDE.md"
+			}
 			result["rules"] = append(result["rules"], provider.Resource{
 				ID:          id,
 				Channel:     "rules",
@@ -168,7 +172,7 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
 				Payload: map[string]any{
-					"target":  r.Target,
+					"target":  ruleTarget,
 					"content": content,
 				},
 			})

@@ -209,7 +209,7 @@ func TestRulesApply_Delete(t *testing.T) {
 	}
 }
 
-func TestRulesApplyRejectsEmptyTarget(t *testing.T) {
+func TestRulesApplyDefaultsEmptyTarget(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
@@ -224,7 +224,7 @@ func TestRulesApplyRejectsEmptyTarget(t *testing.T) {
 					Channel: "rules",
 					Payload: map[string]any{
 						"content": "do not write TODO comments",
-						// no "target" key
+						// no "target" key — should default to CLAUDE.md
 					},
 				},
 			},
@@ -232,9 +232,30 @@ func TestRulesApplyRejectsEmptyTarget(t *testing.T) {
 	}
 
 	p := channels.Rules{}
-	_, err := p.Apply(env, plan)
-	if err == nil {
-		t.Fatal("Apply: expected error for missing target, got nil")
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error for missing target: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+
+	// Fragment file must be written.
+	raw, err := mem.ReadFile("/repo/.claude/ainfra/no-todos.md")
+	if err != nil {
+		t.Fatalf("ReadFile fragment: %v", err)
+	}
+	if string(raw) != "do not write TODO comments" {
+		t.Errorf("fragment content = %q, want %q", string(raw), "do not write TODO comments")
+	}
+
+	// Default target CLAUDE.md must contain the import line.
+	targetRaw, err := mem.ReadFile("/repo/CLAUDE.md")
+	if err != nil {
+		t.Fatalf("ReadFile default target: %v", err)
+	}
+	if !strings.Contains(string(targetRaw), "@.claude/ainfra/no-todos.md") {
+		t.Errorf("default target CLAUDE.md missing import line, got: %q", string(targetRaw))
 	}
 }
 
