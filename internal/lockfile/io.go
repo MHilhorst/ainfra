@@ -10,7 +10,7 @@ import (
 
 // Read loads a lockfile. A missing file is not an error: it returns an empty
 // v1 lock, so a first run resolves cleanly (spec §7 — both lock files optional).
-// The three Entries maps are always non-nil on return, so callers may write
+// All Entries channel maps are always non-nil on return, so callers may write
 // into them directly even if the file on disk omitted an entries section.
 func Read(path string) (*Lock, error) {
 	data, err := os.ReadFile(path)

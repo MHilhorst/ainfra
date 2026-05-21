@@ -61,7 +61,7 @@ func TestReadSparseFileInitialisesMaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	// All five channel maps must be non-nil so a caller can write into them.
+	// The original five channel maps must be non-nil so a caller can write into them.
 	got.Entries.MCPServers["a"] = Entry{}
 	got.Entries.BackgroundServices["b"] = Entry{}
 	got.Entries.Hooks["c"] = Entry{}
