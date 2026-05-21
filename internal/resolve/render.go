@@ -1,0 +1,360 @@
+package resolve
+
+import (
+	"maps"
+	"os"
+	"path/filepath"
+	"slices"
+	"sort"
+	"strings"
+
+	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/provider"
+)
+
+// RenderResources resolves the manifest at dir and returns, per channel, the
+// desired provider.Resource values with Payload populated so providers can
+// render artifacts.
+//
+// It calls RunLock(dir) to write current lockfiles, then reads them to obtain
+// each entry's ContentHash, Layer, and Requires. The manifest is re-read from
+// the layers to build Payload fields. The function therefore relies on a
+// writable working directory; callers should treat the resulting lockfiles as
+// the source of truth for content hashes.
+func RenderResources(dir string) (map[string][]provider.Resource, error) {
+	if err := RunLock(dir); err != nil {
+		return nil, err
+	}
+
+	committed, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		return nil, err
+	}
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
+	if err != nil {
+		return nil, err
+	}
+
+	// Merge both locks into one index keyed by channel+id.
+	merged := mergeLockEntries(committed, personal)
+
+	layers, err := manifest.LoadLayers(dir)
+	if err != nil {
+		return nil, err
+	}
+
+	result := map[string][]provider.Resource{}
+
+	// Accumulate resources per channel across all layers in priority order.
+	seen := map[string]map[string]bool{}
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		m, ok := layers[layerName]
+		if !ok {
+			continue
+		}
+
+		// mcpServers
+		for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
+			if !markSeen(seen, "mcpServers", id) {
+				continue
+			}
+			srv := m.MCPServers[id]
+			entry := merged.mcpServers[id]
+			var args []string
+			var envMap map[string]string
+			cmd := srv.Command
+			transport := srv.Transport
+
+			// For templated servers, use the instantiated values from the lock.
+			if srv.Template != "" {
+				// The instantiated fields are not stored in the lock directly;
+				// we rebuild them by re-instantiating just enough to get command/args/env.
+				allTemplates := collectTemplates(layers)
+				tmpl := allTemplates[srv.Template]
+				resolved := entry.Resolved
+				inst, err := Instantiate(id, srv, tmpl, resolved)
+				if err == nil && inst.MCPServer != nil {
+					cmd = inst.MCPServer.Command
+					args = inst.MCPServer.Args
+					envMap = inst.MCPServer.Env
+					transport = inst.MCPServer.Transport
+				}
+			} else {
+				args = srv.Args
+				envMap = srv.Env
+			}
+
+			payload := map[string]any{
+				"command":   cmd,
+				"args":      args,
+				"env":       envMap,
+				"transport": transport,
+			}
+			result["mcpServers"] = append(result["mcpServers"], provider.Resource{
+				ID:          id,
+				Channel:     "mcpServers",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload:     payload,
+			})
+		}
+
+		// hooks
+		for _, id := range slices.Sorted(maps.Keys(m.Hooks)) {
+			if !markSeen(seen, "hooks", id) {
+				continue
+			}
+			h := m.Hooks[id]
+			entry := merged.hooks[id]
+			result["hooks"] = append(result["hooks"], provider.Resource{
+				ID:          id,
+				Channel:     "hooks",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"event":   h.Event,
+					"matcher": h.Matcher,
+					"command": h.Command,
+					"timeout": h.Timeout,
+				},
+			})
+		}
+
+		// commands
+		for _, id := range slices.Sorted(maps.Keys(m.Commands)) {
+			if !markSeen(seen, "commands", id) {
+				continue
+			}
+			c := m.Commands[id]
+			entry := merged.commands[id]
+			var content []byte
+			if c.Source != "" && !isRemoteSource(c.Source) {
+				content, _ = os.ReadFile(filepath.Join(dir, c.Source))
+			}
+			result["commands"] = append(result["commands"], provider.Resource{
+				ID:          id,
+				Channel:     "commands",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"content": content,
+				},
+			})
+		}
+
+		// rules
+		for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
+			if !markSeen(seen, "rules", id) {
+				continue
+			}
+			r := m.Rules[id]
+			entry := merged.rules[id]
+			var content []byte
+			if r.Source != "" && !isRemoteSource(r.Source) {
+				content, _ = os.ReadFile(filepath.Join(dir, r.Source))
+			}
+			result["rules"] = append(result["rules"], provider.Resource{
+				ID:          id,
+				Channel:     "rules",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"target":  r.Target,
+					"content": content,
+				},
+			})
+		}
+
+		// skills
+		for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
+			if !markSeen(seen, "skills", id) {
+				continue
+			}
+			s := m.Skills[id]
+			entry := merged.skills[id]
+			result["skills"] = append(result["skills"], provider.Resource{
+				ID:          id,
+				Channel:     "skills",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"source":  s.Source,
+					"version": s.Version,
+				},
+			})
+		}
+
+		// plugins
+		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
+			if !markSeen(seen, "plugins", id) {
+				continue
+			}
+			p := m.Plugins[id]
+			entry := merged.plugins[id]
+			result["plugins"] = append(result["plugins"], provider.Resource{
+				ID:          id,
+				Channel:     "plugins",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"source":  p.Source,
+					"version": p.Version,
+				},
+			})
+		}
+
+		// tools (one entry per layer that declares a tools block)
+		if m.Tools != nil {
+			toolID := string(layerName)
+			if !markSeen(seen, "tools", toolID) {
+				continue
+			}
+			entry := merged.tools[toolID]
+			result["tools"] = append(result["tools"], provider.Resource{
+				ID:          toolID,
+				Channel:     "tools",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"disabled": m.Tools.Builtins.Disabled,
+					"allow":    m.Tools.Permissions.Allow,
+					"deny":     m.Tools.Permissions.Deny,
+				},
+			})
+		}
+
+		// cliTools
+		for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {
+			if !markSeen(seen, "cliTools", id) {
+				continue
+			}
+			t := m.CLITools[id]
+			entry := merged.cliTools[id]
+			result["cliTools"] = append(result["cliTools"], provider.Resource{
+				ID:          id,
+				Channel:     "cliTools",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"install": t.Install,
+					"check":   t.Check,
+				},
+			})
+		}
+
+		// backgroundServices
+		for _, id := range slices.Sorted(maps.Keys(m.BackgroundServices)) {
+			if !markSeen(seen, "backgroundServices", id) {
+				continue
+			}
+			svc := m.BackgroundServices[id]
+			entry := merged.backgroundServices[id]
+			result["backgroundServices"] = append(result["backgroundServices"], provider.Resource{
+				ID:          id,
+				Channel:     "backgroundServices",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"kind": svc.Kind,
+					"spec": svc.Spec,
+				},
+			})
+		}
+	}
+
+	// Sort each channel's slice by ID for deterministic output.
+	for ch := range result {
+		sort.Slice(result[ch], func(i, j int) bool {
+			return result[ch][i].ID < result[ch][j].ID
+		})
+	}
+
+	return result, nil
+}
+
+// markSeen records that id has been seen for a channel and returns true if it
+// was not already seen. First-seen wins (higher-priority layers come first).
+func markSeen(seen map[string]map[string]bool, channel, id string) bool {
+	if seen[channel] == nil {
+		seen[channel] = map[string]bool{}
+	}
+	if seen[channel][id] {
+		return false
+	}
+	seen[channel][id] = true
+	return true
+}
+
+// isRemoteSource reports whether a source string refers to a remote location
+// that cannot be read as a local file.
+func isRemoteSource(source string) bool {
+	return strings.HasPrefix(source, "git+") ||
+		strings.HasPrefix(source, "npm:") ||
+		strings.HasPrefix(source, "https://") ||
+		strings.HasPrefix(source, "http://")
+}
+
+// mergedEntries holds entry maps from both committed and personal lockfiles.
+type mergedEntries struct {
+	mcpServers         map[string]lockfile.Entry
+	backgroundServices map[string]lockfile.Entry
+	hooks              map[string]lockfile.Entry
+	commands           map[string]lockfile.Entry
+	cliTools           map[string]lockfile.Entry
+	skills             map[string]lockfile.Entry
+	plugins            map[string]lockfile.Entry
+	rules              map[string]lockfile.Entry
+	tools              map[string]lockfile.Entry
+}
+
+func mergeLockEntries(committed, personal *lockfile.Lock) mergedEntries {
+	merge := func(a, b map[string]lockfile.Entry) map[string]lockfile.Entry {
+		out := make(map[string]lockfile.Entry, len(a)+len(b))
+		for k, v := range a {
+			out[k] = v
+		}
+		for k, v := range b {
+			out[k] = v
+		}
+		return out
+	}
+	return mergedEntries{
+		mcpServers:         merge(committed.Entries.MCPServers, personal.Entries.MCPServers),
+		backgroundServices: merge(committed.Entries.BackgroundServices, personal.Entries.BackgroundServices),
+		hooks:              merge(committed.Entries.Hooks, personal.Entries.Hooks),
+		commands:           merge(committed.Entries.Commands, personal.Entries.Commands),
+		cliTools:           merge(committed.Entries.CLITools, personal.Entries.CLITools),
+		skills:             merge(committed.Entries.Skills, personal.Entries.Skills),
+		plugins:            merge(committed.Entries.Plugins, personal.Entries.Plugins),
+		rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
+		tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
+	}
+}
+
+// collectTemplates merges templates from all layers; lower layers take
+// precedence (same logic as RunLock).
+func collectTemplates(layers map[manifest.Layer]*manifest.Manifest) map[string]manifest.Template {
+	all := map[string]manifest.Template{}
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		m, ok := layers[layerName]
+		if !ok {
+			continue
+		}
+		for name, tmpl := range m.Templates {
+			if _, exists := all[name]; !exists {
+				all[name] = tmpl
+			}
+		}
+	}
+	return all
+}
