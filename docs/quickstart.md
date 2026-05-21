@@ -1,8 +1,9 @@
 # ainfra Quick Start
 
-ainfra defines a team's Claude Code setup as config-as-code and reconciles it,
-with a lockfile, onto any developer's machine. This guide walks both paths:
-joining a team that already uses ainfra, and authoring a setup from scratch.
+ainfra keeps a dev team's AI tooling in sync: a team's setup is defined once as
+config-as-code and reconciled — with a lockfile — onto any developer's machine.
+This guide walks both paths: joining a team that already uses ainfra, and
+authoring a setup from scratch.
 
 ## Install
 

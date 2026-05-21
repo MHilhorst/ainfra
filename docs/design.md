@@ -6,9 +6,15 @@ lists the two open items. The manifest *syntax* (Phase 1) is proven by the
 
 ## 0. What this is
 
-A Terraform-style CLI that defines a team's Claude Code setup as layered
-config-as-code and reconciles it — with a lockfile — onto any developer's
-machine.
+ainfra keeps a whole dev team's AI tooling in sync. A team's AI development
+setup drifts the moment each developer installs it — different MCP servers,
+skills, hooks, and rules files, with no way to see the gap. ainfra makes that
+setup config-as-code: defined once, layered, and reconciled onto every
+developer's machine. A lockfile pins and hashes every resolved version, so
+"in sync" is verifiable and drift is caught.
+
+Mechanically it is a Terraform-style CLI: a declarative manifest, `plan` before
+`apply`, a lockfile separating desired from observed state.
 
 The market position is decided: runtime governance (MCP gateways) is a
 saturated, funded category on the official MCP roadmap — **do not build a
