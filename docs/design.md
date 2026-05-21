@@ -22,7 +22,7 @@ runtimes.
 Eight configurable channels:
 
 1. **MCP servers** — `.mcp.json` connections
-2. **Skills** — filesystem `.claude/skills/`
+2. **Skills** — `SKILL.md` bundles materialized into `.claude/skills/`. ainfra reconciles *externally-sourced* skills (pinned, hashed); skills a repo commits to its own `.claude/skills/` arrive with `git clone` and are out of scope.
 3. **Plugins** — installable bundles
 4. **CLAUDE.md / rules** — static context files
 5. **Tools / toolsets** — which built-ins are enabled, permission policies

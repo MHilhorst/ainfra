@@ -59,12 +59,16 @@ hooks:
     timeout: 5000
 
 # --- Skills: PREVIEW ---------------------------------------------------------
-# The design defines a skills channel (one of eight — see docs/design.md §1),
-# but the resolver does not process it yet: ainfra silently ignores this block
-# for now. It is shown here only to illustrate the intended shape.
+# A skill is a folder (SKILL.md + files). Skills committed to a repo's own
+# .claude/skills/ already arrive with `git clone` — ainfra does NOT manage
+# those. ainfra's job is the layer git can't reach: skills sourced from
+# elsewhere, materialized — pinned and content-hashed — into .claude/skills/
+# or ~/.claude/skills/. The resolver does not process this block yet; it shows
+# the intended shape (see docs/design.md §1).
 skills:
   pdf-processing:
     source: "github:anthropics/skills/document-skills/pdf"
     version: "1.4.0"
-  team-runbooks:
-    source: "./skills/runbooks"
+  incident-response:                       # from the team's own central skills repo
+    source: "github:acme/claude-skills/incident-response"
+    version: "2.3.0"
