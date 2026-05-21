@@ -244,13 +244,18 @@ func RunLock(dir string) error {
 			// the later layer (personal > repo > team) wins; last-write is acceptable
 			// for this increment.
 			g.AddNode("tools")
+			toolsPayload := map[string]any{}
+			if m.Tools.Builtins != nil {
+				toolsPayload["disabled"] = m.Tools.Builtins.Disabled
+			}
+			if m.Tools.Permissions != nil {
+				toolsPayload["allow"] = m.Tools.Permissions.Allow
+				toolsPayload["ask"] = m.Tools.Permissions.Ask
+				toolsPayload["deny"] = m.Tools.Permissions.Deny
+			}
 			lock.Entries.Tools["tools"] = lockfile.Entry{
-				Layer: string(layerName),
-				ContentHash: lockfile.ContentHash(map[string]any{
-					"disabled": m.Tools.Builtins.Disabled,
-					"allow":    m.Tools.Permissions.Allow,
-					"deny":     m.Tools.Permissions.Deny,
-				}),
+				Layer:       string(layerName),
+				ContentHash: lockfile.ContentHash(toolsPayload),
 			}
 		}
 		for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {

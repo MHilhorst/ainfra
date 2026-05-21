@@ -3,7 +3,10 @@ package manifest
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/diag"
 )
 
 func TestLoadLayersTagsEachLayer(t *testing.T) {
@@ -39,5 +42,42 @@ func TestLoadLayersPersonalOptional(t *testing.T) {
 	}
 	if _, ok := layers[LayerPersonal]; ok {
 		t.Error("personal layer should be absent when file missing")
+	}
+}
+
+// A misspelled key must be a hard error, not a silent drop — the core
+// config-as-code promise (design §13).
+func TestLoadLayersRejectsUnknownKey(t *testing.T) {
+	dir := t.TempDir()
+	// "mcpServer" — missing the trailing s — is a classic, costly typo.
+	body := "version: 1\nmcpServer:\n  oops: {command: x}\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadLayers(dir)
+	if err == nil {
+		t.Fatal("expected an error for the unknown key mcpServer")
+	}
+	d, ok := err.(*diag.Diagnostic)
+	if !ok {
+		t.Fatalf("error is %T, want *diag.Diagnostic", err)
+	}
+	if !strings.Contains(d.Detail, "mcpServer") {
+		t.Errorf("detail = %q, want it to name the offending key", d.Detail)
+	}
+}
+
+func TestLoadLayersRejectsWrongVersion(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 2\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := LoadLayers(dir)
+	d, ok := err.(*diag.Diagnostic)
+	if !ok {
+		t.Fatalf("error is %T, want *diag.Diagnostic: %v", err, err)
+	}
+	if !strings.Contains(d.Summary, "unsupported manifest version") {
+		t.Errorf("summary = %q", d.Summary)
 	}
 }

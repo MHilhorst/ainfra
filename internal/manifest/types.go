@@ -105,18 +105,19 @@ type Produces struct {
 
 // MCPServer is an MCP channel entry or template body (spec §5).
 type MCPServer struct {
-	Template    string            `yaml:"template"`
-	Params      map[string]any    `yaml:"params"`
-	Secret      map[string]any    `yaml:"secret"`
-	Transport   string            `yaml:"transport"`
-	Command     string            `yaml:"command"`
-	Args        []string          `yaml:"args"`
-	Version     string            `yaml:"version"`
-	Env         map[string]string `yaml:"env"`
-	Via         string            `yaml:"via"`
-	Requires    []Require         `yaml:"requires"`
-	Enabled     *bool             `yaml:"enabled"`
-	Overridable bool              `yaml:"overridable"`
+	Template     string            `yaml:"template"`
+	Params       map[string]any    `yaml:"params"`
+	Secret       map[string]any    `yaml:"secret"`
+	Transport    string            `yaml:"transport"`
+	Command      string            `yaml:"command"`
+	Args         []string          `yaml:"args"`
+	Version      string            `yaml:"version"`
+	Env          map[string]string `yaml:"env"`
+	Capabilities map[string]any    `yaml:"capabilities"`
+	Via          string            `yaml:"via"`
+	Requires     []Require         `yaml:"requires"`
+	Enabled      *bool             `yaml:"enabled"`
+	Overridable  bool              `yaml:"overridable"`
 }
 
 // Hook is a Claude Code hook — automation bound to a lifecycle event (spec §11).
@@ -148,7 +149,9 @@ type Require struct {
 	Precondition string `yaml:"precondition"`
 }
 
-// Skill is a Claude Code skill bundle (spec §10, channel 2).
+// Skill is an externally-sourced SKILL.md bundle ainfra materializes into
+// .claude/skills/ (spec §10). Skills a repo commits to its own .claude/skills/
+// arrive with git clone and are out of scope.
 type Skill struct {
 	Source      string    `yaml:"source"`
 	Version     string    `yaml:"version"`
@@ -157,7 +160,7 @@ type Skill struct {
 	Overridable bool      `yaml:"overridable"`
 }
 
-// Plugin is an installable Claude Code plugin bundle (spec §10, channel 3).
+// Plugin is an installable plugin bundle (spec §10).
 type Plugin struct {
 	Source      string    `yaml:"source"`
 	Version     string    `yaml:"version"`
@@ -166,7 +169,7 @@ type Plugin struct {
 	Overridable bool      `yaml:"overridable"`
 }
 
-// Rule is a static context file — CLAUDE.md or similar (spec §10, channel 4).
+// Rule is a static context file — CLAUDE.md or similar (spec §10).
 type Rule struct {
 	Target      string    `yaml:"target"`
 	Source      string    `yaml:"source"`
@@ -176,21 +179,23 @@ type Rule struct {
 	Overridable bool      `yaml:"overridable"`
 }
 
-// Tools is the tools channel — built-in toggles and permission policy
-// (spec §10, channel 5). One block per layer; a pointer so an absent block is
-// distinguishable from an empty one.
+// Tools is the built-in tooling channel — a singleton, not an id-keyed map
+// (spec §10). Its list fields union-merge across layers (spec §1.1).
 type Tools struct {
-	Builtins    ToolBuiltins    `yaml:"builtins"`
-	Permissions ToolPermissions `yaml:"permissions"`
+	Builtins    *Builtins    `yaml:"builtins"`
+	Permissions *Permissions `yaml:"permissions"`
 }
 
-// ToolBuiltins lists built-in tools switched off team-wide.
-type ToolBuiltins struct {
+// Builtins toggles Claude Code's built-in tools.
+type Builtins struct {
 	Disabled []string `yaml:"disabled"`
 }
 
-// ToolPermissions is the allow/deny permission policy for tools.
-type ToolPermissions struct {
+// Permissions is the three-tier tool permission policy. When a pattern lands
+// in more than one tier after the layer union, the stricter tier wins:
+// deny > ask > allow (spec §1.1).
+type Permissions struct {
 	Allow []string `yaml:"allow"`
+	Ask   []string `yaml:"ask"`
 	Deny  []string `yaml:"deny"`
 }

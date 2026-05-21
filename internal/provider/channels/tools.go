@@ -12,7 +12,7 @@ import (
 
 // Tools reconciles the permissions and disabledTools keys in
 // <root>/.claude/settings.json. ainfra manages two top-level keys:
-// "permissions" (containing "allow" and "deny" arrays) and "disabledTools"
+// "permissions" (containing "allow", "ask", and "deny" arrays) and "disabledTools"
 // (an array of built-in tool names). Both keys are treated as a single logical
 // resource with ID "tools".
 type Tools struct{}
@@ -78,6 +78,12 @@ func (Tools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 				}
 				desiredPerms["allow"] = allow
 			}
+			if ask, ok := c.Resource.Payload["ask"]; ok {
+				if desiredPerms == nil {
+					desiredPerms = map[string]any{}
+				}
+				desiredPerms["ask"] = ask
+			}
 			if deny, ok := c.Resource.Payload["deny"]; ok {
 				if desiredPerms == nil {
 					desiredPerms = map[string]any{}
@@ -101,7 +107,7 @@ func (Tools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 
 		if isDelete {
 			// Remove both managed keys by passing empty desired and their names as ownedKeys.
-			if err := fsmerge.MergeJSONKeys(env.FS, path, "permissions", map[string]any{}, []string{"allow", "deny"}); err != nil {
+			if err := fsmerge.MergeJSONKeys(env.FS, path, "permissions", map[string]any{}, []string{"allow", "ask", "deny"}); err != nil {
 				return provider.ApplyResult{}, err
 			}
 			if err := fsmerge.MergeJSONKeys(env.FS, path, "disabledTools", map[string]any{}, []string{"__managed__"}); err != nil {
@@ -119,7 +125,7 @@ func (Tools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 		} else {
 			// Merge permissions object.
 			if desiredPerms != nil {
-				if err := fsmerge.MergeJSONKeys(env.FS, path, "permissions", desiredPerms, []string{"allow", "deny"}); err != nil {
+				if err := fsmerge.MergeJSONKeys(env.FS, path, "permissions", desiredPerms, []string{"allow", "ask", "deny"}); err != nil {
 					return provider.ApplyResult{}, err
 				}
 			}

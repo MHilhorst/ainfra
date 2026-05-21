@@ -147,9 +147,9 @@ func TestValidateAcceptsLocalSkillWithoutVersion(t *testing.T) {
 }
 
 func TestValidateRejectsSkillWithoutSource(t *testing.T) {
-	m := &Manifest{Version: 1, Skills: map[string]Skill{"s": {}}}
+	m := &Manifest{Version: 1, Skills: map[string]Skill{"s": {Version: "1.0.0"}}}
 	d := asDiagnostic(t, Validate(m))
-	if !strings.Contains(d.Summary, "source") {
+	if !strings.Contains(d.Summary, "skill declares no source") {
 		t.Errorf("summary = %q", d.Summary)
 	}
 	if d.Path != "skills.s" {
@@ -163,6 +163,14 @@ func TestValidateRejectsRemotePluginWithoutVersion(t *testing.T) {
 	}}
 	d := asDiagnostic(t, Validate(m))
 	if !strings.Contains(d.Summary, "pin an exact version") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsPluginWithoutSource(t *testing.T) {
+	m := &Manifest{Version: 1, Plugins: map[string]Plugin{"p": {}}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "plugin declares no source") {
 		t.Errorf("summary = %q", d.Summary)
 	}
 }
@@ -182,7 +190,7 @@ func TestValidateRejectsRuleWithoutTarget(t *testing.T) {
 		"r": {Source: "./rules/r.md"},
 	}}
 	d := asDiagnostic(t, Validate(m))
-	if !strings.Contains(d.Summary, "target") {
+	if !strings.Contains(d.Summary, "no target") {
 		t.Errorf("summary = %q", d.Summary)
 	}
 }
@@ -193,16 +201,6 @@ func TestValidateRejectsRuleWithoutSource(t *testing.T) {
 	}}
 	d := asDiagnostic(t, Validate(m))
 	if !strings.Contains(d.Summary, "source") {
-		t.Errorf("summary = %q", d.Summary)
-	}
-}
-
-func TestValidateRejectsEmptyDisabledBuiltin(t *testing.T) {
-	m := &Manifest{Version: 1, Tools: &Tools{
-		Builtins: ToolBuiltins{Disabled: []string{""}},
-	}}
-	d := asDiagnostic(t, Validate(m))
-	if !strings.Contains(d.Summary, "empty") {
 		t.Errorf("summary = %q", d.Summary)
 	}
 }
@@ -220,9 +218,19 @@ func TestValidateRejectsRemoteRuleWithoutVersion(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsEmptyDisabledBuiltin(t *testing.T) {
+	m := &Manifest{Version: 1, Tools: &Tools{
+		Builtins: &Builtins{Disabled: []string{""}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "empty") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
 func TestValidateRejectsEmptyDenyPermission(t *testing.T) {
 	m := &Manifest{Version: 1, Tools: &Tools{
-		Permissions: ToolPermissions{Deny: []string{"  "}},
+		Permissions: &Permissions{Deny: []string{"  "}},
 	}}
 	d := asDiagnostic(t, Validate(m))
 	if !strings.Contains(d.Summary, "empty") {
@@ -233,12 +241,50 @@ func TestValidateRejectsEmptyDenyPermission(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsEmptyPermissionPattern(t *testing.T) {
+	m := &Manifest{Version: 1, Tools: &Tools{
+		Permissions: &Permissions{Allow: []string{"  "}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if d.Path != "tools.permissions.allow" {
+		t.Errorf("path = %q, want tools.permissions.allow", d.Path)
+	}
+}
+
+func TestValidateRejectsEmptyAskPermission(t *testing.T) {
+	m := &Manifest{Version: 1, Tools: &Tools{
+		Permissions: &Permissions{Ask: []string{"  "}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "empty") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "tools.permissions.ask" {
+		t.Errorf("path = %q, want tools.permissions.ask", d.Path)
+	}
+}
+
 func TestValidateAcceptsValidNewChannels(t *testing.T) {
 	m := &Manifest{Version: 1,
 		Rules: map[string]Rule{"r": {Target: "CLAUDE.md", Source: "./rules/r.md"}},
 		Tools: &Tools{
-			Builtins:    ToolBuiltins{Disabled: []string{"WebFetch"}},
-			Permissions: ToolPermissions{Allow: []string{"Bash(go test:*)"}},
+			Builtins:    &Builtins{Disabled: []string{"WebFetch"}},
+			Permissions: &Permissions{Allow: []string{"Bash(go test:*)"}},
+		},
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateAcceptsWellFormedChannels(t *testing.T) {
+	m := &Manifest{Version: 1,
+		Skills:  map[string]Skill{"s": {Source: "github:acme/skills/x", Version: "1.0.0"}},
+		Plugins: map[string]Plugin{"p": {Source: "npm:@acme/p@1.0.0"}},
+		Rules:   map[string]Rule{"r": {Target: "CLAUDE.md", Source: "./r.md"}},
+		Tools: &Tools{
+			Builtins:    &Builtins{Disabled: []string{"WebFetch"}},
+			Permissions: &Permissions{Allow: []string{"Bash(go build:*)"}, Deny: []string{"Bash(rm:*)"}},
 		},
 	}
 	if err := Validate(m); err != nil {

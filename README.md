@@ -1,32 +1,41 @@
 # ainfra
 
-A Terraform-style CLI that defines a team's Claude Code setup as layered
-config-as-code and reconciles it — with a lockfile — onto any developer's machine.
+**Keep your whole dev team's AI tooling in sync.**
 
-## The problem
+Your teammates' AI development setup drifts from yours the moment they install
+it. Different MCP servers, different skills, different hooks, different rules
+files — and no way to see the gap. ainfra makes a team's AI tooling
+config-as-code: define it once in your repo, and every developer reproduces it
+identically with one command.
 
-A team has no way to define its Claude Code setup once and guarantee every
-developer reproduces it identically. Config is scattered across separate
-mechanisms with separate scopes: MCP servers, skills, plugins, `CLAUDE.md`,
-tool permissions, and the CLI binaries they all depend on. There is no single
-source of truth and no lockfile. "Works on my machine" is unverifiable, drift
-goes unnoticed, and a server or skill that was safe yesterday can change
-silently.
+Because ainfra pins and hashes every resolved version into a lockfile, "we're
+in sync" is something you can *verify* — not hope for: a skill or server that
+drifts on a teammate's machine, or changes silently upstream, gets caught.
 
 ## What this is — and is not
 
-`ainfra` owns **declarative, cross-channel reconciliation with a lockfile**.
-That is the unowned cell in the market. It is *not* a runtime MCP gateway —
-that category is saturated and on the official MCP roadmap. `ainfra` *consumes*
-gateways, secrets managers, and package managers as pluggable backends; it owns
-none of their runtimes.
+ainfra is declarative config-as-code for a team's AI tooling — a Terraform-style
+CLI: a declarative manifest, `plan` before `apply`, a lockfile separating
+desired from observed state. It is *not* a runtime MCP gateway — that category
+is saturated and on the official MCP roadmap. ainfra *consumes* gateways,
+secrets managers, and package managers as pluggable backends; it owns none of
+their runtimes.
+
+There is nothing to lock into. ainfra reconciles a machine by writing the
+native config your AI tools already read — `.mcp.json`, the bundles under
+`.claude/`, `CLAUDE.md`. It is what puts those files in place and keeps them
+verified, not a runtime they depend on. Stop using ainfra tomorrow and every
+file it wrote still works, untouched.
 
 See [docs/design.md](docs/design.md) for the full, decided design.
 
 ## Quick start
 
 ```sh
+go install github.com/MHilhorst/ainfra/cmd/ainfra@latest
+# or, from a checkout of this repo:
 go build -o ainfra ./cmd/ainfra
+
 ainfra version
 ```
 
@@ -48,6 +57,7 @@ per-command detail.
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` in the current repo (`--personal`, `--force`) |
 | `validate` | Static-check the manifest without resolving it |
+| `schema` | Print the JSON Schema for `ainfra.yaml` — point an editor at it for autocomplete |
 | `lock` | Resolve the manifest and write `ainfra.lock` |
 | `plan` | Preview the diff between desired and observed state |
 | `apply` | Reconcile the environment to the manifest |
@@ -60,7 +70,7 @@ disables colored output.
 ## Status
 
 The manifest and lockfile schemas, the resolution engine, the channel provider
-layer, and the full CLI surface are built. `init`, `validate`, `lock`,
+layer, and the full CLI surface are built. `init`, `validate`, `schema`, `lock`,
 `version`, `plan`, `apply`, and `check` all work end to end. Remote (git/npm)
 source fetching, the pluggable secret resolver, and gateway adapters are
 follow-up phases.
@@ -72,7 +82,7 @@ follow-up phases.
 | 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | implemented |
 | 3 | Channel provider interface — powers `plan` / `apply` / `check` | done |
 | 4 | Resolution & precedence engine | done |
-| 5 | CLI surface (`init` / `validate` / `lock` / `version`) | done |
+| 5 | CLI surface (`init` / `validate` / `schema` / `lock` / `version`) | done |
 
 The schema is the product hypothesis; code is the proof. Phases 1 and 2 were
 validated *on paper* against five scenarios — see
@@ -87,8 +97,9 @@ internal/
   cli/           command registry, dispatch, flags, help
   ui/            terminal rendering — color, plan diffs, errors, prompts
   diag/          structured diagnostic error type
-  manifest/      ainfra.yaml schema, layer loading, validation
+  manifest/      ainfra.yaml schema, strict layer loading, validation
   resolve/       template instantiation, layer merge, port allocation, lock pipeline
+  schema/        JSON Schema generation for ainfra.yaml (reflected from manifest)
   graph/         dependency graph and topological sort
   lockfile/      ainfra.lock schema, content hashing, read/write
   version/       build version

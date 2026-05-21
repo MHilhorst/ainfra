@@ -27,6 +27,23 @@ func isRemoteSource(src string) bool {
 	return strings.HasPrefix(src, "git+") || strings.HasPrefix(src, "npm:")
 }
 
+// hasEmbeddedVersion reports whether a source string already encodes a pinned
+// version inline — e.g. "npm:@scope/pkg@1.2.3". For npm sources, a version
+// suffix in the package specifier counts. Git sources must declare a separate
+// version field; a branch ref like "@main" does not satisfy the requirement.
+func hasEmbeddedVersion(src string) bool {
+	if strings.HasPrefix(src, "npm:") {
+		// npm:@scope/pkg@version or npm:pkg@version
+		rest := strings.TrimPrefix(src, "npm:")
+		// Drop a leading @ (scoped package) and look for a second @
+		if strings.HasPrefix(rest, "@") {
+			rest = rest[1:] // skip the scope's @
+		}
+		return strings.Contains(rest, "@")
+	}
+	return false
+}
+
 // Validate runs static checks on a single manifest layer. It returns the first
 // problem found as a *diag.Diagnostic; entries are checked in sorted-key order
 // so that first problem is deterministic. The diagnostic's File is left empty
@@ -104,11 +121,11 @@ func Validate(m *Manifest) error {
 			return &diag.Diagnostic{
 				Summary: "skill declares no source",
 				Path:    "skills." + id,
-				Detail:  fmt.Sprintf("Skill %q has no source.", id),
-				Hint:    "Add a source field — a local path, git+https://… ref, or npm: ref.",
+				Detail:  fmt.Sprintf("Skill %q has no source. ainfra reconciles externally-sourced skills; a skill committed to the repo's own .claude/skills/ does not belong here.", id),
+				Hint:    `Add a source field, e.g.  source: "github:acme/claude-skills/incident-response"`,
 			}
 		}
-		if isRemoteSource(s.Source) && s.Version == "" {
+		if isRemoteSource(s.Source) && s.Version == "" && !hasEmbeddedVersion(s.Source) {
 			return &diag.Diagnostic{
 				Summary: "remote skill must pin an exact version",
 				Path:    "skills." + id,
@@ -124,10 +141,10 @@ func Validate(m *Manifest) error {
 				Summary: "plugin declares no source",
 				Path:    "plugins." + id,
 				Detail:  fmt.Sprintf("Plugin %q has no source.", id),
-				Hint:    "Add a source field — an npm: ref.",
+				Hint:    `Add a source field, e.g.  source: "npm:@acme/tvt-config-plugin@2.0.1"`,
 			}
 		}
-		if isRemoteSource(p.Source) && p.Version == "" {
+		if isRemoteSource(p.Source) && p.Version == "" && !hasEmbeddedVersion(p.Source) {
 			return &diag.Diagnostic{
 				Summary: "remote plugin must pin an exact version",
 				Path:    "plugins." + id,
@@ -143,18 +160,18 @@ func Validate(m *Manifest) error {
 				Summary: "rule declares no source",
 				Path:    "rules." + id,
 				Detail:  fmt.Sprintf("Rule %q has no source file.", id),
-				Hint:    "Add a source field pointing at the context file.",
+				Hint:    "Add a source field pointing at the context file (e.g. ./rules/team-claude.md).",
 			}
 		}
 		if r.Target == "" {
 			return &diag.Diagnostic{
 				Summary: "rule declares no target",
 				Path:    "rules." + id,
-				Detail:  fmt.Sprintf("Rule %q does not say where its file lands.", id),
+				Detail:  fmt.Sprintf("Rule %q does not say where the file should land.", id),
 				Hint:    "Add a target field, e.g.  target: CLAUDE.md",
 			}
 		}
-		if isRemoteSource(r.Source) && r.Version == "" {
+		if isRemoteSource(r.Source) && r.Version == "" && !hasEmbeddedVersion(r.Source) {
 			return &diag.Diagnostic{
 				Summary: "remote rule must pin an exact version",
 				Path:    "rules." + id,
@@ -163,28 +180,50 @@ func Validate(m *Manifest) error {
 			}
 		}
 	}
-	if m.Tools != nil {
-		check := func(field string, list []string) *diag.Diagnostic {
-			for i, v := range list {
-				if strings.TrimSpace(v) == "" {
-					return &diag.Diagnostic{
-						Summary: fmt.Sprintf("%s has an empty entry", field),
-						Path:    fmt.Sprintf("%s[%d]", field, i),
-						Detail:  "Every entry must be a non-empty string.",
-						Hint:    "Remove the blank entry or fill it in.",
-					}
+	if err := validateTools(m.Tools); err != nil {
+		return err
+	}
+	return nil
+}
+
+// validateTools rejects empty patterns in the tools channel. An empty allow,
+// ask, deny, or disabled entry is almost always an editing mistake, and a
+// blank permission pattern silently matches nothing — a quiet footgun.
+func validateTools(t *Tools) error {
+	if t == nil {
+		return nil
+	}
+	blank := func(field string, list []string) error {
+		for _, pattern := range list {
+			if strings.TrimSpace(pattern) == "" {
+				return &diag.Diagnostic{
+					Summary: "tools." + field + " contains an empty entry",
+					Path:    "tools." + field,
+					Detail:  "A blank pattern matches nothing and is almost always a mistake.",
+					Hint:    "Remove the empty entry, or replace it with a real pattern.",
 				}
 			}
-			return nil
 		}
-		if d := check("tools.builtins.disabled", m.Tools.Builtins.Disabled); d != nil {
-			return d
+		return nil
+	}
+	if t.Builtins != nil {
+		if err := blank("builtins.disabled", t.Builtins.Disabled); err != nil {
+			return err
 		}
-		if d := check("tools.permissions.allow", m.Tools.Permissions.Allow); d != nil {
-			return d
-		}
-		if d := check("tools.permissions.deny", m.Tools.Permissions.Deny); d != nil {
-			return d
+	}
+	if p := t.Permissions; p != nil {
+		// Checked in a fixed order so the first reported problem is deterministic.
+		for _, tier := range []struct {
+			field string
+			list  []string
+		}{
+			{"permissions.allow", p.Allow},
+			{"permissions.ask", p.Ask},
+			{"permissions.deny", p.Deny},
+		} {
+			if err := blank(tier.field, tier.list); err != nil {
+				return err
+			}
 		}
 	}
 	return nil

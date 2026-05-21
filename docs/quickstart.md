@@ -1,14 +1,17 @@
 # ainfra Quick Start
 
-ainfra defines a team's Claude Code setup as config-as-code and reconciles it,
-with a lockfile, onto any developer's machine. This guide walks both paths:
-joining a team that already uses ainfra, and authoring a setup from scratch.
+ainfra keeps a dev team's AI tooling in sync: a team's setup is defined once as
+config-as-code and reconciled — with a lockfile — onto any developer's machine.
+It does this by writing the native config your AI tools already read, so there
+is nothing to lock into. This guide walks both paths: joining a team that
+already uses ainfra, and authoring a setup from scratch.
 
 ## Install
 
 ```sh
-go build -o ainfra ./cmd/ainfra
-# move ./ainfra onto your PATH, or run it in place
+go install github.com/MHilhorst/ainfra/cmd/ainfra@latest
+# or, from a checkout of this repo:
+go build -o ainfra ./cmd/ainfra   # then move ./ainfra onto your PATH
 ```
 
 Check it works:
@@ -52,6 +55,26 @@ git add ainfra.yaml ainfra.lock && git commit
 `ainfra.lock` is committed; it pins exact versions and content hashes so every
 teammate resolves identically.
 
+### Editor autocomplete
+
+`ainfra schema` prints the JSON Schema for `ainfra.yaml`. Generate it once and
+point your editor's YAML language server at it for autocomplete and inline
+validation while you edit:
+
+```sh
+ainfra schema > ainfra.schema.json
+```
+
+Then add this first line to `ainfra.yaml`:
+
+```yaml
+# yaml-language-server: $schema=./ainfra.schema.json
+```
+
+The schema is reflected from ainfra's own types, so it always matches the
+version of ainfra you have installed. It checks structure; `ainfra validate`
+checks the semantic rules on top.
+
 ### Your personal layer
 
 Anything that is just yours — a personal MCP server, a local override — goes in
@@ -83,6 +106,7 @@ four committed to `ainfra.lock`, one resolved separately into
 |---|---|
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`) |
 | `ainfra validate` | Static-check the manifest without resolving it |
+| `ainfra schema` | Print the JSON Schema for `ainfra.yaml` |
 | `ainfra lock` | Resolve the manifest and write `ainfra.lock` |
 | `ainfra plan` | Preview the diff between desired and observed state |
 | `ainfra apply` | Reconcile the environment to the manifest |

@@ -220,17 +220,22 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				continue
 			}
 			entry := merged.tools["tools"]
+			toolsPayload := map[string]any{}
+			if m.Tools.Builtins != nil {
+				toolsPayload["disabled"] = m.Tools.Builtins.Disabled
+			}
+			if m.Tools.Permissions != nil {
+				toolsPayload["allow"] = m.Tools.Permissions.Allow
+				toolsPayload["ask"] = m.Tools.Permissions.Ask
+				toolsPayload["deny"] = m.Tools.Permissions.Deny
+			}
 			result["tools"] = append(result["tools"], provider.Resource{
 				ID:          "tools",
 				Channel:     "tools",
 				Layer:       entry.Layer,
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
-				Payload: map[string]any{
-					"disabled": m.Tools.Builtins.Disabled,
-					"allow":    m.Tools.Permissions.Allow,
-					"deny":     m.Tools.Permissions.Deny,
-				},
+				Payload:     toolsPayload,
 			})
 		}
 
