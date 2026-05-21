@@ -21,6 +21,8 @@ type Manifest struct {
 	Secrets            map[string]Secret            `yaml:"secrets"`
 	Templates          map[string]Template          `yaml:"templates"`
 	MCPServers         map[string]MCPServer         `yaml:"mcpServers"`
+	Hooks              map[string]Hook              `yaml:"hooks"`
+	Commands           map[string]Command           `yaml:"commands"`
 }
 
 // Source names a team/org layer to extend.
@@ -111,6 +113,28 @@ type MCPServer struct {
 	Requires    []Require         `yaml:"requires"`
 	Enabled     *bool             `yaml:"enabled"`
 	Overridable bool              `yaml:"overridable"`
+}
+
+// Hook is a Claude Code hook — automation bound to a lifecycle event (spec §11).
+type Hook struct {
+	Event       string    `yaml:"event"`
+	Matcher     string    `yaml:"matcher"`
+	Command     string    `yaml:"command"`
+	Source      string    `yaml:"source"`
+	Timeout     int       `yaml:"timeout"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Command is a Claude Code slash command — a sourced markdown file (spec §12).
+type Command struct {
+	Source      string    `yaml:"source"`
+	Description string    `yaml:"description"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
 }
 
 // Require is one dependency-graph edge (spec §9).

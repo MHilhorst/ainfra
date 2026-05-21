@@ -29,11 +29,19 @@ manifestHash: sha256:<hex>      # hash of the merged, normalized manifest inputs
 entries:
   mcpServers:        { <id>: <entry> }
   backgroundServices:{ <id>: <entry> }
+  hooks:             { <id>: <entry> }
+  commands:          { <id>: <entry> }
   skills:            { <id>: <entry> }
   plugins:           { <id>: <entry> }
   rules:             { <id>: <entry> }
   cliTools:          { <id>: <entry> }
 ```
+
+`hooks` and `commands` (manifest §11–§12) record a `layer` and a `contentHash`
+of the entry's declared config — so a silently altered hook or command fails
+`check` — and `commands` additionally records its pinned `version`. Both honour
+the layered-lockfile split of §7: personal-layer hooks and commands go to
+`ainfra.personal.lock`, never the committed file.
 
 `manifestHash` lets `plan` answer "did the inputs change?" in O(1) before doing
 per-entry work.

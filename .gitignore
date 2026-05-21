@@ -11,6 +11,9 @@
 # Resolved/generated runtime state
 /.ainfra/
 
+# Local Claude Code state (worktrees, session settings) — never committed
+/.claude/
+
 # Go
 /vendor/
 

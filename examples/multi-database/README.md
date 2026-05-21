@@ -5,14 +5,15 @@ primary [validation gate](../../docs/validation.md#scenario-5--the-multi-databas
 
 ## What it demonstrates
 
-Four MySQL databases, each behind an SSH tunnel that needs the team VPN. The
-files here show the design holding up:
+Four MySQL databases, each behind an SSH tunnel that needs the team VPN, plus a
+hook and a slash command. The files here show the design holding up:
 
 | File | Role |
 |------|------|
-| `ainfra.yaml` | Repo layer — one template, four instances. The committed source of truth. |
-| `ainfra.personal.yaml` | Personal layer — a developer's own dev replica, reusing the team template. Gitignored. |
-| `ainfra.lock` | Generated resolved state — note the four distinct, tool-allocated ports. |
+| `ainfra.yaml` | Repo layer — one template, four instances, a hook, a command. The committed source of truth. |
+| `ainfra.personal.yaml` | Personal layer — a developer's own dev replica, reusing the team template. (In a real repo this file is gitignored; here it is tracked as an illustration.) |
+| `ainfra.lock` | Generated resolved state — four distinct tool-allocated ports, plus `hooks` and `commands` entries with content hashes. |
+| `hooks/`, `commands/` | The hook script and command markdown the manifest's `source` fields point at. |
 
 ## The point
 
@@ -38,3 +39,16 @@ mcpServer(analytics-db)
 
 `ainfra apply` walks that graph leaves-first; `ainfra check` verifies every
 node and fails loudly — with remediation text — if the VPN is down.
+
+## Hooks and commands
+
+The `hooks` and `commands` channels sit alongside `mcpServers` — same layering,
+same `requires` edges, same content hashing in the lockfile:
+
+- `hooks.guard-destructive-sql` — a `PreToolUse`/`Bash` hook that escalates
+  destructive SQL to user approval. It `requires` the `node` CLI tool, so that
+  edge joins the same dependency graph as the tunnels.
+- `commands.db-console` — a `/db-console` slash command, a sourced markdown file.
+
+Both land in `ainfra.lock` with a `contentHash`, so a teammate's `ainfra check`
+detects if a hook script or command is altered after the fact.

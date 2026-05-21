@@ -2,7 +2,9 @@ package resolve
 
 import (
 	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"time"
 
@@ -96,6 +98,8 @@ func RunLock(dir string) error {
 		Entries: lockfile.Entries{
 			MCPServers:         map[string]lockfile.Entry{},
 			BackgroundServices: map[string]lockfile.Entry{},
+			Hooks:              map[string]lockfile.Entry{},
+			Commands:           map[string]lockfile.Entry{},
 			CLITools:           map[string]lockfile.Entry{},
 		}}
 
@@ -151,6 +155,42 @@ func RunLock(dir string) error {
 			}
 		}
 	}
+	// Resolve the hooks and commands channels. Neither is templated: each entry
+	// is hashed and recorded, and its requires edges are added to the graph so
+	// the cycle check and topo-sort cover them too.
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		m, ok := layers[layerName]
+		if !ok {
+			continue
+		}
+		for _, id := range slices.Sorted(maps.Keys(m.Hooks)) {
+			h := m.Hooks[id]
+			node := "hook:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, h.Requires)
+			lock.Entries.Hooks[id] = lockfile.Entry{
+				Layer: string(layerName),
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"event": h.Event, "matcher": h.Matcher, "command": h.Command,
+					"source": h.Source, "timeout": h.Timeout,
+				}),
+			}
+		}
+		for _, id := range slices.Sorted(maps.Keys(m.Commands)) {
+			c := m.Commands[id]
+			node := "cmd:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, c.Requires)
+			lock.Entries.Commands[id] = lockfile.Entry{
+				Layer:   string(layerName),
+				Version: c.Version,
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"source": c.Source, "description": c.Description, "version": c.Version,
+				}),
+			}
+		}
+	}
+
 	if _, err := g.TopoSort(); err != nil {
 		return fmt.Errorf("dependency graph invalid: %w", err)
 	}
@@ -168,6 +208,25 @@ func toAnyMap(m map[string]string) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// addRequireEdges registers a graph node for each dependency declared by an
+// entry and connects fromNode to it. Service, cliTool, and precondition edges
+// are all wired so the topo-sort and cycle check span every channel.
+func addRequireEdges(g *graph.Graph, fromNode string, reqs []manifest.Require) {
+	for _, r := range reqs {
+		switch {
+		case r.Service != "":
+			g.AddNode("svc:" + r.Service)
+			g.AddEdge(fromNode, "svc:"+r.Service)
+		case r.CLITool != "":
+			g.AddNode("cli:" + r.CLITool)
+			g.AddEdge(fromNode, "cli:"+r.CLITool)
+		case r.Precondition != "":
+			g.AddNode("pre:" + r.Precondition)
+			g.AddEdge(fromNode, "pre:"+r.Precondition)
+		}
+	}
 }
 
 func portsFromLock(l *lockfile.Lock) map[string]map[string]int {
@@ -191,6 +250,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	mk := func() *lockfile.Lock {
 		return &lockfile.Lock{Version: 1, GeneratedAt: l.GeneratedAt, Entries: lockfile.Entries{
 			MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
+			Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
 			CLITools: map[string]lockfile.Entry{}}}
 	}
 	committed, personal = mk(), mk()
@@ -205,5 +265,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	}
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.MCPServers }, l.Entries.MCPServers)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.BackgroundServices }, l.Entries.BackgroundServices)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Hooks }, l.Entries.Hooks)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Commands }, l.Entries.Commands)
 	return committed, personal
 }

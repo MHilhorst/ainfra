@@ -12,6 +12,8 @@ type Lock struct {
 type Entries struct {
 	MCPServers         map[string]Entry `yaml:"mcpServers"`
 	BackgroundServices map[string]Entry `yaml:"backgroundServices"`
+	Hooks              map[string]Entry `yaml:"hooks"`
+	Commands           map[string]Entry `yaml:"commands"`
 	CLITools           map[string]Entry `yaml:"cliTools"`
 }
 

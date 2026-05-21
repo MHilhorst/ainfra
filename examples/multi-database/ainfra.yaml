@@ -37,6 +37,14 @@ cliTools:
     check:
       command: "mysql --version"
       versionRegex: 'Ver (\d+\.\d+\.\d+)'
+  node:
+    versionConstraint: ">=20"
+    install:
+      brew: { formula: node }
+      apt:  { package: nodejs }
+    check:
+      command: "node --version"
+      versionRegex: 'v(\d+\.\d+\.\d+)'
 
 # --- Reusable secret reference (one vault item, shared by the whole team) ----
 secrets:
@@ -119,3 +127,20 @@ mcpServers:
     template: mysql-over-ssh-tunnel
     params:  { host: reporting-db.tvt.internal, database: reporting, sshUser: deploy }
     secret:  { dbPassword: { ref: "op://Engineering/reporting-db/ro-password" }, sshKey: bastion-ssh-key }
+
+# --- Hooks: lifecycle automation, layered and lockable like any channel ------
+hooks:
+  guard-destructive-sql:
+    event: PreToolUse
+    matcher: Bash
+    command: node .ainfra/run/guard-destructive-sql.js
+    source: ./hooks/guard-destructive-sql.js
+    timeout: 5000
+    requires:
+      - cliTool: node
+
+# --- Commands: team slash commands, sourced and content-hashed ---------------
+commands:
+  db-console:
+    source: ./commands/db-console.md
+    description: Open a read-only MySQL console against one of the tunnelled databases.

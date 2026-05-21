@@ -63,10 +63,15 @@ skills:             {}      # channel 2
 plugins:            {}      # channel 3
 rules:              {}      # channel 4 — CLAUDE.md / context files
 tools:              {}      # channel 5 — built-in toggles + permissions
+hooks:              {}      # channel 7 — lifecycle automation (§11)
+commands:           {}      # channel 8 — slash commands (§12)
 ```
 
-Every channel entry (`mcpServers`, `skills`, `plugins`, `rules`) accepts these
-common fields:
+(Channel 6, CLI tooling, has no manifest key of its own — it is the `cliTools`
+substrate of §7.)
+
+Every channel entry (`mcpServers`, `skills`, `plugins`, `rules`, `hooks`,
+`commands`) accepts these common fields:
 
 | Field | Type | Default | Meaning |
 |-------|------|---------|---------|
@@ -353,3 +358,68 @@ tools:
 
 `skills`, `plugins`, and `rules` pin an exact version; the lockfile adds a
 content hash for strong reproducibility and drift detection (Phase 2).
+
+---
+
+## 11. Channel 7 — Hooks
+
+> Added by Iteration 3 of the validation work — assessing the schema against a
+> real team config repo showed the original six channels could not express
+> standalone hooks as managed config (see `docs/assessment-vs-real-config.md`).
+
+A hook binds automation to a Claude Code lifecycle event. It is a first-class,
+layerable, lockable channel — not merely a side-effect of a background service.
+
+```yaml
+hooks:
+  guard-destructive-sql:
+    event: PreToolUse           # required (§11.1)
+    matcher: Bash               # optional — tool-name matcher for *ToolUse events
+    command: node .ainfra/run/guard.js   # required — what Claude Code runs
+    source: ./hooks/guard.js    # optional — a script the tool installs alongside
+    timeout: 5000               # optional — milliseconds
+    requires:
+      - cliTool: node
+    enabled: true               # common field
+    overridable: false          # common field
+```
+
+### 11.1 Events
+
+`event` must be one of the Claude Code lifecycle events: `SessionStart`,
+`SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`,
+`Stop`, `SubagentStop`, `PreCompact`. An unknown event is a validation error.
+
+`matcher` is meaningful for `PreToolUse` / `PostToolUse` (it scopes the hook to
+matching tool names); it is ignored for other events.
+
+A hook with a `source` script is installed by the tool; `command` references
+the installed path. The lockfile records a content hash of the hook's declared
+config so a silent change to a hook fails `check`.
+
+This channel is distinct from the `generateHook` lifecycle field a background
+service uses (§8) — that field generates *one specific* SessionStart hook to
+launch a service. The `hooks` channel manages *arbitrary, standalone* hooks.
+
+---
+
+## 12. Channel 8 — Commands
+
+A command is a Claude Code slash command — a sourced markdown file. It is
+modelled like `skills`: a `source` plus optional `version`.
+
+```yaml
+commands:
+  db-console:
+    source: ./commands/db-console.md   # required — local path, git, or npm ref
+    description: Open a read-only MySQL console.   # optional
+    version: 1                                     # optional — for git/npm sources
+    requires:
+      - cliTool: mysql-client          # a command may depend on a CLI tool
+    enabled: true
+    overridable: false
+```
+
+`source` accepts the same schemes as `extends` (§1): a local path,
+`git+https://…@<ref>`, or `npm:<pkg>@<version>`. The lockfile records a content
+hash; for git/npm sources the pinned `version` is recorded too.
