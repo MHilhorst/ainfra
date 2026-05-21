@@ -114,6 +114,19 @@ rules:
 			t.Errorf("lock missing %q\n---\n%s", want, out)
 		}
 	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	if got := lock.Entries.Skills["debug"].Requires; len(got) != 1 || got[0] != "cli:node" {
+		t.Errorf("skill debug requires = %v, want [cli:node]", got)
+	}
+	if e, ok := lock.Entries.Plugins["tvt"]; !ok || e.Version != "2.0.1" {
+		t.Errorf("plugin tvt = %+v, ok=%v", e, ok)
+	}
+	if e, ok := lock.Entries.Rules["team"]; !ok || e.ContentHash == "" {
+		t.Errorf("rule team = %+v, ok=%v", e, ok)
+	}
 }
 
 func TestLockPipelineResolvesTools(t *testing.T) {
