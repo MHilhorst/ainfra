@@ -11,6 +11,8 @@ import (
 	"github.com/MHilhorst/aistack/internal/manifest"
 )
 
+// portBase is the lowest local port aistack allocates for tunnels and other
+// allocated-port resolved fields. 13306 sits just above the default MySQL port.
 const portBase = 13306
 
 // RunLock executes the full resolve pipeline for the repo at dir and writes
@@ -26,7 +28,9 @@ func RunLock(dir string) error {
 	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
 		if m, ok := layers[layerName]; ok {
 			for name, tmpl := range m.Templates {
-				allTemplates[name] = tmpl
+				if _, exists := allTemplates[name]; !exists {
+					allTemplates[name] = tmpl
+				}
 			}
 		}
 	}
@@ -67,6 +71,8 @@ func RunLock(dir string) error {
 		}
 		for id, srv := range m.MCPServers {
 			if srv.Template == "" {
+				// Only templated instances are resolved in this phase;
+				// fully-inlined mcpServers are handled by the follow-up plan.
 				continue
 			}
 			tmpl := allTemplates[srv.Template]
@@ -123,6 +129,10 @@ func RunLock(dir string) error {
 				if r.Service != "" {
 					g.AddNode("svc:" + r.Service)
 					g.AddEdge("mcp:"+ti.id, "svc:"+r.Service)
+				}
+				if r.CLITool != "" {
+					g.AddNode("cli:" + r.CLITool)
+					g.AddEdge("mcp:"+ti.id, "cli:"+r.CLITool)
 				}
 			}
 		}
