@@ -24,8 +24,9 @@ type Manifest struct {
 	Hooks              map[string]Hook              `yaml:"hooks"`
 	Commands           map[string]Command           `yaml:"commands"`
 	ScheduledJobs      map[string]ScheduledJob      `yaml:"scheduledJobs"`
-	Targets            []string                     `yaml:"targets"`
-	Host               Host                         `yaml:"host"`
+	// Targets is the governed vocabulary of machine-target labels (spec §13).
+	Targets []string `yaml:"targets"`
+	Host    Host     `yaml:"host"`
 }
 
 // Source names a team/org layer to extend.
@@ -158,6 +159,8 @@ type ScheduledJob struct {
 // It lives in the personal layer; the AINFRA_TARGETS env var can override it
 // for ephemeral machines. Consumed at apply time, not at lock time.
 type Host struct {
+	// Targets are the labels THIS machine carries — a subset of the
+	// manifest-level Targets vocabulary.
 	Targets []string `yaml:"targets"`
 }
 

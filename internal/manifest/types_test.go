@@ -99,7 +99,7 @@ scheduledJobs:
 		t.Errorf("host.targets not parsed: %v", m.Host.Targets)
 	}
 	j := m.ScheduledJobs["nightly-health"]
-	if j.Schedule != "0 6 * * *" || j.Command == "" {
+	if j.Schedule != "0 6 * * *" || j.Command != `claude -p "check replication lag"` {
 		t.Errorf("job not parsed: %+v", j)
 	}
 	if len(j.RunsOn) != 1 || j.RunsOn[0] != "hub" {
