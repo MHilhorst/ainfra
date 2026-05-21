@@ -23,6 +23,10 @@ type Manifest struct {
 	MCPServers         map[string]MCPServer         `yaml:"mcpServers"`
 	Hooks              map[string]Hook              `yaml:"hooks"`
 	Commands           map[string]Command           `yaml:"commands"`
+	Skills             map[string]Skill             `yaml:"skills"`
+	Plugins            map[string]Plugin            `yaml:"plugins"`
+	Rules              map[string]Rule              `yaml:"rules"`
+	Tools              *Tools                       `yaml:"tools"`
 }
 
 // Source names a team/org layer to extend.
@@ -142,4 +146,51 @@ type Require struct {
 	Service      string `yaml:"service"`
 	CLITool      string `yaml:"cliTool"`
 	Precondition string `yaml:"precondition"`
+}
+
+// Skill is a Claude Code skill bundle (spec §10, channel 2).
+type Skill struct {
+	Source      string    `yaml:"source"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Plugin is an installable Claude Code plugin bundle (spec §10, channel 3).
+type Plugin struct {
+	Source      string    `yaml:"source"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Rule is a static context file — CLAUDE.md or similar (spec §10, channel 4).
+type Rule struct {
+	Target      string    `yaml:"target"`
+	Source      string    `yaml:"source"`
+	Version     string    `yaml:"version"`
+	Requires    []Require `yaml:"requires"`
+	Enabled     *bool     `yaml:"enabled"`
+	Overridable bool      `yaml:"overridable"`
+}
+
+// Tools is the tools channel — built-in toggles and permission policy
+// (spec §10, channel 5). One block per layer; a pointer so an absent block is
+// distinguishable from an empty one.
+type Tools struct {
+	Builtins    ToolBuiltins    `yaml:"builtins"`
+	Permissions ToolPermissions `yaml:"permissions"`
+}
+
+// ToolBuiltins lists built-in tools switched off team-wide.
+type ToolBuiltins struct {
+	Disabled []string `yaml:"disabled"`
+}
+
+// ToolPermissions is the allow/deny permission policy for tools.
+type ToolPermissions struct {
+	Allow []string `yaml:"allow"`
+	Deny  []string `yaml:"deny"`
 }

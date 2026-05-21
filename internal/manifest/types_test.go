@@ -40,6 +40,49 @@ mcpServers:
 	}
 }
 
+func TestUnmarshalNewChannels(t *testing.T) {
+	src := `version: 1
+skills:
+  debug:
+    source: "git+https://github.com/acme/skills.git@v1.4.0#debug"
+    version: "1.4.0"
+plugins:
+  tvt:
+    source: "npm:@acme/tvt-plugin@2.0.1"
+    version: "2.0.1"
+rules:
+  team:
+    target: CLAUDE.md
+    source: ./rules/team.md
+    version: "1"
+tools:
+  builtins:
+    disabled: [WebFetch]
+  permissions:
+    allow: ["Bash(go test:*)"]
+    deny: ["Bash(rm -rf:*)"]
+`
+	var m Manifest
+	if err := yaml.Unmarshal([]byte(src), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if m.Skills["debug"].Version != "1.4.0" {
+		t.Errorf("skill version = %q", m.Skills["debug"].Version)
+	}
+	if m.Plugins["tvt"].Source != "npm:@acme/tvt-plugin@2.0.1" {
+		t.Errorf("plugin source = %q", m.Plugins["tvt"].Source)
+	}
+	if m.Rules["team"].Target != "CLAUDE.md" {
+		t.Errorf("rule target = %q", m.Rules["team"].Target)
+	}
+	if m.Tools == nil || len(m.Tools.Builtins.Disabled) != 1 || m.Tools.Builtins.Disabled[0] != "WebFetch" {
+		t.Errorf("tools.builtins.disabled = %+v", m.Tools)
+	}
+	if m.Tools.Permissions.Deny[0] != "Bash(rm -rf:*)" {
+		t.Errorf("tools.permissions.deny = %+v", m.Tools.Permissions.Deny)
+	}
+}
+
 func TestManifestUnmarshalsHooksAndCommands(t *testing.T) {
 	src := []byte(`
 version: 1
