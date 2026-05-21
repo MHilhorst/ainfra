@@ -1,15 +1,15 @@
-package channels_test
+package claudecode_test
 
 import (
 	"encoding/json"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestPluginsChannel(t *testing.T) {
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	if got := p.Channel(); got != "plugins" {
 		t.Fatalf("Channel() = %q, want %q", got, "plugins")
 	}
@@ -19,7 +19,7 @@ func TestPluginsObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -38,7 +38,7 @@ func TestPluginsObserve_WithPlugins(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -89,7 +89,7 @@ func TestPluginsApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -151,7 +151,7 @@ func TestPluginsApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -203,7 +203,7 @@ func TestPluginsApply_NoopLeavesFileIdentical(t *testing.T) {
 
 	before, _ := mem.ReadFile("/repo/.claude/ainfra/plugins.json")
 
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -241,7 +241,7 @@ func TestPluginsApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Plugins{}
+	p := claudecode.Plugins{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)

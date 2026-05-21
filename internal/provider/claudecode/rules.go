@@ -1,4 +1,4 @@
-package channels
+package claudecode
 
 import (
 	"errors"

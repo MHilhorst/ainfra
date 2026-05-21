@@ -1,6 +1,6 @@
-// Package channels contains filesystem-channel providers for the ainfra
+// Package claudecode contains the Claude Code channel providers for the ainfra
 // reconciler. Each type implements provider.Provider for one channel kind.
-package channels
+package claudecode
 
 import (
 	"encoding/json"
