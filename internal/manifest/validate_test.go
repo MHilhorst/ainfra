@@ -123,3 +123,43 @@ func TestValidateAllResolvesCrossLayerTemplate(t *testing.T) {
 		t.Fatalf("cross-layer template should validate: %v", err)
 	}
 }
+
+func TestValidateRejectsRemoteSkillWithoutVersion(t *testing.T) {
+	m := &Manifest{Version: 1, Skills: map[string]Skill{
+		"s": {Source: "git+https://github.com/acme/skills.git@main#s"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "pin an exact version") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "skills.s" {
+		t.Errorf("path = %q", d.Path)
+	}
+}
+
+func TestValidateAcceptsLocalSkillWithoutVersion(t *testing.T) {
+	m := &Manifest{Version: 1, Skills: map[string]Skill{
+		"s": {Source: "./skills/s"},
+	}}
+	if err := Validate(m); err != nil {
+		t.Fatalf("local-path skill needs no version: %v", err)
+	}
+}
+
+func TestValidateRejectsSkillWithoutSource(t *testing.T) {
+	m := &Manifest{Version: 1, Skills: map[string]Skill{"s": {}}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "source") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsRemotePluginWithoutVersion(t *testing.T) {
+	m := &Manifest{Version: 1, Plugins: map[string]Plugin{
+		"p": {Source: "npm:@acme/p"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "pin an exact version") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}

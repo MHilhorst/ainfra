@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/diag"
 )
@@ -17,6 +18,13 @@ var hookEvents = map[string]bool{
 	"SessionStart": true, "SessionEnd": true, "UserPromptSubmit": true,
 	"PreToolUse": true, "PostToolUse": true, "Notification": true,
 	"Stop": true, "SubagentStop": true, "PreCompact": true,
+}
+
+// isRemoteSource reports whether a source string fetches from a remote
+// registry (git or npm) and therefore must pin an exact version — the same
+// drift-detection rule MCP servers follow (spec §5.1). A local path does not.
+func isRemoteSource(src string) bool {
+	return strings.HasPrefix(src, "git+") || strings.HasPrefix(src, "npm:")
 }
 
 // Validate runs static checks on a single manifest layer. It returns the first
@@ -87,6 +95,44 @@ func Validate(m *Manifest) error {
 				Path:    "commands." + id,
 				Detail:  fmt.Sprintf("Command %q has no source file.", id),
 				Hint:    "Add a source field pointing at the command's .md file.",
+			}
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
+		s := m.Skills[id]
+		if s.Source == "" {
+			return &diag.Diagnostic{
+				Summary: "skill declares no source",
+				Path:    "skills." + id,
+				Detail:  fmt.Sprintf("Skill %q has no source.", id),
+				Hint:    "Add a source field — a local path, git+https://… ref, or npm: ref.",
+			}
+		}
+		if isRemoteSource(s.Source) && s.Version == "" {
+			return &diag.Diagnostic{
+				Summary: "remote skill must pin an exact version",
+				Path:    "skills." + id,
+				Detail:  fmt.Sprintf("Skill %q fetches from a remote source but declares no version.", id),
+				Hint:    `Add a version field, e.g.  version: "1.4.0"`,
+			}
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
+		p := m.Plugins[id]
+		if p.Source == "" {
+			return &diag.Diagnostic{
+				Summary: "plugin declares no source",
+				Path:    "plugins." + id,
+				Detail:  fmt.Sprintf("Plugin %q has no source.", id),
+				Hint:    "Add a source field — an npm: ref or a marketplace ref.",
+			}
+		}
+		if isRemoteSource(p.Source) && p.Version == "" {
+			return &diag.Diagnostic{
+				Summary: "remote plugin must pin an exact version",
+				Path:    "plugins." + id,
+				Detail:  fmt.Sprintf("Plugin %q fetches from a remote source but declares no version.", id),
+				Hint:    `Add a version field, e.g.  version: "2.0.1"`,
 			}
 		}
 	}
