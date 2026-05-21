@@ -69,6 +69,38 @@ func TestReadSparseFileInitialisesMaps(t *testing.T) {
 	got.Entries.CLITools["f"] = Entry{}
 }
 
+func TestReadInitialisesNewChannelMaps(t *testing.T) {
+	l, err := Read(filepath.Join(t.TempDir(), "absent.lock"))
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	if l.Entries.Skills == nil || l.Entries.Plugins == nil ||
+		l.Entries.Rules == nil || l.Entries.Tools == nil {
+		t.Errorf("new channel maps must be non-nil: %+v", l.Entries)
+	}
+}
+
+func TestEntryRoundTripsRequires(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "ainfra.lock")
+	in := &Lock{Version: 1, Entries: Entries{
+		Skills: map[string]Entry{
+			"s": {Layer: "repo", ContentHash: "sha256:x", Requires: []string{"cli:node"}},
+		},
+	}}
+	if err := Write(path, in); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	out, err := Read(path)
+	if err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	got := out.Entries.Skills["s"].Requires
+	if len(got) != 1 || got[0] != "cli:node" {
+		t.Errorf("requires round-trip = %v", got)
+	}
+}
+
 func writeFile(t *testing.T, path, body string) error {
 	t.Helper()
 	return os.WriteFile(path, []byte(body), 0o644)

@@ -45,6 +45,18 @@ func ensureMaps(l *Lock) *Lock {
 	if l.Entries.CLITools == nil {
 		l.Entries.CLITools = map[string]Entry{}
 	}
+	if l.Entries.Skills == nil {
+		l.Entries.Skills = map[string]Entry{}
+	}
+	if l.Entries.Plugins == nil {
+		l.Entries.Plugins = map[string]Entry{}
+	}
+	if l.Entries.Rules == nil {
+		l.Entries.Rules = map[string]Entry{}
+	}
+	if l.Entries.Tools == nil {
+		l.Entries.Tools = map[string]Entry{}
+	}
 	return l
 }
 

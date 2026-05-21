@@ -15,6 +15,10 @@ type Entries struct {
 	Hooks              map[string]Entry `yaml:"hooks"`
 	Commands           map[string]Entry `yaml:"commands"`
 	CLITools           map[string]Entry `yaml:"cliTools"`
+	Skills             map[string]Entry `yaml:"skills"`
+	Plugins            map[string]Entry `yaml:"plugins"`
+	Rules              map[string]Entry `yaml:"rules"`
+	Tools              map[string]Entry `yaml:"tools"`
 }
 
 // Entry is one resolved lock entry.
@@ -27,5 +31,6 @@ type Entry struct {
 	ToolsetHash     string         `yaml:"toolsetHash,omitempty"`
 	Constraint      string         `yaml:"constraint,omitempty"`
 	ResolvedVersion string         `yaml:"resolvedVersion,omitempty"`
+	Requires        []string       `yaml:"requires,omitempty"`
 	ContentHash     string         `yaml:"contentHash"`
 }
