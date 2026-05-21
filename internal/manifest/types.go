@@ -14,6 +14,7 @@ const (
 // Manifest is one parsed ainfra.yaml file (a single layer).
 type Manifest struct {
 	Version            int                          `yaml:"version"`
+	Agent              string                       `yaml:"agent,omitempty"`
 	Extends            []Source                     `yaml:"extends"`
 	Preconditions      map[string]Precondition      `yaml:"preconditions"`
 	CLITools           map[string]CLITool           `yaml:"cliTools"`
