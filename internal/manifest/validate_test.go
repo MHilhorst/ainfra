@@ -203,3 +203,66 @@ func TestValidateAllAcceptsKnownAgent(t *testing.T) {
 		t.Fatalf("unexpected error for a known agent: %v", err)
 	}
 }
+
+func TestValidateAllAcceptsChannelGatedAwayFromAgent(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Agent: "codex",
+			Hooks: map[string]Hook{
+				"gofmt": {Event: "PostToolUse", Command: "gofmt -w .", Agents: []string{"claude-code"}},
+			}},
+	}
+	if err := ValidateAll(layers); err != nil {
+		t.Fatalf("a hook gated to claude-code only must validate under agent codex: %v", err)
+	}
+}
+
+func TestValidateAllRejectsUngatedChannelUnsupportedByAgent(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Agent: "codex",
+			Hooks: map[string]Hook{
+				"gofmt": {Event: "PostToolUse", Command: "gofmt -w ."},
+			}},
+	}
+	d := asDiagnostic(t, ValidateAll(layers))
+	if !strings.Contains(d.Summary, "hooks") {
+		t.Errorf("summary = %q, want it to name the hooks channel", d.Summary)
+	}
+	if d.Path != "hooks.gofmt" {
+		t.Errorf("path = %q, want hooks.gofmt", d.Path)
+	}
+	if d.Hint == "" {
+		t.Error("expected a hint suggesting agents: gating")
+	}
+}
+
+func TestValidateAllRejectsEntryGatedToAnAgentThatCannotRenderIt(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Agent: "codex",
+			Hooks: map[string]Hook{
+				"gofmt": {Event: "PostToolUse", Command: "gofmt -w .", Agents: []string{"codex"}},
+			}},
+	}
+	d := asDiagnostic(t, ValidateAll(layers))
+	if !strings.Contains(d.Summary, "cannot render") {
+		t.Errorf("summary = %q, want it to say the agent cannot render the channel", d.Summary)
+	}
+	if d.Path != "hooks.gofmt" {
+		t.Errorf("path = %q, want hooks.gofmt", d.Path)
+	}
+}
+
+func TestValidateAllRejectsUnknownAgentInGatingList(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1,
+			MCPServers: map[string]MCPServer{
+				"github": {Command: "npx", Version: "0.6.2", Agents: []string{"emacs-doctor"}},
+			}},
+	}
+	d := asDiagnostic(t, ValidateAll(layers))
+	if !strings.Contains(d.Summary, "unknown agent") {
+		t.Errorf("summary = %q, want it to mention an unknown agent", d.Summary)
+	}
+	if d.Path != "mcpServers.github" {
+		t.Errorf("path = %q, want mcpServers.github", d.Path)
+	}
+}
