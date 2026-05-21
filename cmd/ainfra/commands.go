@@ -223,28 +223,59 @@ func runApply(ctx cli.Context, yes bool) int {
 	return 0
 }
 
-// newPendingCommand builds a command whose real behavior is not yet
-// implemented. It prints a clear message and exits 1.
-func newPendingCommand(name, summary, describes string) *cli.Command {
+func newCheckCommand() *cli.Command {
 	return &cli.Command{
-		Name:      name,
-		Summary:   summary,
-		UsageLine: "ainfra " + name,
-		Run: func(ctx cli.Context) int {
-			c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-			fmt.Fprintln(ctx.Stderr, c.Bold("ainfra "+name), "is not available yet.")
-			fmt.Fprintln(ctx.Stderr)
-			fmt.Fprintln(ctx.Stderr, "  "+describes)
-			fmt.Fprintln(ctx.Stderr, "  "+c.Dim("It depends on the channel provider layer — the next build phase."))
-			return 1
-		},
+		Name:      "check",
+		Summary:   "Verify the environment matches the lockfile; report drift",
+		UsageLine: "ainfra check",
+		Example:   "ainfra check",
+		Run:       runCheck,
 	}
 }
 
-func newCheckCommand() *cli.Command {
-	return newPendingCommand("check",
-		"Verify the environment matches the lockfile; report drift",
-		"check will compare the observed environment against ainfra.lock and report drift.")
+func runCheck(ctx cli.Context) int {
+	dir := ctx.Dir
+	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+
+	lockPath := filepath.Join(dir, "ainfra.lock")
+	if !fileExists(lockPath) {
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first"))
+		return 1
+	}
+
+	committed, err := lockfile.Read(lockPath)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
+	if err != nil {
+		personal = &lockfile.Lock{}
+	}
+	merged := mergeLocks(committed, personal)
+
+	orch := provider.NewOrchestrator(dir, buildEnv(dir), allProviders())
+	plans, err := orch.PlanAll(merged)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
+	allEmpty := true
+	for _, p := range plans {
+		if !p.Empty() {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		fmt.Fprintln(ctx.Stdout, "No drift.")
+		return 0
+	}
+
+	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+	ui.RenderPlan(ctx.Stdout, c, plans)
+	return 1
 }
 
 // checkPreconditions loads the manifest layers and runs all declared
