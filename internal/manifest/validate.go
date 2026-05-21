@@ -136,6 +136,57 @@ func Validate(m *Manifest) error {
 			}
 		}
 	}
+	for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
+		r := m.Rules[id]
+		if r.Source == "" {
+			return &diag.Diagnostic{
+				Summary: "rule declares no source",
+				Path:    "rules." + id,
+				Detail:  fmt.Sprintf("Rule %q has no source file.", id),
+				Hint:    "Add a source field pointing at the context file.",
+			}
+		}
+		if r.Target == "" {
+			return &diag.Diagnostic{
+				Summary: "rule declares no target",
+				Path:    "rules." + id,
+				Detail:  fmt.Sprintf("Rule %q does not say where its file lands.", id),
+				Hint:    "Add a target field, e.g.  target: CLAUDE.md",
+			}
+		}
+		if isRemoteSource(r.Source) && r.Version == "" {
+			return &diag.Diagnostic{
+				Summary: "remote rule must pin an exact version",
+				Path:    "rules." + id,
+				Detail:  fmt.Sprintf("Rule %q fetches from a remote source but declares no version.", id),
+				Hint:    `Add a version field, e.g.  version: "1"`,
+			}
+		}
+	}
+	if m.Tools != nil {
+		check := func(field string, list []string) *diag.Diagnostic {
+			for i, v := range list {
+				if strings.TrimSpace(v) == "" {
+					return &diag.Diagnostic{
+						Summary: fmt.Sprintf("%s has an empty entry", field),
+						Path:    fmt.Sprintf("%s[%d]", field, i),
+						Detail:  "Every entry must be a non-empty string.",
+						Hint:    "Remove the blank entry or fill it in.",
+					}
+				}
+			}
+			return nil
+		}
+		if d := check("tools.builtins.disabled", m.Tools.Builtins.Disabled); d != nil {
+			return d
+		}
+		if d := check("tools.permissions.allow", m.Tools.Permissions.Allow); d != nil {
+			return d
+		}
+		if d := check("tools.permissions.deny", m.Tools.Permissions.Deny); d != nil {
+			return d
+		}
+	}
 	return nil
 }
 

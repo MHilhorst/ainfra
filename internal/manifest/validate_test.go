@@ -176,3 +176,46 @@ func TestValidateAcceptsValidSkillsAndPlugins(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateRejectsRuleWithoutTarget(t *testing.T) {
+	m := &Manifest{Version: 1, Rules: map[string]Rule{
+		"r": {Source: "./rules/r.md"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "target") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsRuleWithoutSource(t *testing.T) {
+	m := &Manifest{Version: 1, Rules: map[string]Rule{
+		"r": {Target: "CLAUDE.md"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "source") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsEmptyDisabledBuiltin(t *testing.T) {
+	m := &Manifest{Version: 1, Tools: &Tools{
+		Builtins: ToolBuiltins{Disabled: []string{""}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "empty") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateAcceptsValidNewChannels(t *testing.T) {
+	m := &Manifest{Version: 1,
+		Rules: map[string]Rule{"r": {Target: "CLAUDE.md", Source: "./rules/r.md"}},
+		Tools: &Tools{
+			Builtins:    ToolBuiltins{Disabled: []string{"WebFetch"}},
+			Permissions: ToolPermissions{Allow: []string{"Bash(go test:*)"}},
+		},
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
