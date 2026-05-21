@@ -14,6 +14,9 @@ type Filesystem interface {
 	Remove(path string) error
 	Stat(path string) (os.FileInfo, error)
 	MkdirAll(path string, perm os.FileMode) error
+	// ReadDir returns the base names of entries in the given directory.
+	// A missing directory returns an error satisfying os.IsNotExist.
+	ReadDir(path string) ([]string, error)
 }
 
 // CommandRunner runs an external command and returns its combined output.
@@ -38,6 +41,20 @@ func (OSFilesystem) WriteFile(p string, d []byte, m os.FileMode) error { return 
 func (OSFilesystem) Remove(p string) error                             { return os.Remove(p) }
 func (OSFilesystem) Stat(p string) (os.FileInfo, error)                { return os.Stat(p) }
 func (OSFilesystem) MkdirAll(p string, m os.FileMode) error            { return os.MkdirAll(p, m) }
+func (OSFilesystem) ReadDir(p string) ([]string, error) {
+	entries, err := os.ReadDir(p)
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names, nil
+}
+
+// Ensure OSFilesystem satisfies Filesystem at compile time.
+var _ Filesystem = OSFilesystem{}
 
 // ExecRunner is the real CommandRunner.
 type ExecRunner struct{}

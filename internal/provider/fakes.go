@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -44,6 +45,23 @@ func (m *MemFilesystem) Remove(p string) error {
 func (m *MemFilesystem) MkdirAll(p string, _ os.FileMode) error {
 	m.Dirs[p] = true
 	return nil
+}
+
+// ReadDir returns the base names of files whose path has dir as their immediate
+// parent directory. A directory that has no files and is not recorded in Dirs
+// returns an os.ErrNotExist error, matching os.ReadDir semantics.
+func (m *MemFilesystem) ReadDir(dir string) ([]string, error) {
+	var names []string
+	for p := range m.Files {
+		if filepath.Dir(p) == dir {
+			names = append(names, filepath.Base(p))
+		}
+	}
+	if len(names) == 0 && !m.Dirs[dir] {
+		return nil, &os.PathError{Op: "open", Path: dir, Err: os.ErrNotExist}
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // memFileInfo is the minimal os.FileInfo MemFilesystem.Stat returns.
