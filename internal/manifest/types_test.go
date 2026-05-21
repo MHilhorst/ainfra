@@ -74,38 +74,3 @@ commands:
 		t.Errorf("command not parsed: %+v", c)
 	}
 }
-
-func TestManifestUnmarshalsScheduledJobsAndHost(t *testing.T) {
-	src := []byte(`
-version: 1
-targets: [hub, laptop]
-host:
-  targets: [hub]
-scheduledJobs:
-  nightly-health:
-    schedule: "0 6 * * *"
-    command: claude -p "check replication lag"
-    runsOn: [hub]
-    requires: [ { cliTool: mysql-client } ]
-`)
-	var m Manifest
-	if err := yaml.Unmarshal(src, &m); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if len(m.Targets) != 2 || m.Targets[0] != "hub" {
-		t.Errorf("targets vocabulary not parsed: %v", m.Targets)
-	}
-	if len(m.Host.Targets) != 1 || m.Host.Targets[0] != "hub" {
-		t.Errorf("host.targets not parsed: %v", m.Host.Targets)
-	}
-	j := m.ScheduledJobs["nightly-health"]
-	if j.Schedule != "0 6 * * *" || j.Command != `claude -p "check replication lag"` {
-		t.Errorf("job not parsed: %+v", j)
-	}
-	if len(j.RunsOn) != 1 || j.RunsOn[0] != "hub" {
-		t.Errorf("runsOn not parsed: %v", j.RunsOn)
-	}
-	if len(j.Requires) != 1 || j.Requires[0].CLITool != "mysql-client" {
-		t.Errorf("requires not parsed: %v", j.Requires)
-	}
-}

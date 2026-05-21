@@ -42,9 +42,6 @@ func ensureMaps(l *Lock) *Lock {
 	if l.Entries.Commands == nil {
 		l.Entries.Commands = map[string]Entry{}
 	}
-	if l.Entries.ScheduledJobs == nil {
-		l.Entries.ScheduledJobs = map[string]Entry{}
-	}
 	if l.Entries.CLITools == nil {
 		l.Entries.CLITools = map[string]Entry{}
 	}
