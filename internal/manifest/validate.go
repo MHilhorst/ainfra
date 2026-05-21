@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/agent"
 	"github.com/MHilhorst/ainfra/internal/diag"
 )
 
@@ -179,6 +180,30 @@ func validateTools(t *Tools) error {
 	return nil
 }
 
+// agentFileFor names the source file for each layer, used to tag diagnostics
+// raised by the cross-layer agent checks.
+var agentFileFor = map[Layer]string{
+	LayerRepo:     "ainfra.yaml",
+	LayerPersonal: "ainfra.personal.yaml",
+	LayerTeam:     "(team layer)",
+}
+
+// validateAgentCapabilities resolves the target agent and rejects an unknown
+// agent id. Task 5 extends it with the per-entry capability check.
+func validateAgentCapabilities(layers map[Layer]*Manifest) error {
+	id, setLayer, _ := ResolveAgent(layers)
+	if !agent.Known(id) {
+		return &diag.Diagnostic{
+			Summary: fmt.Sprintf("unknown agent %q", id),
+			File:    agentFileFor[setLayer],
+			Path:    "agent",
+			Detail:  fmt.Sprintf("The agent field selects which AI agent ainfra renders for; %q is not one ainfra knows.", id),
+			Hint:    "Valid agents: claude-code, codex.",
+		}
+	}
+	return nil
+}
+
 // ValidateAll validates every present layer. It builds a cross-layer template
 // map first, so a lower layer may reference a template defined in a higher
 // one, then tags each diagnostic with the offending layer's file name.
@@ -217,5 +242,5 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 			return err
 		}
 	}
-	return nil
+	return validateAgentCapabilities(layers)
 }

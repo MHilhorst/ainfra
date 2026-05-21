@@ -175,3 +175,31 @@ func TestValidateAcceptsWellFormedChannels(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateAllRejectsUnknownAgent(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Agent: "emacs-doctor"},
+	}
+	d := asDiagnostic(t, ValidateAll(layers))
+	if !strings.Contains(d.Summary, "unknown agent") {
+		t.Errorf("summary = %q, want it to mention an unknown agent", d.Summary)
+	}
+	if d.Path != "agent" {
+		t.Errorf("path = %q, want agent", d.Path)
+	}
+	if d.File != "ainfra.yaml" {
+		t.Errorf("file = %q, want ainfra.yaml", d.File)
+	}
+	if d.Hint == "" {
+		t.Error("expected a hint listing valid agents")
+	}
+}
+
+func TestValidateAllAcceptsKnownAgent(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Agent: "codex"},
+	}
+	if err := ValidateAll(layers); err != nil {
+		t.Fatalf("unexpected error for a known agent: %v", err)
+	}
+}
