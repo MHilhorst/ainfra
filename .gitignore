@@ -1,0 +1,17 @@
+# Build output
+/dist/
+/aistack
+*.test
+
+# Personal layer — never committed (it is per-developer by definition)
+ai-stack.personal.yaml
+.aistack/personal.yaml
+
+# Resolved/generated runtime state
+.aistack/run/
+
+# Go
+/vendor/
+
+# OS
+.DS_Store

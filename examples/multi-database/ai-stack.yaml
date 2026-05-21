@@ -1,0 +1,121 @@
+version: 1
+
+# ---------------------------------------------------------------------------
+# Scenario 5 — the multi-database stress test (design §8, validation §5).
+#
+# Four MySQL databases, each reachable only through an SSH tunnel that itself
+# needs the team VPN. The design demands: ONE template, FOUR instances differing
+# only in host/database/user, the MCP -> tunnel -> cliTool -> VPN dependency
+# chain declared, secrets as references, and ports allocated by the tool.
+#
+# The human-declared intent for all four databases is the ~20 lines under
+# `mcpServers:` below. It replaces a ~200-line prose runbook.
+# ---------------------------------------------------------------------------
+
+# --- Verify-only: the tool checks this, never provisions it ------------------
+preconditions:
+  vpn-tvt-internal:
+    description: Team VPN must be connected to reach *.tvt.internal hosts.
+    check:
+      type: dns-resolves
+      host: bastion.tvt.internal
+    remediation: "Connect the team VPN, then re-run: aistack check"
+
+# --- Installable substrate ---------------------------------------------------
+cliTools:
+  ssh:
+    versionConstraint: ">=8.0"
+    check:
+      command: "ssh -V"
+      versionRegex: 'OpenSSH_(\d+\.\d+)'
+    # No `install:` block — ssh is OS-provided; declare-and-check fallback.
+  mysql-client:
+    versionConstraint: ">=8.0"
+    install:
+      brew: { formula: mysql-client }
+      apt:  { package: mysql-client }
+    check:
+      command: "mysql --version"
+      versionRegex: 'Ver (\d+\.\d+\.\d+)'
+
+# --- Reusable secret reference (one vault item, shared by the whole team) ----
+secrets:
+  bastion-ssh-key:
+    mode: direct
+    scope: shared
+    ref: "op://Engineering/bastion/ssh-private-key"
+
+# --- The single template every database instance reuses ----------------------
+templates:
+  mysql-over-ssh-tunnel:
+    description: A read-only MySQL MCP server reachable through an SSH tunnel.
+    params:
+      host:     { type: string, required: true }   # remote DB host
+      database: { type: string, required: true }   # schema name
+      sshUser:  { type: string, required: true }   # bastion login
+      readOnly: { type: bool,   default: true }
+    secrets:
+      dbPassword: { required: true }
+      sshKey:     { required: true }
+    resolved:
+      tunnelPort:
+        kind: allocated-port        # tool picks a free local port; no human types one
+      launcher:
+        kind: generated-script-path # tool writes the tunnel start/stop script here
+    produces:
+      mcpServer:
+        transport: stdio
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-mysql"]
+        version: "0.6.2"            # required: package-launched servers pin an exact version
+        env:
+          MYSQL_HOST: "127.0.0.1"
+          MYSQL_PORT: "${resolved.tunnelPort}"
+          MYSQL_DATABASE: "${params.database}"
+          MYSQL_USER: "${params.database}_ro"
+          MYSQL_PASSWORD: "${secret.dbPassword}"
+          MYSQL_READONLY: "${params.readOnly}"
+        requires:
+          - service: "${instance.id}-tunnel"
+      backgroundService:
+        id: "${instance.id}-tunnel"
+        kind: ssh-tunnel
+        spec:
+          localPort:  "${resolved.tunnelPort}"
+          remoteHost: "${params.host}"
+          remotePort: 3306
+          sshUser:    "${params.sshUser}"
+          sshHost:    bastion.tvt.internal
+          identity:   "${secret.sshKey}"
+          launcher:   "${resolved.launcher}"
+        requires:
+          - cliTool: ssh
+          - cliTool: mysql-client
+          - precondition: vpn-tvt-internal
+        lifecycle:
+          generateHook: SessionStart   # tool wires a Claude Code hook to start the tunnel
+        check:
+          type: port-listening
+          port: "${resolved.tunnelPort}"
+
+# --- The four instances: ONLY what differs between databases -----------------
+mcpServers:
+  analytics-db:
+    template: mysql-over-ssh-tunnel
+    params:  { host: analytics-db.tvt.internal, database: analytics, sshUser: deploy }
+    secret:  { dbPassword: { ref: "op://Engineering/analytics-db/ro-password" }, sshKey: bastion-ssh-key }
+
+  billing-db:
+    template: mysql-over-ssh-tunnel
+    params:  { host: billing-db.tvt.internal, database: billing, sshUser: deploy }
+    secret:  { dbPassword: { ref: "op://Engineering/billing-db/ro-password" }, sshKey: bastion-ssh-key }
+
+  catalog-db:
+    template: mysql-over-ssh-tunnel
+    params:  { host: catalog-db.tvt.internal, database: catalog, sshUser: deploy }
+    secret:  { dbPassword: { ref: "op://Engineering/catalog-db/ro-password" }, sshKey: bastion-ssh-key }
+
+  reporting-db:
+    template: mysql-over-ssh-tunnel
+    params:  { host: reporting-db.tvt.internal, database: reporting, sshUser: deploy }
+    secret:  { dbPassword: { ref: "op://Engineering/reporting-db/ro-password" }, sshKey: bastion-ssh-key }
