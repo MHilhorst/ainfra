@@ -32,14 +32,6 @@ func TestRunUnknownCommand(t *testing.T) {
 	}
 }
 
-func TestRunPlanIsPendingStub(t *testing.T) {
-	var errOut bytes.Buffer
-	code := run([]string{"plan"}, &bytes.Buffer{}, &errOut)
-	if code != 1 || !strings.Contains(errOut.String(), "not available yet") {
-		t.Errorf("plan stub: code=%d err=%q", code, errOut.String())
-	}
-}
-
 func TestRunLockOnMinimalManifest(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {

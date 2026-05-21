@@ -16,6 +16,7 @@ import (
 // Context is what a command's Run receives.
 type Context struct {
 	Args    []string  // positional args left after the command's flags
+	Stdin   io.Reader // where confirmation prompts and interactive input come from
 	Stdout  io.Writer // where normal output goes
 	Stderr  io.Writer // where errors go
 	NoColor bool      // resolved --no-color (from either flag position)
@@ -35,6 +36,7 @@ type Command struct {
 // Registry holds the registered commands and dispatches to them.
 type Registry struct {
 	commands []*Command
+	stdin    io.Reader
 	stdout   io.Writer
 	stderr   io.Writer
 	version  string
@@ -42,8 +44,11 @@ type Registry struct {
 
 // NewRegistry returns a Registry writing to the given streams.
 func NewRegistry(stdout, stderr io.Writer, version string) *Registry {
-	return &Registry{stdout: stdout, stderr: stderr, version: version}
+	return &Registry{stdin: os.Stdin, stdout: stdout, stderr: stderr, version: version}
 }
+
+// SetStdin sets the reader commands receive for interactive prompts.
+func (r *Registry) SetStdin(stdin io.Reader) { r.stdin = stdin }
 
 // Add registers a command. Registration order is the order shown in the
 // overview.
@@ -132,6 +137,7 @@ func (r *Registry) Dispatch(args []string) int {
 
 	return cmd.Run(Context{
 		Args:    fs.Args(),
+		Stdin:   r.stdin,
 		Stdout:  r.stdout,
 		Stderr:  r.stderr,
 		NoColor: *noColor || *localNoColor,

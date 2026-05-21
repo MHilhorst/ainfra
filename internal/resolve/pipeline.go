@@ -278,6 +278,17 @@ func RunLock(dir string) error {
 	return lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal)
 }
 
+// CurrentManifestHash loads the manifest layers from dir and returns the same
+// committed manifest hash that RunLock records in ainfra.lock. Callers use it
+// to detect whether the manifest has changed since the last lock run.
+func CurrentManifestHash(dir string) (string, error) {
+	layers, err := manifest.LoadLayers(dir)
+	if err != nil {
+		return "", err
+	}
+	return manifestHash(layers, manifest.LayerTeam, manifest.LayerRepo), nil
+}
+
 // manifestHash hashes only the named layers, so the committed lock's hash
 // depends on team+repo input alone and a personal-layer edit never dirties
 // the committed ainfra.lock. The YAML rendering is hashed so the digest
