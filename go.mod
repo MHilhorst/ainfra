@@ -1,4 +1,4 @@
-module github.com/MHilhorst/aistack
+module github.com/MHilhorst/ainfra
 
 go 1.25
 

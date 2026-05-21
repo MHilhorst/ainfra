@@ -13,8 +13,8 @@ func TestLoadLayersTagsEachLayer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("ai-stack.yaml", "version: 1\nmcpServers:\n  repo-srv: {command: x}\n")
-	write("ai-stack.personal.yaml", "version: 1\nmcpServers:\n  mine: {command: y}\n")
+	write("ainfra.yaml", "version: 1\nmcpServers:\n  repo-srv: {command: x}\n")
+	write("ainfra.personal.yaml", "version: 1\nmcpServers:\n  mine: {command: y}\n")
 
 	layers, err := LoadLayers(dir)
 	if err != nil {
@@ -30,7 +30,7 @@ func TestLoadLayersTagsEachLayer(t *testing.T) {
 
 func TestLoadLayersPersonalOptional(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "ai-stack.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	layers, err := LoadLayers(dir)

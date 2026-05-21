@@ -1,4 +1,4 @@
-// Package lockfile reads, writes, and hashes ai-stack.lock (spec Phase 2).
+// Package lockfile reads, writes, and hashes ainfra.lock (spec Phase 2).
 package lockfile
 
 import (
@@ -17,7 +17,7 @@ func ContentHash(v any) string {
 	if err != nil {
 		// v holds a type JSON cannot encode — a programming error. Hash the
 		// error text so the result stays deterministic instead of panicking.
-		data = []byte("aistack:unhashable:" + err.Error())
+		data = []byte("ainfra:unhashable:" + err.Error())
 	}
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])

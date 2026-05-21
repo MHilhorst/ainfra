@@ -13,13 +13,13 @@ import (
 // LoadLayers returns the directly-present layers only.
 func LoadLayers(dir string) (map[Layer]*Manifest, error) {
 	out := map[Layer]*Manifest{}
-	repo, err := loadFile(filepath.Join(dir, "ai-stack.yaml"))
+	repo, err := loadFile(filepath.Join(dir, "ainfra.yaml"))
 	if err != nil {
 		return nil, err
 	}
 	out[LayerRepo] = repo
 
-	personal, err := loadFile(filepath.Join(dir, "ai-stack.personal.yaml"))
+	personal, err := loadFile(filepath.Join(dir, "ainfra.personal.yaml"))
 	if err == nil {
 		out[LayerPersonal] = personal
 	} else if !os.IsNotExist(err) {

@@ -1,4 +1,4 @@
-# Phase 2 — Lockfile Schema (`ai-stack.lock`)
+# Phase 2 — Lockfile Schema (`ainfra.lock`)
 
 Status: **drafted.** The lockfile is the artifact that closes reproducibility
 *and* drift detection. It is generated, never hand-edited, and committed.
@@ -11,10 +11,10 @@ The manifest is *desired* state. The lockfile is *resolved* state — the
 manifest after templates are instantiated, layers merged, and tool-owned fields
 computed. Two jobs:
 
-1. **Reproducibility.** A second developer running `aistack apply` against the
+1. **Reproducibility.** A second developer running `ainfra apply` against the
    same manifest + lock gets the identical stack — including the *same*
    allocated ports, because they are recorded here, not re-derived.
-2. **Drift / rug-pull detection.** Each entry carries a content hash. `aistack
+2. **Drift / rug-pull detection.** Each entry carries a content hash. `ainfra
    check` recomputes hashes from the live environment; a mismatch is drift (an
    MCP server's schema changed, a skill's content changed, a file was edited).
 
@@ -150,15 +150,15 @@ lands in a committed file:
 
 | Lockfile | Contains | Committed? |
 |----------|----------|-----------|
-| `ai-stack.lock` | entries whose winning `layer` is `team` or `repo` | yes |
-| `ai-stack.personal.lock` | entries whose winning `layer` is `personal` | **no** — gitignored |
+| `ainfra.lock` | entries whose winning `layer` is `team` or `repo` | yes |
+| `ainfra.personal.lock` | entries whose winning `layer` is `personal` | **no** — gitignored |
 
-`aistack lock` writes both. `aistack apply` reads both. Personal entries still
+`ainfra lock` writes both. `ainfra apply` reads both. Personal entries still
 get sticky allocated ports — recorded in the personal lock — so a developer's
 own tunnels are as stable as the team's.
 
 This makes promotion (validation scenario 4) automatic: when a personal entry is
 moved into the team layer and committed, the next `lock` run finds its winning
-layer is now `team`, drops it from `ai-stack.personal.lock`, and writes it into
-`ai-stack.lock`. Its `contentHash` is unchanged, so teammates see a clean
+layer is now `team`, drops it from `ainfra.personal.lock`, and writes it into
+`ainfra.lock`. Its `contentHash` is unchanged, so teammates see a clean
 *addition*, not a churn.

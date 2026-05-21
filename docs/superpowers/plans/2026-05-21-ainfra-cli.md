@@ -1,14 +1,14 @@
-# aistack — Resolution Engine & `lock` Implementation Plan
+# ainfra — Resolution Engine & `lock` Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the resolution engine — manifest parsing, layer merge, template instantiation, dependency graph, port allocation, hashing — and the `aistack lock` command, proven end-to-end against `examples/multi-database/`.
+**Goal:** Build the resolution engine — manifest parsing, layer merge, template instantiation, dependency graph, port allocation, hashing — and the `ainfra lock` command, proven end-to-end against `examples/multi-database/`.
 
-**Architecture:** A pure pipeline. `manifest` loads and validates the three YAML layers. `resolve` instantiates templates, interpolates `${...}`, merges layers under the Option-C precedence rule, and allocates tool-owned ports. `graph` builds and topologically sorts the dependency graph. `lockfile` hashes resolved entries and reads/writes `ai-stack.lock`. `cmd/aistack` wires `lock`. Each package is pure and table-tested; no I/O outside `manifest` (read) and `lockfile` (write).
+**Architecture:** A pure pipeline. `manifest` loads and validates the three YAML layers. `resolve` instantiates templates, interpolates `${...}`, merges layers under the Option-C precedence rule, and allocates tool-owned ports. `graph` builds and topologically sorts the dependency graph. `lockfile` hashes resolved entries and reads/writes `ainfra.lock`. `cmd/ainfra` wires `lock`. Each package is pure and table-tested; no I/O outside `manifest` (read) and `lockfile` (write).
 
 **Tech Stack:** Go 1.25, stdlib only except `gopkg.in/yaml.v3` for YAML. `go test` for tests.
 
-**Scope note:** This plan delivers working software — `aistack lock` resolving the multi-database example. The channel *providers* (writing `.mcp.json`, installing CLI tools, generating tunnel scripts) and the `plan`/`apply`/`check`/`init` commands are a deliberate follow-up plan, written once the types below are concrete so it is not built on guessed signatures.
+**Scope note:** This plan delivers working software — `ainfra lock` resolving the multi-database example. The channel *providers* (writing `.mcp.json`, installing CLI tools, generating tunnel scripts) and the `plan`/`apply`/`check`/`init` commands are a deliberate follow-up plan, written once the types below are concrete so it is not built on guessed signatures.
 
 ---
 
@@ -16,7 +16,7 @@
 
 | File | Responsibility |
 |------|----------------|
-| `internal/manifest/types.go` | Go structs mirroring `ai-stack.yaml` (spec Phase 1). |
+| `internal/manifest/types.go` | Go structs mirroring `ainfra.yaml` (spec Phase 1). |
 | `internal/manifest/load.go` | Parse YAML; load repo + personal + `extends` team layers. |
 | `internal/manifest/validate.go` | Static validation: pinned versions, required params, secret bindings. |
 | `internal/resolve/interpolate.go` | `${params|instance|secret|resolved.X}` expansion. |
@@ -24,10 +24,10 @@
 | `internal/resolve/merge.go` | Option-C layer precedence merge. |
 | `internal/resolve/ports.go` | Allocate `kind: allocated-port` resolved fields. |
 | `internal/graph/graph.go` | Build dependency graph; topological sort; cycle detection. |
-| `internal/lockfile/types.go` | `ai-stack.lock` structs (spec Phase 2). |
+| `internal/lockfile/types.go` | `ainfra.lock` structs (spec Phase 2). |
 | `internal/lockfile/hash.go` | Normalized semantic content hashing. |
-| `internal/lockfile/io.go` | Read/write `ai-stack.lock` + `ai-stack.personal.lock`. |
-| `cmd/aistack/main.go` | Wire the `lock` subcommand (modify existing). |
+| `internal/lockfile/io.go` | Read/write `ainfra.lock` + `ainfra.personal.lock`. |
+| `cmd/ainfra/main.go` | Wire the `lock` subcommand (modify existing). |
 
 ---
 
@@ -97,7 +97,7 @@ Expected: FAIL — `undefined: Manifest`.
 - [ ] **Step 4: Write the types**
 
 ```go
-// Package manifest defines the ai-stack.yaml schema (spec/manifest-schema.md)
+// Package manifest defines the ainfra.yaml schema (spec/manifest-schema.md)
 // and loads it from the three config layers.
 package manifest
 
@@ -110,7 +110,7 @@ const (
 	LayerPersonal Layer = "personal"
 )
 
-// Manifest is one parsed ai-stack.yaml file (a single layer).
+// Manifest is one parsed ainfra.yaml file (a single layer).
 type Manifest struct {
 	Version            int                          `yaml:"version"`
 	Extends            []Source                     `yaml:"extends"`
@@ -255,8 +255,8 @@ func TestLoadLayersTagsEachLayer(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("ai-stack.yaml", "version: 1\nmcpServers:\n  repo-srv: {command: x}\n")
-	write("ai-stack.personal.yaml", "version: 1\nmcpServers:\n  mine: {command: y}\n")
+	write("ainfra.yaml", "version: 1\nmcpServers:\n  repo-srv: {command: x}\n")
+	write("ainfra.personal.yaml", "version: 1\nmcpServers:\n  mine: {command: y}\n")
 
 	layers, err := LoadLayers(dir)
 	if err != nil {
@@ -272,7 +272,7 @@ func TestLoadLayersTagsEachLayer(t *testing.T) {
 
 func TestLoadLayersPersonalOptional(t *testing.T) {
 	dir := t.TempDir()
-	os.WriteFile(filepath.Join(dir, "ai-stack.yaml"), []byte("version: 1\n"), 0o644)
+	os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644)
 	layers, err := LoadLayers(dir)
 	if err != nil {
 		t.Fatalf("LoadLayers: %v", err)
@@ -306,13 +306,13 @@ import (
 // LoadLayers returns the directly-present layers only.
 func LoadLayers(dir string) (map[Layer]*Manifest, error) {
 	out := map[Layer]*Manifest{}
-	repo, err := loadFile(filepath.Join(dir, "ai-stack.yaml"))
+	repo, err := loadFile(filepath.Join(dir, "ainfra.yaml"))
 	if err != nil {
 		return nil, err
 	}
 	out[LayerRepo] = repo
 
-	personal, err := loadFile(filepath.Join(dir, "ai-stack.personal.yaml"))
+	personal, err := loadFile(filepath.Join(dir, "ainfra.personal.yaml"))
 	if err == nil {
 		out[LayerPersonal] = personal
 	} else if !os.IsNotExist(err) {
@@ -620,7 +620,7 @@ package resolve
 import (
 	"testing"
 
-	"github.com/MHilhorst/aistack/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 func TestInstantiateProducesNamespacedService(t *testing.T) {
@@ -681,7 +681,7 @@ package resolve
 import (
 	"fmt"
 
-	"github.com/MHilhorst/aistack/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 // Instance is the resolved output of instantiating one template.
@@ -940,7 +940,7 @@ Expected: FAIL — `undefined: New`.
 - [ ] **Step 3: Write the implementation**
 
 ```go
-// Package graph builds and orders the aistack dependency graph (spec §9).
+// Package graph builds and orders the ainfra dependency graph (spec §9).
 package graph
 
 import (
@@ -1176,7 +1176,7 @@ Expected: FAIL — `undefined: ContentHash`.
 - [ ] **Step 3: Write the implementation**
 
 ```go
-// Package lockfile reads, writes, and hashes ai-stack.lock (spec Phase 2).
+// Package lockfile reads, writes, and hashes ainfra.lock (spec Phase 2).
 package lockfile
 
 import (
@@ -1266,7 +1266,7 @@ func TestWriteThenReadRoundTrips(t *testing.T) {
 				Resolved: map[string]any{"tunnelPort": 13306}},
 		}},
 	}
-	path := filepath.Join(dir, "ai-stack.lock")
+	path := filepath.Join(dir, "ainfra.lock")
 	if err := Write(path, lock); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -1301,7 +1301,7 @@ Expected: FAIL — `undefined: Lock`.
 // (internal/lockfile/types.go)
 package lockfile
 
-// Lock is one ai-stack.lock file (spec Phase 2).
+// Lock is one ainfra.lock file (spec Phase 2).
 type Lock struct {
 	Version      int     `yaml:"version"`
 	GeneratedAt  string  `yaml:"generatedAt"`
@@ -1369,7 +1369,7 @@ func Write(path string, l *Lock) error {
 	if err != nil {
 		return err
 	}
-	header := "# Generated by aistack. Do not edit by hand.\n"
+	header := "# Generated by ainfra. Do not edit by hand.\n"
 	return os.WriteFile(path, append([]byte(header), data...), 0o644)
 }
 ```
@@ -1388,12 +1388,12 @@ git commit -m "Add lockfile types and read/write I/O"
 
 ---
 
-## Task 11: Wire the `aistack lock` command
+## Task 11: Wire the `ainfra lock` command
 
 **Files:**
 - Create: `internal/resolve/pipeline.go`
-- Create: `cmd/aistack/lock.go`
-- Modify: `cmd/aistack/main.go:40-43` (the `case "init", ...` arm)
+- Create: `cmd/ainfra/lock.go`
+- Modify: `cmd/ainfra/main.go:40-43` (the `case "init", ...` arm)
 - Test: `internal/resolve/pipeline_test.go`
 
 The pipeline ties Tasks 2–10 together: load layers → validate → instantiate templates → allocate ports → build graph (fail on cycle) → hash entries → write both lock files.
@@ -1433,12 +1433,12 @@ mcpServers:
   db-a: { template: tun, params: { host: a.example } }
   db-b: { template: tun, params: { host: b.example } }
 `
-	os.WriteFile(filepath.Join(dir, "ai-stack.yaml"), []byte(manifestYAML), 0o644)
+	os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644)
 
 	if err := RunLock(dir); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "ai-stack.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
 		t.Fatalf("lock not written: %v", err)
 	}
@@ -1477,15 +1477,15 @@ import (
 	"sort"
 	"time"
 
-	"github.com/MHilhorst/aistack/internal/graph"
-	"github.com/MHilhorst/aistack/internal/lockfile"
-	"github.com/MHilhorst/aistack/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/graph"
+	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 const portBase = 13306
 
 // RunLock executes the full resolve pipeline for the repo at dir and writes
-// ai-stack.lock (team+repo entries) and ai-stack.personal.lock (personal).
+// ainfra.lock (team+repo entries) and ainfra.personal.lock (personal).
 func RunLock(dir string) error {
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
@@ -1497,7 +1497,7 @@ func RunLock(dir string) error {
 		}
 	}
 
-	prior, err := lockfile.Read(filepath.Join(dir, "ai-stack.lock"))
+	prior, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
 		return err
 	}
@@ -1589,10 +1589,10 @@ func RunLock(dir string) error {
 	}
 
 	committed, personal := splitByLayer(lock)
-	if err := lockfile.Write(filepath.Join(dir, "ai-stack.lock"), committed); err != nil {
+	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
 		return err
 	}
-	return lockfile.Write(filepath.Join(dir, "ai-stack.personal.lock"), personal)
+	return lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal)
 }
 
 func toAnyMap(m map[string]string) map[string]any {
@@ -1650,39 +1650,39 @@ Expected: PASS.
 - [ ] **Step 5: Write the command wiring**
 
 ```go
-// (cmd/aistack/lock.go)
+// (cmd/ainfra/lock.go)
 package main
 
 import (
 	"fmt"
 	"os"
 
-	"github.com/MHilhorst/aistack/internal/resolve"
+	"github.com/MHilhorst/ainfra/internal/resolve"
 )
 
-// cmdLock implements `aistack lock`.
+// cmdLock implements `ainfra lock`.
 func cmdLock() int {
 	wd, err := os.Getwd()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "aistack:", err)
+		fmt.Fprintln(os.Stderr, "ainfra:", err)
 		return 1
 	}
 	if err := resolve.RunLock(wd); err != nil {
-		fmt.Fprintln(os.Stderr, "aistack lock:", err)
+		fmt.Fprintln(os.Stderr, "ainfra lock:", err)
 		return 1
 	}
-	fmt.Println("aistack: wrote ai-stack.lock")
+	fmt.Println("ainfra: wrote ainfra.lock")
 	return 0
 }
 ```
 
-In `cmd/aistack/main.go`, replace the `case "init", "plan", "apply", "check", "lock":` arm so `lock` dispatches to `cmdLock()`:
+In `cmd/ainfra/main.go`, replace the `case "init", "plan", "apply", "check", "lock":` arm so `lock` dispatches to `cmdLock()`:
 
 ```go
 	case "lock":
 		return cmdLock()
 	case "init", "plan", "apply", "check":
-		fmt.Fprintf(os.Stderr, "aistack: %q is not implemented yet (see docs/superpowers/plans/)\n", args[0])
+		fmt.Fprintf(os.Stderr, "ainfra: %q is not implemented yet (see docs/superpowers/plans/)\n", args[0])
 		return 1
 ```
 
@@ -1693,14 +1693,14 @@ Expected: build succeeds; all packages PASS.
 
 - [ ] **Step 7: Smoke-test against the real example**
 
-Run: `cd examples/multi-database && go run ../../cmd/aistack lock && git diff --stat ai-stack.lock`
-Expected: `aistack: wrote ai-stack.lock`; the regenerated lock has four `mcpServers` entries with distinct `tunnelPort` values `13306`–`13309`.
+Run: `cd examples/multi-database && go run ../../cmd/ainfra lock && git diff --stat ainfra.lock`
+Expected: `ainfra: wrote ainfra.lock`; the regenerated lock has four `mcpServers` entries with distinct `tunnelPort` values `13306`–`13309`.
 
 - [ ] **Step 8: Commit**
 
 ```bash
-git add cmd/aistack/ internal/resolve/pipeline.go internal/resolve/pipeline_test.go
-git commit -m "Wire aistack lock command end-to-end"
+git add cmd/ainfra/ internal/resolve/pipeline.go internal/resolve/pipeline_test.go
+git commit -m "Wire ainfra lock command end-to-end"
 ```
 
 ---
@@ -1717,4 +1717,4 @@ git commit -m "Wire aistack lock command end-to-end"
 
 ## Follow-up plan (not in scope here)
 
-Once these types are concrete, write `docs/superpowers/plans/<date>-aistack-providers.md` covering: the `extends:` team-layer resolver; the channel provider interface (`resolve/plan/apply/check`); the MCP / cliTool / backgroundService / precondition providers; secret-resolver and package-manager adapters; and the `plan`, `apply`, `check`, and `init` commands.
+Once these types are concrete, write `docs/superpowers/plans/<date>-ainfra-providers.md` covering: the `extends:` team-layer resolver; the channel provider interface (`resolve/plan/apply/check`); the MCP / cliTool / backgroundService / precondition providers; secret-resolver and package-manager adapters; and the `plan`, `apply`, `check`, and `init` commands.

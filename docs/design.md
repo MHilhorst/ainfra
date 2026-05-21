@@ -1,4 +1,4 @@
-# aistack — Design
+# ainfra — Design
 
 This is the canonical, decided design. Sections 0–11 are stable. Section 12
 lists the two open items. The manifest *syntax* (Phase 1) is proven by the
@@ -140,8 +140,8 @@ what a normal package install needs.
 ## 10. Build phases
 
 - **Phase 0 — Foundation.** This repo and design.
-- **Phase 1 — Manifest schema (`ai-stack.yaml`).** See [spec](../spec/manifest-schema.md).
-- **Phase 2 — Lockfile schema (`ai-stack.lock`).** See [spec](../spec/lockfile-schema.md).
+- **Phase 1 — Manifest schema (`ainfra.yaml`).** See [spec](../spec/manifest-schema.md).
+- **Phase 2 — Lockfile schema (`ainfra.lock`).** See [spec](../spec/lockfile-schema.md).
 - **Phase 3 — Channel provider interface.** One contract every channel
   implements: `resolve() → plan() → apply() → check()`.
 - **Phase 4 — Resolution & precedence engine.** Merges the three layers under
@@ -154,11 +154,10 @@ Before implementation code, the Phase 1 + 2 schemas are run on paper against
 five scenarios. See [validation.md](validation.md). If the schemas cannot
 express all five cleanly, the schema is iterated — not the code.
 
-## 12. Open decisions
+## 12. Resolved decisions
 
 1. **Background-service install boundary.** Resolved as stated in §7: the tool
    declares, checks, and *generates* the service definition, and does **not**
-   run or own the daemon. Recorded here as confirmed.
-2. **Naming.** "ainfrastructure" was not settled and reads ambiguously. Working
-   name `aistack` is used throughout this repo. Not a blocker for build; to be
-   decided before any public launch.
+   run or own the daemon.
+2. **Naming.** Resolved: the project is named **`ainfra`** — CLI binary,
+   module, and the `ainfra.yaml` / `ainfra.lock` artifacts.

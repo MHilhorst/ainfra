@@ -1,4 +1,4 @@
-// Package graph builds and orders the aistack dependency graph (spec §9).
+// Package graph builds and orders the ainfra dependency graph (spec §9).
 package graph
 
 import (

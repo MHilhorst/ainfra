@@ -1,14 +1,15 @@
 # Build output
 /dist/
-/aistack
+/ainfra
 *.test
 
-# Personal layer — never committed (it is per-developer by definition)
-ai-stack.personal.yaml
-.aistack/personal.yaml
+# Personal layer — per-developer, never committed. Anchored to the repo root
+# only, so the tracked examples/ illustrations are not accidentally ignored.
+/ainfra.personal.yaml
+/ainfra.personal.lock
 
 # Resolved/generated runtime state
-.aistack/run/
+/.ainfra/
 
 # Go
 /vendor/

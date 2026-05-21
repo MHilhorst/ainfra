@@ -1,4 +1,4 @@
-// Package manifest defines the ai-stack.yaml schema (spec/manifest-schema.md)
+// Package manifest defines the ainfra.yaml schema (spec/manifest-schema.md)
 // and loads it from the three config layers.
 package manifest
 
@@ -11,7 +11,7 @@ const (
 	LayerPersonal Layer = "personal"
 )
 
-// Manifest is one parsed ai-stack.yaml file (a single layer).
+// Manifest is one parsed ainfra.yaml file (a single layer).
 type Manifest struct {
 	Version            int                          `yaml:"version"`
 	Extends            []Source                     `yaml:"extends"`

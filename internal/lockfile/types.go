@@ -1,6 +1,6 @@
 package lockfile
 
-// Lock is one ai-stack.lock file (spec Phase 2).
+// Lock is one ainfra.lock file (spec Phase 2).
 type Lock struct {
 	Version      int     `yaml:"version"`
 	GeneratedAt  string  `yaml:"generatedAt"`

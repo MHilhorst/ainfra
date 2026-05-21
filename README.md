@@ -1,8 +1,4 @@
-# aistack
-
-> Working name — see [§12 of the design](docs/design.md#12-open-decisions). `aistack`
-> is chosen to match the `ai-stack.yaml` / `ai-stack.lock` artifact names. Final naming
-> is deliberately deferred to before any public launch.
+# ainfra
 
 A Terraform-style CLI that defines a team's Claude Code setup as layered
 config-as-code and reconciles it — with a lockfile — onto any developer's machine.
@@ -19,9 +15,9 @@ silently.
 
 ## What this is — and is not
 
-`aistack` owns **declarative, cross-channel reconciliation with a lockfile**.
+`ainfra` owns **declarative, cross-channel reconciliation with a lockfile**.
 That is the unowned cell in the market. It is *not* a runtime MCP gateway —
-that category is saturated and on the official MCP roadmap. `aistack` *consumes*
+that category is saturated and on the official MCP roadmap. `ainfra` *consumes*
 gateways, secrets managers, and package managers as pluggable backends; it owns
 none of their runtimes.
 
@@ -34,8 +30,8 @@ Phase 0 (foundation) is in progress. The build sequence is:
 | Phase | Deliverable | State |
 |-------|-------------|-------|
 | 0 | This repo, design doc, validation gate | in progress |
-| 1 | Manifest schema (`ai-stack.yaml`) — [spec](spec/manifest-schema.md) | drafted, under validation |
-| 2 | Lockfile schema (`ai-stack.lock`) — [spec](spec/lockfile-schema.md) | drafted |
+| 1 | Manifest schema (`ainfra.yaml`) — [spec](spec/manifest-schema.md) | drafted, under validation |
+| 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | drafted |
 | 3 | Channel provider interface | planned |
 | 4 | Resolution & precedence engine | planned |
 | 5 | CLI surface (`init` / `plan` / `apply` / `check` / `lock`) | planned |
@@ -47,7 +43,7 @@ validated *on paper* against five scenarios — see
 ## Repository layout
 
 ```
-cmd/aistack/        CLI entry point
+cmd/ainfra/        CLI entry point
 internal/           Implementation packages (filled in per the plan)
 spec/               Schema specifications (Phase 1 & 2)
 examples/           Worked manifests — multi-database is the hardest case
@@ -58,5 +54,5 @@ docs/               Design, validation gate, implementation plan
 
 ```sh
 go build ./...
-go run ./cmd/aistack version
+go run ./cmd/ainfra version
 ```

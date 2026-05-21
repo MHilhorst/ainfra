@@ -1,0 +1,19 @@
+version: 1
+
+# Personal layer — gitignored, never committed (design §1, validation §4).
+#
+# This developer adds their own dev-replica database. It reuses the *team's*
+# `mysql-over-ssh-tunnel` template unchanged — the proof that templates are
+# shareable shapes, not copy-paste. The id `my-dev-replica` exists in no other
+# layer, so it is simply added with no precedence conflict.
+#
+# To promote it to the team: move this block into the team layer and commit.
+# Nothing about the block changes — only which file it lives in.
+
+mcpServers:
+  my-dev-replica:
+    template: mysql-over-ssh-tunnel
+    params:  { host: dev-replica.tvt.internal, database: analytics_dev, sshUser: m.hilhorst }
+    secret:
+      dbPassword: { mode: direct, scope: personal, ref: "op://Private/dev-replica/password" }
+      sshKey: bastion-ssh-key

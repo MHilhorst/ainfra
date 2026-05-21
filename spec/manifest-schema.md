@@ -1,4 +1,4 @@
-# Phase 1 — Manifest Schema (`ai-stack.yaml`)
+# Phase 1 — Manifest Schema (`ainfra.yaml`)
 
 Status: **drafted, under validation.** This spec is proven by
 [docs/validation.md](../docs/validation.md). If a validation scenario cannot be
@@ -16,18 +16,18 @@ Three layers merge into one resolved state:
 | Layer | File | Committed? | Authority |
 |-------|------|-----------|-----------|
 | Team | sourced via `extends:` | yes (in its own repo/package) | highest |
-| Repo | `ai-stack.yaml` (repo root) | yes | middle |
-| Personal | `ai-stack.personal.yaml` (repo root) | **no** — gitignored | lowest |
+| Repo | `ainfra.yaml` (repo root) | yes | middle |
+| Personal | `ainfra.personal.yaml` (repo root) | **no** — gitignored | lowest |
 
 The repo manifest names the team layer:
 
 ```yaml
 version: 1
 extends:
-  - source: git+https://github.com/acme/ai-stack-team.git@v3.1.0
+  - source: git+https://github.com/acme/ainfra-team.git@v3.1.0
 ```
 
-`source` schemes: a local path (`./team/ai-stack.team.yaml`), `git+https://…@<ref>`,
+`source` schemes: a local path (`./team/ainfra.team.yaml`), `git+https://…@<ref>`,
 or `npm:<pkg>@<version>`. A team layer may itself `extends:` an org layer; the
 chain is resolved depth-first, org-most first.
 
@@ -169,7 +169,7 @@ makes port collision structurally impossible: no human types a port.
 
 | `kind` | Tool behaviour |
 |--------|----------------|
-| `allocated-port` | Allocates a free local port, **stable across runs** — the chosen value is recorded in `ai-stack.lock` and reused. |
+| `allocated-port` | Allocates a free local port, **stable across runs** — the chosen value is recorded in `ainfra.lock` and reused. |
 | `generated-script-path` | Computes the path of a script the tool writes (e.g. a tunnel launcher). |
 | `rendered-hook` | Computes the Claude Code hook block the tool injects. |
 
@@ -246,7 +246,7 @@ preconditions:
     check:
       type: dns-resolves          # dns-resolves | tcp-reachable | file-exists | command-succeeds
       host: bastion.tvt.internal
-    remediation: "Connect the team VPN, then re-run aistack check."
+    remediation: "Connect the team VPN, then re-run ainfra check."
 ```
 
 `check` fails loudly with `remediation` text. The tool never tries to satisfy a

@@ -21,7 +21,7 @@ func TestWriteThenReadRoundTrips(t *testing.T) {
 			},
 		},
 	}
-	path := filepath.Join(dir, "ai-stack.lock")
+	path := filepath.Join(dir, "ainfra.lock")
 	if err := Write(path, lock); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestReadMissingFileReturnsEmptyLock(t *testing.T) {
 
 func TestReadSparseFileInitialisesMaps(t *testing.T) {
 	dir := t.TempDir()
-	path := filepath.Join(dir, "ai-stack.lock")
+	path := filepath.Join(dir, "ainfra.lock")
 	// A lockfile with no entries section at all.
 	if err := writeFile(t, path, "version: 1\n"); err != nil {
 		t.Fatal(err)

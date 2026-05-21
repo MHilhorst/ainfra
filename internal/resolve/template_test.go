@@ -3,7 +3,7 @@ package resolve
 import (
 	"testing"
 
-	"github.com/MHilhorst/aistack/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 func TestInstantiateProducesNamespacedService(t *testing.T) {

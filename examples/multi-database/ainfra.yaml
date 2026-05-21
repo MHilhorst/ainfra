@@ -19,7 +19,7 @@ preconditions:
     check:
       type: dns-resolves
       host: bastion.tvt.internal
-    remediation: "Connect the team VPN, then re-run: aistack check"
+    remediation: "Connect the team VPN, then re-run: ainfra check"
 
 # --- Installable substrate ---------------------------------------------------
 cliTools:

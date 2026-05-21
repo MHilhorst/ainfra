@@ -30,13 +30,13 @@ mcpServers:
   db-a: { template: tun, params: { host: a.example } }
   db-b: { template: tun, params: { host: b.example } }
 `
-	if err := os.WriteFile(filepath.Join(dir, "ai-stack.yaml"), []byte(manifestYAML), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := RunLock(dir); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "ai-stack.lock"))
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
 		t.Fatalf("lock not written: %v", err)
 	}

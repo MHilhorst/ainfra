@@ -3,7 +3,7 @@ package resolve
 import (
 	"fmt"
 
-	"github.com/MHilhorst/aistack/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 // Instance is the resolved output of instantiating one template.

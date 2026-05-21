@@ -12,8 +12,8 @@ to [spec/manifest-schema.md](../spec/manifest-schema.md) and
 
 ## Scenario 1 — A new developer onboards
 
-**Walk.** Dev clones the repo (`ai-stack.yaml` + `ai-stack.lock` committed),
-runs `aistack apply`. The tool: loads the repo layer, fetches the team layer
+**Walk.** Dev clones the repo (`ainfra.yaml` + `ainfra.lock` committed),
+runs `ainfra apply`. The tool: loads the repo layer, fetches the team layer
 named by `extends:`, merges under the Option-C precedence table, builds the
 dependency graph, walks it leaves-first — installs `cliTools`, verifies
 `preconditions`, generates + starts `backgroundServices`, then writes the six
@@ -31,9 +31,9 @@ resolver's own error — correct and loud.
 
 **Walk.** A maintainer changes `skills.disruption-debugging.version` from
 `1.4.0` to `1.5.0`. The merged manifest changes, so `manifestHash` changes.
-`aistack plan` re-resolves the skill, fetches `1.5.0`, computes its new
+`ainfra plan` re-resolves the skill, fetches `1.5.0`, computes its new
 `contentHash`, and renders a diff: `~ skills.disruption-debugging  1.4.0 →
-1.5.0`. `aistack apply` installs it and rewrites that lock entry.
+1.5.0`. `ainfra apply` installs it and rewrites that lock entry.
 
 **Holds.** No schema change. Skills pin an exact version and the lock carries a
 content hash — the diff is exact.
@@ -71,19 +71,19 @@ behavioural change even within a version. `check` fails loudly. **Holds.**
 
 ## Scenario 4 — A personal skill, then promoted to the team
 
-**Walk.** A dev adds a skill to `ai-stack.personal.yaml`. Its id exists in no
+**Walk.** A dev adds a skill to `ainfra.personal.yaml`. Its id exists in no
 other layer, so it is simply *added* — no precedence conflict. Later they
 promote it: move the block verbatim into the team layer and commit. For them,
 resolved state is unchanged (only the `layer` field moves). For teammates,
 `plan` shows one added entry.
 
-**The schema bent.** The lockfile is committed. If `aistack lock` had written
-the personal skill's resolved entry into `ai-stack.lock`, it would leak
+**The schema bent.** The lockfile is committed. If `ainfra lock` had written
+the personal skill's resolved entry into `ainfra.lock`, it would leak
 personal-layer config into a committed file — and churn it for every teammate.
 
 **Iteration 2 — applied:** the lockfile is layered like the manifest. Committed
-`ai-stack.lock` carries **only `team` + `repo`** entries. A gitignored
-`ai-stack.personal.lock` carries `personal` entries (and gives them sticky ports
+`ainfra.lock` carries **only `team` + `repo`** entries. A gitignored
+`ainfra.personal.lock` carries `personal` entries (and gives them sticky ports
 too). Promotion then does the right thing automatically: the entry moves from
 the personal lock to the committed lock on the next `lock`. Added to
 [lockfile-schema.md §7](../spec/lockfile-schema.md#7-the-lockfile-is-layered).
@@ -102,9 +102,9 @@ and a password `ref`. Each instance's `produces.backgroundService` is namespaced
 `${instance.id}-tunnel`, so the four tunnels are distinct by construction. The
 `requires` chain — `mcpServer → service → cliTool ssh + cliTool mysql-client →
 precondition vpn-tvt-internal` — is fully declared. `tunnelPort` is a `resolved`
-field of `kind: allocated-port`: `aistack lock`, holding the whole set, hands
+field of `kind: allocated-port`: `ainfra lock`, holding the whole set, hands
 out `13306..13309`; no human types a port, and collision is structurally
-impossible. `aistack check` walks the graph and, if the VPN is down, fails on
+impossible. `ainfra check` walks the graph and, if the VPN is down, fails on
 the `vpn-tvt-internal` precondition with its `remediation` text.
 
 **Holds, no schema change.** Human-declared intent for all four databases is
@@ -126,4 +126,4 @@ tool-owned-resolved separation (design §8) carries the weight.
 The gate is passed. Both iterations were found cheaply, on paper, exactly as
 §11 intends — and are now reflected in the specs. Implementation may proceed
 against the iterated schema; see
-[docs/superpowers/plans/2026-05-21-aistack-cli.md](superpowers/plans/2026-05-21-aistack-cli.md).
+[docs/superpowers/plans/2026-05-21-ainfra-cli.md](superpowers/plans/2026-05-21-ainfra-cli.md).

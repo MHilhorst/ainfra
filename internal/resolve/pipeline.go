@@ -6,17 +6,17 @@ import (
 	"sort"
 	"time"
 
-	"github.com/MHilhorst/aistack/internal/graph"
-	"github.com/MHilhorst/aistack/internal/lockfile"
-	"github.com/MHilhorst/aistack/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/graph"
+	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
-// portBase is the lowest local port aistack allocates for tunnels and other
+// portBase is the lowest local port ainfra allocates for tunnels and other
 // allocated-port resolved fields. 13306 sits just above the default MySQL port.
 const portBase = 13306
 
 // RunLock executes the full resolve pipeline for the repo at dir and writes
-// ai-stack.lock (team+repo entries) and ai-stack.personal.lock (personal).
+// ainfra.lock (team+repo entries) and ainfra.personal.lock (personal).
 func RunLock(dir string) error {
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
@@ -50,7 +50,7 @@ func RunLock(dir string) error {
 		}
 	}
 
-	prior, err := lockfile.Read(filepath.Join(dir, "ai-stack.lock"))
+	prior, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
 		return err
 	}
@@ -156,10 +156,10 @@ func RunLock(dir string) error {
 	}
 
 	committed, personal := splitByLayer(lock)
-	if err := lockfile.Write(filepath.Join(dir, "ai-stack.lock"), committed); err != nil {
+	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
 		return err
 	}
-	return lockfile.Write(filepath.Join(dir, "ai-stack.personal.lock"), personal)
+	return lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal)
 }
 
 func toAnyMap(m map[string]string) map[string]any {
