@@ -249,6 +249,47 @@ rules:
 	}
 }
 
+func TestManifestHashIgnoresPersonalLayer(t *testing.T) {
+	dir := t.TempDir()
+	repoYAML := `version: 1
+rules:
+  team: { target: CLAUDE.md, source: ./rules/team.md }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(repoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	first, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+
+	// Adding a personal layer must not change the committed lock's hash.
+	personalYAML := `version: 1
+rules:
+  mine: { target: CLAUDE.md, source: ./rules/mine.md }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"), []byte(personalYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock with personal layer: %v", err)
+	}
+	second, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	if first.ManifestHash == "" {
+		t.Fatal("committed lock has no manifest hash")
+	}
+	if second.ManifestHash != first.ManifestHash {
+		t.Errorf("committed manifest hash changed after adding a personal layer: %q -> %q",
+			first.ManifestHash, second.ManifestHash)
+	}
+}
+
 func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
 	// A hook and a command both depending on the same cliTool is not a cycle;

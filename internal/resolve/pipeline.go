@@ -11,6 +11,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/graph"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
+	"gopkg.in/yaml.v3"
 )
 
 // portBase is the lowest local port ainfra allocates for tunnels and other
@@ -266,7 +267,9 @@ func RunLock(dir string) error {
 
 // manifestHash hashes only the named layers, so the committed lock's hash
 // depends on team+repo input alone and a personal-layer edit never dirties
-// the committed ainfra.lock.
+// the committed ainfra.lock. The YAML rendering is hashed so the digest
+// reflects the manifest's declared field names and is stable regardless of
+// JSON-encoding behaviour.
 func manifestHash(layers map[manifest.Layer]*manifest.Manifest, want ...manifest.Layer) string {
 	subset := map[string]*manifest.Manifest{}
 	for _, ln := range want {
@@ -274,7 +277,11 @@ func manifestHash(layers map[manifest.Layer]*manifest.Manifest, want ...manifest
 			subset[string(ln)] = m
 		}
 	}
-	return lockfile.ContentHash(subset)
+	data, err := yaml.Marshal(subset)
+	if err != nil {
+		return lockfile.ContentHash(subset)
+	}
+	return lockfile.ContentHash(string(data))
 }
 
 func toAnyMap(m map[string]string) map[string]any {
