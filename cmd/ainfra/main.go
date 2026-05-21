@@ -19,6 +19,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg := cli.NewRegistry(stdout, stderr, version.Version)
 	reg.Add(newInitCommand())
 	reg.Add(newValidateCommand())
+	reg.Add(newSchemaCommand())
 	reg.Add(newLockCommand())
 	reg.Add(newPlanCommand())
 	reg.Add(newApplyCommand())
