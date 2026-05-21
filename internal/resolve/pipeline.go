@@ -96,6 +96,7 @@ func RunLock(dir string) error {
 			Skills:             map[string]lockfile.Entry{},
 			Plugins:            map[string]lockfile.Entry{},
 			Rules:              map[string]lockfile.Entry{},
+			Tools:              map[string]lockfile.Entry{},
 		}}
 
 	for _, ti := range insts {
@@ -212,6 +213,18 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		if m.Tools != nil {
+			node := "tools:" + string(layerName)
+			g.AddNode(node)
+			lock.Entries.Tools[string(layerName)] = lockfile.Entry{
+				Layer: string(layerName),
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"disabled": m.Tools.Builtins.Disabled,
+					"allow":    m.Tools.Permissions.Allow,
+					"deny":     m.Tools.Permissions.Deny,
+				}),
+			}
+		}
 	}
 
 	if _, err := g.TopoSort(); err != nil {
@@ -282,7 +295,8 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 			MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
 			Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
 			CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
-			Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{}}}
+			Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
+			Tools: map[string]lockfile.Entry{}}}
 	}
 	committed, personal = mk(), mk()
 	route := func(dst func(*lockfile.Lock) map[string]lockfile.Entry, src map[string]lockfile.Entry) {
@@ -301,5 +315,6 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Skills }, l.Entries.Skills)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Plugins }, l.Entries.Plugins)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Rules }, l.Entries.Rules)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Tools }, l.Entries.Tools)
 	return committed, personal
 }
