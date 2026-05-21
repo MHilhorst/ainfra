@@ -2,6 +2,7 @@ package channels
 
 import (
 	"errors"
+	"fmt"
 	iofs "io/fs"
 	"path/filepath"
 	"strings"
@@ -71,12 +72,15 @@ func (Rules) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 			var err error
 			switch c.Kind {
 			case provider.ChangeCreate, provider.ChangeUpdate:
+				target, _ := c.Resource.Payload["target"].(string)
+				if target == "" {
+					return provider.ApplyResult{}, fmt.Errorf("rule %q has no target", c.ID)
+				}
 				content, _ := c.Resource.Payload["content"].(string)
 				err = fsmerge.WriteOwnedFile(env.FS, fragmentPath(env, c.ID), []byte(content))
 				if err != nil {
 					return provider.ApplyResult{}, err
 				}
-				target, _ := c.Resource.Payload["target"].(string)
 				importPath := ".claude/ainfra/" + c.ID + ".md"
 				err = fsmerge.EnsureImportLine(env.FS, filepath.Join(env.Root, target), importPath)
 			case provider.ChangeDelete:

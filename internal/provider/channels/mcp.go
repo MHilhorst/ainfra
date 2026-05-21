@@ -74,6 +74,10 @@ func (MCP) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyRes
 		// ChangeDelete: contributes to ownedKeys but not desired, so the merge removes it.
 	}
 
+	if len(ownedKeys) == 0 {
+		return provider.ApplyResult{Channel: "mcpServers"}, nil
+	}
+
 	if !env.DryRun {
 		if err := fsmerge.MergeJSONKeys(env.FS, mcpPath(env), "mcpServers", desired, ownedKeys); err != nil {
 			return provider.ApplyResult{}, err

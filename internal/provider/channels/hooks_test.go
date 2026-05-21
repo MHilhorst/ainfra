@@ -233,6 +233,50 @@ func TestHooksApply_Delete(t *testing.T) {
 	}
 }
 
+func TestHooksApply_NoopLeavesFileIdentical(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	original := `{"hooks":{"existing":{"event":"SessionStart","command":"echo hi"}}}`
+	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	// All noop changes — ownedKeys will be empty after filtering.
+	plan := provider.ChannelPlan{
+		Channel: "hooks",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeNoop,
+				ID:   "existing",
+				Resource: provider.Resource{
+					ID:      "existing",
+					Channel: "hooks",
+					Payload: map[string]any{
+						"event":   "SessionStart",
+						"command": "echo hi",
+					},
+				},
+			},
+		},
+	}
+
+	before, _ := mem.ReadFile("/repo/.claude/settings.json")
+
+	p := channels.Hooks{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 0 {
+		t.Errorf("noop plan: expected 0 applied changes, got %d", len(result.Applied))
+	}
+
+	after, _ := mem.ReadFile("/repo/.claude/settings.json")
+	if string(before) != string(after) {
+		t.Errorf("noop plan modified the file: before=%q after=%q", before, after)
+	}
+}
+
 func TestHooksApply_DryRun(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	original := `{"hooks":{"existing":{"event":"SessionStart","command":"echo hi"}}}`

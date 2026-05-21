@@ -65,6 +65,67 @@ func TestOrchestratorPlanAndApply(t *testing.T) {
 	}
 }
 
+func TestOrchestratorBackfillsObservedHash(t *testing.T) {
+	root := t.TempDir()
+
+	// Write an applied ledger with one skills entry that has a known hash.
+	priorLock := &lockfile.Lock{
+		Version: 1,
+		Entries: lockfile.Entries{
+			Skills: map[string]lockfile.Entry{
+				"s": {Layer: "repo", ContentHash: "sha256:abc"},
+			},
+		},
+	}
+	if err := WriteApplied(root, priorLock); err != nil {
+		t.Fatalf("WriteApplied: %v", err)
+	}
+
+	// stubProvider whose Observe returns a resource with empty ContentHash.
+	skills := &stubProvider{
+		channel: "skills",
+		observed: []Resource{
+			{ID: "s", Channel: "skills"}, // ContentHash intentionally empty
+		},
+	}
+
+	o := NewOrchestrator(root, Env{}, []Provider{skills})
+
+	// Case 1: desired hash matches prior -> should be Noop -> plan is Empty.
+	desiredMatch := &lockfile.Lock{
+		Version: 1,
+		Entries: lockfile.Entries{
+			Skills: map[string]lockfile.Entry{
+				"s": {Layer: "repo", ContentHash: "sha256:abc"},
+			},
+		},
+	}
+	plan, err := o.PlanAll(desiredMatch)
+	if err != nil {
+		t.Fatalf("PlanAll (match): %v", err)
+	}
+	if !plan["skills"].Empty() {
+		t.Errorf("expected empty plan when desired hash matches backfilled hash, got %+v", plan["skills"])
+	}
+
+	// Case 2: desired hash differs from prior -> should be Update -> plan is NOT Empty.
+	desiredDiffer := &lockfile.Lock{
+		Version: 1,
+		Entries: lockfile.Entries{
+			Skills: map[string]lockfile.Entry{
+				"s": {Layer: "repo", ContentHash: "sha256:xyz"},
+			},
+		},
+	}
+	plan2, err := o.PlanAll(desiredDiffer)
+	if err != nil {
+		t.Fatalf("PlanAll (differ): %v", err)
+	}
+	if plan2["skills"].Empty() {
+		t.Errorf("expected non-empty plan when desired hash differs from backfilled hash, got empty")
+	}
+}
+
 func TestOrchestratorChannelOrder(t *testing.T) {
 	root := t.TempDir()
 	applyOrder := &[]string{}

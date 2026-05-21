@@ -209,6 +209,35 @@ func TestRulesApply_Delete(t *testing.T) {
 	}
 }
 
+func TestRulesApplyRejectsEmptyTarget(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	plan := provider.ChannelPlan{
+		Channel: "rules",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "no-todos",
+				Resource: provider.Resource{
+					ID:      "no-todos",
+					Channel: "rules",
+					Payload: map[string]any{
+						"content": "do not write TODO comments",
+						// no "target" key
+					},
+				},
+			},
+		},
+	}
+
+	p := channels.Rules{}
+	_, err := p.Apply(env, plan)
+	if err == nil {
+		t.Fatal("Apply: expected error for missing target, got nil")
+	}
+}
+
 func TestRulesApply_DryRun(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo", DryRun: true}

@@ -73,6 +73,10 @@ func (Hooks) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 		// ChangeDelete: contributes to ownedKeys but not desired, so the merge removes it.
 	}
 
+	if len(ownedKeys) == 0 {
+		return provider.ApplyResult{Channel: "hooks"}, nil
+	}
+
 	if !env.DryRun {
 		if err := fsmerge.MergeJSONKeys(env.FS, hooksPath(env), "hooks", desired, ownedKeys); err != nil {
 			return provider.ApplyResult{}, err

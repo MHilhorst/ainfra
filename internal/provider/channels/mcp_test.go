@@ -183,6 +183,47 @@ func TestMCPApply_Delete(t *testing.T) {
 	}
 }
 
+func TestMCPApply_NoopLeavesFileIdentical(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	original := `{"mcpServers":{"existing":{"command":"cmd"}}}`
+	if err := mem.WriteFile("/repo/.mcp.json", []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	// All noop changes — ownedKeys will be empty after filtering.
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeNoop,
+				ID:   "existing",
+				Resource: provider.Resource{
+					ID:      "existing",
+					Channel: "mcpServers",
+					Payload: map[string]any{"command": "cmd"},
+				},
+			},
+		},
+	}
+
+	before, _ := mem.ReadFile("/repo/.mcp.json")
+
+	p := channels.MCP{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 0 {
+		t.Errorf("noop plan: expected 0 applied changes, got %d", len(result.Applied))
+	}
+
+	after, _ := mem.ReadFile("/repo/.mcp.json")
+	if string(before) != string(after) {
+		t.Errorf("noop plan modified the file: before=%q after=%q", before, after)
+	}
+}
+
 func TestMCPApply_DryRun(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	original := `{"mcpServers":{"existing":{"command":"cmd"}}}`
