@@ -25,7 +25,7 @@ func RunLock(dir string) error {
 		return err
 	}
 	// Merge templates across layers, so a lower layer can reference a template
-	// declared higher up.
+	// declared higher up. The resolve phase below reuses this map.
 	allTemplates := map[string]manifest.Template{}
 	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
 		if m, ok := layers[layerName]; ok {
@@ -37,13 +37,11 @@ func RunLock(dir string) error {
 		}
 	}
 
-	// Validate each layer against the merged templates.
-	for _, m := range layers {
-		copied := *m
-		copied.Templates = allTemplates
-		if err := manifest.Validate(&copied); err != nil {
-			return err
-		}
+	// Validate every layer. ValidateAll merges templates across layers and
+	// tags each diagnostic with its source file — the same check
+	// `ainfra validate` runs.
+	if err := manifest.ValidateAll(layers); err != nil {
+		return err
 	}
 
 	prior, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))

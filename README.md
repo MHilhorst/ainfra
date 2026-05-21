@@ -50,9 +50,17 @@ examples/           Worked manifests — multi-database is the hardest case
 docs/               Design, validation gate, implementation plan
 ```
 
-## Build
+## Quick start
 
 ```sh
-go build ./...
-go run ./cmd/ainfra version
+go build -o ainfra ./cmd/ainfra
+ainfra version
 ```
+
+A developer joining a team runs `ainfra plan` then `ainfra apply`. Someone
+authoring a setup runs `ainfra init`, edits `ainfra.yaml`, then `ainfra lock`.
+See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough and the
+`examples/multi-database/` worked example.
+
+Run `ainfra --help` for the command list, or `ainfra <command> --help` for
+per-command detail.
