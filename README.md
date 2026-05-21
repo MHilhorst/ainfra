@@ -9,8 +9,8 @@ config-as-code: define it once in your repo, and every developer reproduces it
 identically with one command.
 
 Because ainfra pins and hashes every resolved version into a lockfile, "we're
-in sync" is something you can *verify* — not hope for. Drift gets caught. A
-skill or server that changes silently gets caught.
+in sync" is something you can *verify* — not hope for: a skill or server that
+drifts on a teammate's machine, or changes silently upstream, gets caught.
 
 ## What this is — and is not
 
@@ -20,6 +20,12 @@ desired from observed state. It is *not* a runtime MCP gateway — that category
 is saturated and on the official MCP roadmap. ainfra *consumes* gateways,
 secrets managers, and package managers as pluggable backends; it owns none of
 their runtimes.
+
+There is nothing to lock into. ainfra reconciles a machine by writing the
+native config your AI tools already read — `.mcp.json`, the bundles under
+`.claude/`, `CLAUDE.md`. It is what puts those files in place and keeps them
+verified, not a runtime they depend on. Stop using ainfra tomorrow and every
+file it wrote still works, untouched.
 
 See [docs/design.md](docs/design.md) for the full, decided design.
 

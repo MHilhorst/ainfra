@@ -14,7 +14,10 @@ developer's machine. A lockfile pins and hashes every resolved version, so
 "in sync" is verifiable and drift is caught.
 
 Mechanically it is a Terraform-style CLI: a declarative manifest, `plan` before
-`apply`, a lockfile separating desired from observed state.
+`apply`, a lockfile separating desired from observed state. What it reconciles
+onto a machine is the native config the AI tools already read — `.mcp.json`,
+`.claude/` bundles, `CLAUDE.md` — so ainfra is never a runtime anything depends
+on: remove it and the files it wrote keep working.
 
 The market position is decided: runtime governance (MCP gateways) is a
 saturated, funded category on the official MCP roadmap — **do not build a
