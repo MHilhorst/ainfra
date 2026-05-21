@@ -142,6 +142,34 @@ tools:
 	}
 }
 
+func TestLockPipelineResolvesInlineMCPServer(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+mcpServers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    version: "2025.4.0"
+    transport: stdio
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("lock not written: %v", err)
+	}
+	out := string(data)
+	for _, want := range []string{"github", "version: 2025.4.0", "contentHash:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lock missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
 func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
 	// A hook and a command both depending on the same cliTool is not a cycle;

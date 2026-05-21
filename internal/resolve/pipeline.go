@@ -171,6 +171,25 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
+			srv := m.MCPServers[id]
+			if srv.Template != "" {
+				continue // templated servers are resolved in the first loop
+			}
+			node := "mcp:" + id
+			g.AddNode(node)
+			addRequireEdges(g, node, srv.Requires)
+			lock.Entries.MCPServers[id] = lockfile.Entry{
+				Layer:    string(layerName),
+				Version:  srv.Version,
+				Requires: requireRefs(srv.Requires),
+				ContentHash: lockfile.ContentHash(map[string]any{
+					"command": srv.Command, "args": srv.Args,
+					"version": srv.Version, "transport": srv.Transport,
+					"env": toAnyMap(srv.Env),
+				}),
+			}
+		}
 		for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
 			s := m.Skills[id]
 			node := "skill:" + id
