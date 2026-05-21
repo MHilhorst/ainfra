@@ -130,9 +130,11 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			}
 			c := m.Commands[id]
 			entry := merged.commands[id]
-			var content []byte
+			var content string
 			if c.Source != "" && !isRemoteSource(c.Source) {
-				content, _ = os.ReadFile(filepath.Join(dir, c.Source))
+				if raw, err := os.ReadFile(filepath.Join(dir, c.Source)); err == nil {
+					content = string(raw)
+				}
 			}
 			result["commands"] = append(result["commands"], provider.Resource{
 				ID:          id,
@@ -153,9 +155,11 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			}
 			r := m.Rules[id]
 			entry := merged.rules[id]
-			var content []byte
+			var content string
 			if r.Source != "" && !isRemoteSource(r.Source) {
-				content, _ = os.ReadFile(filepath.Join(dir, r.Source))
+				if raw, err := os.ReadFile(filepath.Join(dir, r.Source)); err == nil {
+					content = string(raw)
+				}
 			}
 			result["rules"] = append(result["rules"], provider.Resource{
 				ID:          id,

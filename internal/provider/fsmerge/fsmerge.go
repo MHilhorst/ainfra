@@ -66,6 +66,9 @@ func MergeJSONKeys(fs FS, path, topKey string, desired map[string]any, ownedKeys
 		return err
 	}
 
+	if err := fs.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	return fs.WriteFile(path, out, 0o644)
 }
 

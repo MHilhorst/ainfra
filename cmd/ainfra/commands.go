@@ -169,8 +169,15 @@ func runApply(ctx cli.Context, yes bool) int {
 	merged := mergeLocks(committed, personal)
 	warnIfStale(ctx, dir, committed)
 
+	// Render resources with Payload so providers can write file content.
+	rendered, err := resolve.RenderResources(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
 	orch := provider.NewOrchestrator(dir, buildEnv(dir), allProviders())
-	plans, err := orch.PlanAll(merged)
+	plans, err := orch.PlanAllRendered(rendered)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
@@ -214,7 +221,7 @@ func runApply(ctx cli.Context, yes bool) int {
 		}
 	}
 
-	if err := orch.ApplyAll(merged); err != nil {
+	if err := orch.ApplyAllRendered(rendered, merged); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}

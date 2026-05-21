@@ -49,9 +49,9 @@ per-command detail.
 | `init` | Scaffold an `ainfra.yaml` in the current repo (`--personal`, `--force`) |
 | `validate` | Static-check the manifest without resolving it |
 | `lock` | Resolve the manifest and write `ainfra.lock` |
-| `plan` | Preview the diff between desired and observed state *(pending the provider layer)* |
-| `apply` | Reconcile the environment to the manifest *(pending the provider layer)* |
-| `check` | Verify the environment matches the lockfile; report drift *(pending the provider layer)* |
+| `plan` | Preview the diff between desired and observed state |
+| `apply` | Reconcile the environment to the manifest |
+| `check` | Verify the environment matches the lockfile; report drift |
 | `version` | Print the ainfra version |
 
 Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color`
@@ -59,17 +59,18 @@ disables colored output.
 
 ## Status
 
-The manifest and lockfile schemas, the resolution engine, and the CLI surface
-are built. `init`, `validate`, `lock`, and `version` work end to end. `plan`,
-`apply`, and `check` are specified and stubbed — their real behaviour depends on
-the channel provider layer, which is the next build phase.
+The manifest and lockfile schemas, the resolution engine, the channel provider
+layer, and the full CLI surface are built. `init`, `validate`, `lock`,
+`version`, `plan`, `apply`, and `check` all work end to end. Remote (git/npm)
+source fetching, the pluggable secret resolver, and gateway adapters are
+follow-up phases.
 
 | Phase | Deliverable | State |
 |-------|-------------|-------|
 | 0 | Repo, design doc, validation gate | done |
 | 1 | Manifest schema (`ainfra.yaml`) — [spec](spec/manifest-schema.md) | implemented |
 | 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | implemented |
-| 3 | Channel provider interface — powers `plan` / `apply` / `check` | next |
+| 3 | Channel provider interface — powers `plan` / `apply` / `check` | done |
 | 4 | Resolution & precedence engine | done |
 | 5 | CLI surface (`init` / `validate` / `lock` / `version`) | done |
 

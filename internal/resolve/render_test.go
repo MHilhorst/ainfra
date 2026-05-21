@@ -112,7 +112,7 @@ rules:
 	if !ok {
 		t.Fatal("commands[0].Payload missing content key")
 	}
-	if string(gotContent.([]byte)) != string(cmdContent) {
+	if gotContent.(string) != string(cmdContent) {
 		t.Errorf("commands[0].Payload[content] = %q, want %q", gotContent, cmdContent)
 	}
 
@@ -135,7 +135,7 @@ rules:
 	if !ok {
 		t.Fatal("rules[0].Payload missing content key")
 	}
-	if string(gotRuleContent.([]byte)) != string(ruleContent) {
+	if gotRuleContent.(string) != string(ruleContent) {
 		t.Errorf("rules[0].Payload[content] = %q, want %q", gotRuleContent, ruleContent)
 	}
 }

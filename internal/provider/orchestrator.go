@@ -91,6 +91,69 @@ func (o *Orchestrator) ApplyAll(desired *lockfile.Lock) error {
 	return WriteApplied(o.root, desired)
 }
 
+// PlanAllRendered computes the per-channel diff using rendered resources (which
+// carry Payload) as the desired state rather than bare lockfile entries. The
+// observed state is read from the machine and the prior state from the applied
+// ledger as in PlanAll.
+func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[string]ChannelPlan, error) {
+	prior, err := ReadApplied(o.root)
+	if err != nil {
+		return nil, err
+	}
+
+	priorByCh := ResourcesByChannel(prior)
+
+	result := make(map[string]ChannelPlan, len(o.providers))
+	for _, ch := range o.sortedChannels() {
+		p := o.providers[ch]
+		observed, err := p.Observe(o.env)
+		if err != nil {
+			return nil, err
+		}
+		priorForCh := priorByCh[p.Channel()]
+		priorByID := make(map[string]Resource, len(priorForCh))
+		for _, r := range priorForCh {
+			priorByID[r.ID] = r
+		}
+		for i, obs := range observed {
+			if obs.ContentHash == "" {
+				if pr, ok := priorByID[obs.ID]; ok {
+					observed[i].ContentHash = pr.ContentHash
+				}
+			}
+		}
+		desiredForCh := rendered[p.Channel()]
+		plan := DiffResources(p.Channel(), desiredForCh, observed, priorForCh)
+		result[ch] = plan
+	}
+	return result, nil
+}
+
+// ApplyAllRendered applies rendered resources (which carry Payload) and on
+// success writes the applied ledger from desired (the lockfile that produced
+// the rendered resources). This is the correct path for apply: the lockfile
+// supplies content hashes for drift detection while the rendered resources
+// supply Payload for file writes.
+func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired *lockfile.Lock) error {
+	plans, err := o.PlanAllRendered(rendered)
+	if err != nil {
+		return err
+	}
+
+	for _, ch := range o.sortedChannels() {
+		plan := plans[ch]
+		if plan.Empty() {
+			continue
+		}
+		p := o.providers[ch]
+		if _, err := p.Apply(o.env, plan); err != nil {
+			return err
+		}
+	}
+
+	return WriteApplied(o.root, desired)
+}
+
 // sortedChannels returns registered channel names in dependency-aware order.
 // Channels listed in channelOrder come first (in that order); any remaining
 // registered channels are appended alphabetically.

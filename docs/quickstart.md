@@ -29,12 +29,13 @@ ainfra check    # verify nothing has drifted (safe to run anytime, incl. CI)
 ```
 
 `plan` is always safe — it changes nothing. `apply` asks for confirmation
-before it touches anything. `check` exits non-zero when it finds drift, so it
-works as a CI gate.
+before it touches anything (pass `--yes` to skip the prompt in CI). `check`
+exits non-zero when it finds drift, so it works as a CI gate.
 
-> `plan`, `apply`, and `check` are specified but not yet built — they depend on
-> the channel provider layer, the next build phase. Running them today prints a
-> short notice. `lock`, `init`, and `validate` work now.
+`ainfra plan` requires a committed `ainfra.lock`; run `ainfra lock` once after
+editing the manifest. Remote (git/npm) source fetching, the pluggable secret
+resolver, and gateway adapters are not yet implemented — local source files and
+inline MCP server definitions work today.
 
 ## Authoring a setup
 
