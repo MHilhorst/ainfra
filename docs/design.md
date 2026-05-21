@@ -17,9 +17,9 @@ with a lockfile. That is the product. The tool *consumes* gateways, secrets
 managers, and package managers as pluggable backends; it owns none of their
 runtimes.
 
-## 1. Scope — eight channels, two cross-cutting primitives
+## 1. Scope — nine channels, two cross-cutting primitives
 
-Eight configurable channels:
+Nine configurable channels:
 
 1. **MCP servers** — `.mcp.json` connections
 2. **Skills** — filesystem `.claude/skills/`
@@ -29,11 +29,13 @@ Eight configurable channels:
 6. **CLI tooling** — binaries the other channels depend on; a *substrate*, not a peer (§6)
 7. **Hooks** — automation bound to Claude Code lifecycle events
 8. **Commands** — slash commands
+9. **Scheduled jobs** — cron-style targeted infrastructure (a *distinct* kind of
+   channel: run on designated machines, not reproduced everywhere)
 
-> Channels 7–8 were added in Iteration 3: assessing the schema against a real
-> team config repo showed the original six could not express standalone hooks
-> and slash commands as managed, layerable config. See
-> [assessment-vs-real-config.md](assessment-vs-real-config.md).
+> Channels 7-8 were added in Iteration 3 and channel 9 in Iteration 4, after
+> assessing the schema against a real team config repo. Channel 9 is
+> deliberately framed as targeted infrastructure, not a per-developer channel.
+> See [assessment-vs-real-config.md](assessment-vs-real-config.md).
 
 Two cross-cutting primitives, touching every channel:
 

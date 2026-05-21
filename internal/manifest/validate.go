@@ -22,7 +22,9 @@ var hookEvents = map[string]bool{
 // Validate runs static checks on a single manifest layer. It returns the first
 // problem found as a *diag.Diagnostic; entries are checked in sorted-key order
 // so that first problem is deterministic. The diagnostic's File is left empty
-// — ValidateAll fills it from the layer.
+// — ValidateAll fills it from the layer. When a layer references templates or
+// target labels declared in another layer, the caller (ValidateAll) injects
+// the merged sets before calling Validate.
 func Validate(m *Manifest) error {
 	for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
 		srv := m.MCPServers[id]
@@ -88,15 +90,70 @@ func Validate(m *Manifest) error {
 			}
 		}
 	}
+	// Scheduled jobs and host targets are checked against the targets
+	// vocabulary. ValidateAll merges that vocabulary across layers first.
+	vocabulary := map[string]bool{}
+	for _, t := range m.Targets {
+		vocabulary[t] = true
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.ScheduledJobs)) {
+		j := m.ScheduledJobs[id]
+		if j.Schedule == "" {
+			return &diag.Diagnostic{
+				Summary: "scheduled job declares no schedule",
+				Path:    "scheduledJobs." + id,
+				Detail:  fmt.Sprintf("Job %q has no schedule.", id),
+				Hint:    `Add a schedule field, e.g.  schedule: "0 6 * * *"`,
+			}
+		}
+		if j.Command == "" {
+			return &diag.Diagnostic{
+				Summary: "scheduled job declares no command",
+				Path:    "scheduledJobs." + id,
+				Detail:  fmt.Sprintf("Job %q has nothing to run.", id),
+				Hint:    "Add a command field.",
+			}
+		}
+		if len(j.RunsOn) == 0 {
+			return &diag.Diagnostic{
+				Summary: "scheduled job declares no runsOn",
+				Path:    "scheduledJobs." + id,
+				Detail:  fmt.Sprintf("Job %q does not say which targets it runs on.", id),
+				Hint:    "Add a runsOn list of target labels from the targets vocabulary.",
+			}
+		}
+		for _, t := range j.RunsOn {
+			if !vocabulary[t] {
+				return &diag.Diagnostic{
+					Summary: fmt.Sprintf("runsOn target %q is not in the declared targets vocabulary", t),
+					Path:    "scheduledJobs." + id,
+					Detail:  fmt.Sprintf("Job %q runs on %q, which is not a declared target.", id, t),
+					Hint:    "Add the target to the top-level targets: list, or correct the name.",
+				}
+			}
+		}
+	}
+	for i, t := range m.Host.Targets {
+		if !vocabulary[t] {
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("host target %q is not in the declared targets vocabulary", t),
+				Path:    fmt.Sprintf("host.targets[%d]", i),
+				Detail:  fmt.Sprintf("This host claims target %q, which is not declared.", t),
+				Hint:    "Add the target to the top-level targets: list, or correct the name.",
+			}
+		}
+	}
 	return nil
 }
 
-// ValidateAll validates every present layer. It builds a cross-layer template
-// map first, so a lower layer may reference a template defined in a higher
-// one, then tags each diagnostic with the offending layer's file name.
+// ValidateAll validates every present layer. It first merges the template map
+// and the targets vocabulary across all layers — so a lower layer may
+// reference a template or target label declared higher up — then validates
+// each layer, tagging any diagnostic with the offending layer's file name.
 func ValidateAll(layers map[Layer]*Manifest) error {
 	order := []Layer{LayerTeam, LayerRepo, LayerPersonal}
 	allTemplates := map[string]Template{}
+	targetSet := map[string]bool{}
 	for _, ln := range order {
 		if m, ok := layers[ln]; ok {
 			for name, tmpl := range m.Templates {
@@ -104,8 +161,12 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 					allTemplates[name] = tmpl
 				}
 			}
+			for _, t := range m.Targets {
+				targetSet[t] = true
+			}
 		}
 	}
+	allTargets := slices.Sorted(maps.Keys(targetSet))
 	fileFor := map[Layer]string{
 		LayerRepo:     "ainfra.yaml",
 		LayerPersonal: "ainfra.personal.yaml",
@@ -116,13 +177,10 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 		if !ok {
 			continue
 		}
-		toValidate := m
-		if len(m.Templates) < len(allTemplates) {
-			copied := *m
-			copied.Templates = allTemplates
-			toValidate = &copied
-		}
-		if err := Validate(toValidate); err != nil {
+		copied := *m
+		copied.Templates = allTemplates
+		copied.Targets = allTargets
+		if err := Validate(&copied); err != nil {
 			if d, ok := err.(*diag.Diagnostic); ok && d.File == "" {
 				d.File = fileFor[ln]
 			}

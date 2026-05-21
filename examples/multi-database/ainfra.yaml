@@ -144,3 +144,16 @@ commands:
   db-console:
     source: ./commands/db-console.md
     description: Open a read-only MySQL console against one of the tunnelled databases.
+
+# --- Targets: the governed vocabulary of machine roles -----------------------
+targets: [hub, laptop]
+
+# --- Scheduled jobs: targeted infrastructure, run on designated machines -----
+scheduledJobs:
+  nightly-replication-check:
+    schedule: "0 6 * * *"
+    command: claude -p "Report overnight replication lag across the four databases."
+    runsOn: [hub]
+    description: Nightly read-only replication-lag check; runs on the hub only.
+    requires:
+      - cliTool: mysql-client

@@ -31,6 +31,7 @@ entries:
   backgroundServices:{ <id>: <entry> }
   hooks:             { <id>: <entry> }
   commands:          { <id>: <entry> }
+  scheduledJobs:     { <id>: <entry> }
   skills:            { <id>: <entry> }
   plugins:           { <id>: <entry> }
   rules:             { <id>: <entry> }
@@ -43,6 +44,10 @@ of the entry's declared config — so an edit to that config is caught by `check
 hook script's or command file's *contents* is a fast-follow, §6.) Both honour
 the layered-lockfile split of §7: personal-layer hooks and commands go to
 `ainfra.personal.lock`, never the committed file.
+
+`scheduledJobs` entries additionally record `runsOn` (the job's target labels)
+so the deferred `apply` step can filter per machine. The lockfile itself stays
+machine-agnostic — every job is recorded regardless of the current machine.
 
 `manifestHash` lets `plan` answer "did the inputs change?" in O(1) before doing
 per-entry work.

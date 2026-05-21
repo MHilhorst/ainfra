@@ -65,6 +65,9 @@ rules:              {}      # channel 4 — CLAUDE.md / context files
 tools:              {}      # channel 5 — built-in toggles + permissions
 hooks:              {}      # channel 7 — lifecycle automation (§11)
 commands:           {}      # channel 8 — slash commands (§12)
+scheduledJobs:      {}      # channel 9 — cron-style targeted jobs (§13)
+targets:            []      # the governed target vocabulary (§13)
+host:               {}      # this machine's target labels (§13)
 ```
 
 (Channel 6, CLI tooling, has no manifest key of its own — it is the `cliTools`
@@ -426,3 +429,47 @@ commands:
 `source` accepts the same schemes as `extends` (§1): a local path,
 `git+https://…@<ref>`, or `npm:<pkg>@<version>`. The lockfile records a content
 hash; for git/npm sources the pinned `version` is recorded too.
+
+---
+
+## 13. Channel 9 — Scheduled jobs
+
+> Added by Iteration 4. A *targeted-infrastructure* channel — deliberately
+> distinct from channels 1-8, which are per-developer environment. A scheduled
+> job runs on designated machines only, never reproduced everywhere. See
+> `docs/superpowers/specs/2026-05-21-scheduled-jobs-design.md`.
+
+The target vocabulary is a list of labels, declared by convention in the team
+layer but accepted at any layer (all layers' `targets` are merged):
+
+```yaml
+targets: [hub, laptop, ci]    # open to extend, but team-agreed
+```
+
+A scheduled job declares a cron `schedule`, a `command`, and the targets it
+`runsOn` (required — there is no "runs everywhere" default for infrastructure):
+
+```yaml
+scheduledJobs:
+  flare-triage:
+    schedule: "0 */4 * * *"
+    command: claude -p "$(cat prompts/flare-triage.md)"
+    source: ./scripts/flare-triage.sh   # optional bundled script
+    runsOn: [hub]                       # every label must be in `targets`
+    description: Triage new Flare errors.
+    requires:
+      - cliTool: claude
+```
+
+A machine declares which targets it carries, in its personal layer:
+
+```yaml
+host:
+  targets: [hub]
+```
+
+`ainfra` is local and registry-less: it labels a machine and *trusts* the team
+to label exactly one `hub`. It cannot detect a second accidental `hub`. A
+targeted job therefore trades uniform reproduction for **label-and-trust**;
+`check` gives the local guarantee only. The crontab generation and the
+`runsOn`-vs-machine filtering happen at `apply` time.

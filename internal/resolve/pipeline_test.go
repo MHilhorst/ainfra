@@ -101,3 +101,76 @@ commands:
 		t.Fatalf("clean hook+command manifest must not error: %v", err)
 	}
 }
+
+func TestLockPipelineResolvesScheduledJobs(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+targets: [hub, laptop]
+cliTools:
+  claude: { versionConstraint: ">=1" }
+scheduledJobs:
+  nightly-health:
+    schedule: "0 6 * * *"
+    command: claude -p "check replication lag"
+    runsOn: [hub]
+    requires: [ { cliTool: claude } ]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("lock not written: %v", err)
+	}
+	out := string(data)
+	for _, want := range []string{"scheduledJobs:", "nightly-health", "runsOn:", "hub", "contentHash:"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("lock missing %q\n---\n%s", want, out)
+		}
+	}
+}
+
+func TestLockPipelineRejectsRunsOnOutsideVocabulary(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+targets: [hub]
+scheduledJobs:
+  bad:
+    schedule: "0 6 * * *"
+    command: echo x
+    runsOn: [mars]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err == nil {
+		t.Fatal("want validation error for runsOn outside the vocabulary")
+	}
+}
+
+func TestLockPipelineAcceptsCrossLayerVocabulary(t *testing.T) {
+	dir := t.TempDir()
+	// The repo manifest's job targets `hub`, but `hub` is declared only in the
+	// personal layer's vocabulary. The merged vocabulary (repo + personal) must
+	// make this job validate.
+	repo := `version: 1
+scheduledJobs:
+  triage:
+    schedule: "0 */4 * * *"
+    command: echo triage
+    runsOn: [hub]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(repo), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"),
+		[]byte("version: 1\ntargets: [hub]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("cross-layer vocabulary must validate: %v", err)
+	}
+}
