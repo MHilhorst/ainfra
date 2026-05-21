@@ -49,3 +49,19 @@ func TestInstantiateRejectsMissingRequiredParam(t *testing.T) {
 		t.Fatal("want error for missing required param")
 	}
 }
+
+func TestInstantiateRejectsBadRequiresReference(t *testing.T) {
+	tmpl := manifest.Template{
+		Produces: manifest.Produces{
+			MCPServer: &manifest.MCPServer{
+				Command:  "npx",
+				Version:  "1.0.0",
+				Requires: []manifest.Require{{Service: "${instance.bogus}-tunnel"}},
+			},
+		},
+	}
+	_, err := Instantiate("x", manifest.MCPServer{Template: "t"}, tmpl, nil)
+	if err == nil {
+		t.Fatal("want error for bad ${...} reference in requires")
+	}
+}

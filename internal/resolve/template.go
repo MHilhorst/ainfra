@@ -48,7 +48,11 @@ func Instantiate(id string, inst manifest.MCPServer, tmpl manifest.Template, res
 			}
 			srv.Env[k] = ev
 		}
-		srv.Requires = interpolateRequires(src.Requires, scope)
+		var err error
+		srv.Requires, err = interpolateRequires(src.Requires, scope)
+		if err != nil {
+			return Instance{}, err
+		}
 		out.MCPServer = &srv
 	}
 	if src := tmpl.Produces.BackgroundService; src != nil {
@@ -63,19 +67,29 @@ func Instantiate(id string, inst manifest.MCPServer, tmpl manifest.Template, res
 			return Instance{}, err
 		}
 		svc.Spec = spec
-		svc.Requires = interpolateRequires(src.Requires, scope)
+		svc.Requires, err = interpolateRequires(src.Requires, scope)
+		if err != nil {
+			return Instance{}, err
+		}
 		out.Service = &svc
 	}
 	return out, nil
 }
 
-func interpolateRequires(reqs []manifest.Require, scope Scope) []manifest.Require {
+func interpolateRequires(reqs []manifest.Require, scope Scope) ([]manifest.Require, error) {
 	out := make([]manifest.Require, len(reqs))
 	for i, r := range reqs {
-		r.Service, _ = Interpolate(r.Service, scope)
-		r.CLITool, _ = Interpolate(r.CLITool, scope)
-		r.Precondition, _ = Interpolate(r.Precondition, scope)
+		var err error
+		if r.Service, err = Interpolate(r.Service, scope); err != nil {
+			return nil, err
+		}
+		if r.CLITool, err = Interpolate(r.CLITool, scope); err != nil {
+			return nil, err
+		}
+		if r.Precondition, err = Interpolate(r.Precondition, scope); err != nil {
+			return nil, err
+		}
 		out[i] = r
 	}
-	return out
+	return out, nil
 }
