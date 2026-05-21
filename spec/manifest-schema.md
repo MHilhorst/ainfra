@@ -46,6 +46,27 @@ This is Anthropic's enterprise > personal > project ordering as the default,
 plus a deliberate opt-in departure. The precedence engine (Phase 4) is the
 mechanical expression of this table.
 
+### 1.1 Singleton channels — union merge
+
+The table above resolves id-keyed channels entry by entry. The `tools` channel
+(§10) is different: it is a *singleton* whose fields are lists
+(`permissions.allow` / `ask` / `deny`, `builtins.disabled`). An id-keyed
+last-writer rule fits it badly — a personal layer that adds one `allow`
+pattern would replace the team's entire list.
+
+`tools` therefore **union-merges** across layers:
+
+- Each list is the union of that list across the team, repo, and personal
+  layers. The merge is order-independent and the result is sorted.
+- A lower-authority layer can only *extend* a list, never shrink it. A
+  developer may add permissions for their own tooling; they cannot delete a
+  team `deny` or re-enable a team-disabled built-in.
+- When a pattern lands in more than one permission tier after the union, the
+  strictest tier wins: **`deny` beats `ask` beats `allow`**.
+
+This is the Option-C freedom/guardrail balance expressed for a list-valued
+channel: additive by default, with team guardrails a lower layer cannot lift.
+
 ---
 
 ## 2. Top-level structure
@@ -335,29 +356,37 @@ background services, then write channel config. A cycle is a hard error.
 skills:
   disruption-debugging:
     source: "git+https://github.com/acme/skills.git@v1.4.0#disruption-debugging"
-    version: 1.4.0                # pinned; lock adds the content hash
+    version: "1.4.0"              # pinned; lock adds the content hash
 
 plugins:
   tvt-config:
     source: "npm:@acme/tvt-config-plugin@2.0.1"
-    version: 2.0.1
+    version: "2.0.1"
 
 rules:
   team-claude-md:
     target: CLAUDE.md             # where the file lands
     source: ./rules/team-claude.md
-    version: 1                    # lock adds the content hash
+    version: "1"                  # lock adds the content hash
 
 tools:
   builtins:
     disabled: [WebFetch]          # built-ins switched off team-wide
   permissions:
     allow: ["Bash(go build:*)", "Bash(go test:*)"]
+    ask:   ["Bash(git push:*)"]   # three-tier policy: allow / ask / deny
     deny:  ["Bash(rm -rf:*)"]
 ```
 
 `skills`, `plugins`, and `rules` pin an exact version; the lockfile adds a
-content hash for strong reproducibility and drift detection (Phase 2).
+content hash for strong reproducibility and drift detection (Phase 2). Version
+values are strings — quote them, so `version: "1"` is never misread as a
+number.
+
+`tools` is a singleton, not an id-keyed map. Its `permissions` channel is the
+three-tier Claude Code policy (`allow` / `ask` / `deny`). Across layers it
+union-merges under the rule in §1.1: lists are additive, and `deny` beats
+`ask` beats `allow` for any pattern that appears in more than one tier.
 
 ---
 
@@ -416,7 +445,7 @@ commands:
   db-console:
     source: ./commands/db-console.md   # required — local path, git, or npm ref
     description: Open a read-only MySQL console.   # optional
-    version: 1                                     # optional — for git/npm sources
+    version: "1"                                   # optional — for git/npm sources
     requires:
       - cliTool: mysql-client          # a command may depend on a CLI tool
     enabled: true
