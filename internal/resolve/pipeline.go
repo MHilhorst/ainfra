@@ -129,16 +129,7 @@ func RunLock(dir string) error {
 				"command": out.MCPServer.Command, "version": out.MCPServer.Version,
 				"env": toAnyMap(out.MCPServer.Env),
 			})
-			for _, r := range out.MCPServer.Requires {
-				if r.Service != "" {
-					g.AddNode("svc:" + r.Service)
-					g.AddEdge("mcp:"+ti.id, "svc:"+r.Service)
-				}
-				if r.CLITool != "" {
-					g.AddNode("cli:" + r.CLITool)
-					g.AddEdge("mcp:"+ti.id, "cli:"+r.CLITool)
-				}
-			}
+			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
 		}
 		lock.Entries.MCPServers[ti.id] = entry
 		if out.Service != nil {
@@ -147,12 +138,7 @@ func RunLock(dir string) error {
 				Layer: string(ti.layer), Resolved: resolved,
 				ContentHash: lockfile.ContentHash(out.Service.Spec),
 			}
-			for _, r := range out.Service.Requires {
-				if r.CLITool != "" {
-					g.AddNode("cli:" + r.CLITool)
-					g.AddEdge("svc:"+out.Service.ID, "cli:"+r.CLITool)
-				}
-			}
+			addRequireEdges(g, "svc:"+out.Service.ID, out.Service.Requires)
 		}
 	}
 	// Resolve the hooks and commands channels. Neither is templated: each entry

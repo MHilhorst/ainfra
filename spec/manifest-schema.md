@@ -394,8 +394,11 @@ hooks:
 matching tool names); it is ignored for other events.
 
 A hook with a `source` script is installed by the tool; `command` references
-the installed path. The lockfile records a content hash of the hook's declared
-config so a silent change to a hook fails `check`.
+the installed path. The lockfile records a content hash of the hook's *declared
+config* (event, matcher, command, source path, timeout), so an edit to that
+config is caught by `check`. Hashing the bundled `source` script's *contents*
+is a fast-follow — the same drift-coverage gap the lockfile spec notes for
+`skills` and `plugins`.
 
 This channel is distinct from the `generateHook` lifecycle field a background
 service uses (§8) — that field generates *one specific* SessionStart hook to

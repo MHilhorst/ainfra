@@ -82,13 +82,10 @@ commands:
 	}
 }
 
-func TestLockPipelineDetectsHookDependencyCycle(t *testing.T) {
+func TestLockPipelineAcceptsCleanHookAndCommandGraph(t *testing.T) {
 	dir := t.TempDir()
-	// A hook requires a background service whose template requires that hook —
-	// a cycle the graph must reject. Simpler: a service requires a cliTool the
-	// hook also depends on is NOT a cycle; instead build a direct cycle by
-	// having two hooks is impossible (hooks only require leaves). Verify the
-	// graph still validates a clean hook+command manifest without false cycles.
+	// A hook and a command both depending on the same cliTool is not a cycle;
+	// the graph must accept it without a false positive.
 	manifestYAML := `version: 1
 cliTools:
   gh: { versionConstraint: ">=2" }

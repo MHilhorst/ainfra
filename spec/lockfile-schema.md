@@ -38,8 +38,9 @@ entries:
 ```
 
 `hooks` and `commands` (manifest §11–§12) record a `layer` and a `contentHash`
-of the entry's declared config — so a silently altered hook or command fails
-`check` — and `commands` additionally records its pinned `version`. Both honour
+of the entry's declared config — so an edit to that config is caught by `check`
+— and `commands` additionally records its pinned `version`. (Hashing a sourced
+hook script's or command file's *contents* is a fast-follow, §6.) Both honour
 the layered-lockfile split of §7: personal-layer hooks and commands go to
 `ainfra.personal.lock`, never the committed file.
 
