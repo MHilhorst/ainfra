@@ -6,6 +6,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/channels"
 	"github.com/MHilhorst/ainfra/internal/provider/fetch"
+	"github.com/MHilhorst/ainfra/internal/provider/shared"
 )
 
 // allProviders returns all nine channel providers in a stable order.
@@ -17,7 +18,7 @@ func allProviders() []provider.Provider {
 		channels.Rules{},
 		channels.Skills{},
 		channels.Plugins{},
-		channels.CLITools{},
+		shared.CLITools{},
 		channels.Services{},
 		channels.Tools{},
 	}

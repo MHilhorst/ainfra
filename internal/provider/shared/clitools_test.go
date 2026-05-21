@@ -1,4 +1,4 @@
-package channels_test
+package shared_test
 
 import (
 	"errors"
@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/shared"
 )
 
 func TestCLIToolsChannel(t *testing.T) {
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	if got := p.Channel(); got != "cliTools" {
 		t.Fatalf("Channel() = %q, want %q", got, "cliTools")
 	}
@@ -20,7 +20,7 @@ func TestCLIToolsObserve_ReturnsNil(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -61,7 +61,7 @@ func TestCLIToolsApply_CreateWithBrew(t *testing.T) {
 		},
 	}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -116,7 +116,7 @@ func TestCLIToolsApply_CreateWithBrew_AlreadyInstalled(t *testing.T) {
 		},
 	}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -163,7 +163,7 @@ func TestCLIToolsApply_UnknownMethodToolAbsent_ReturnsError(t *testing.T) {
 		},
 	}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	_, err := p.Apply(env, plan)
 	if err == nil {
 		t.Fatal("Apply: expected error for absent tool with no supported install method, got nil")
@@ -203,7 +203,7 @@ func TestCLIToolsApply_UnknownMethodToolPresent(t *testing.T) {
 		},
 	}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -242,7 +242,7 @@ func TestCLIToolsApply_DryRun_NoInstall(t *testing.T) {
 		},
 	}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply DryRun: unexpected error: %v", err)
@@ -293,7 +293,7 @@ func TestCLIToolsApply_MultiMethodDeterministic(t *testing.T) {
 			},
 		}
 
-		p := channels.CLITools{}
+		p := shared.CLITools{}
 		_, err := p.Apply(env, plan)
 		if err != nil {
 			t.Fatalf("iteration %d: Apply: unexpected error: %v", i, err)
@@ -342,7 +342,7 @@ func TestCLIToolsApply_Delete_Noop(t *testing.T) {
 		},
 	}
 
-	p := channels.CLITools{}
+	p := shared.CLITools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply Delete: unexpected error: %v", err)
