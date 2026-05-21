@@ -1,11 +1,14 @@
 package resolve
 
-import "sort"
+import (
+	"fmt"
+	"sort"
+)
 
 // PortRequest names one allocated-port resolved field that needs a value.
 type PortRequest struct {
-	Instance string
-	Field    string
+	Instance string // the manifest instance id that owns the field
+	Field    string // the resolved-field name within that instance
 }
 
 // AllocatePorts assigns a distinct local port to every request. A request
@@ -38,6 +41,9 @@ func AllocatePorts(reqs []PortRequest, prior map[string]map[string]int, base int
 		p := base
 		for used[p] {
 			p++
+			if p > 65535 {
+				return nil, fmt.Errorf("port exhaustion: no free port at or above %d", base)
+			}
 		}
 		used[p] = true
 		out[r.Instance][r.Field] = p
