@@ -77,3 +77,56 @@ func TestValidateAcceptsValidHooksAndCommands(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestValidateRejectsScheduledJobWithoutSchedule(t *testing.T) {
+	m := &Manifest{Version: 1, Targets: []string{"hub"},
+		ScheduledJobs: map[string]ScheduledJob{
+			"j": {Command: "echo x", RunsOn: []string{"hub"}},
+		}}
+	err := Validate(m)
+	if err == nil || !strings.Contains(err.Error(), "schedule") {
+		t.Fatalf("want schedule error, got %v", err)
+	}
+}
+
+func TestValidateRejectsScheduledJobWithoutRunsOn(t *testing.T) {
+	m := &Manifest{Version: 1, Targets: []string{"hub"},
+		ScheduledJobs: map[string]ScheduledJob{
+			"j": {Schedule: "0 6 * * *", Command: "echo x"},
+		}}
+	err := Validate(m)
+	if err == nil || !strings.Contains(err.Error(), "runsOn") {
+		t.Fatalf("want runsOn error, got %v", err)
+	}
+}
+
+func TestValidateRejectsRunsOnOutsideVocabulary(t *testing.T) {
+	m := &Manifest{Version: 1, Targets: []string{"hub"},
+		ScheduledJobs: map[string]ScheduledJob{
+			"j": {Schedule: "0 6 * * *", Command: "echo x", RunsOn: []string{"mars"}},
+		}}
+	err := Validate(m)
+	if err == nil || !strings.Contains(err.Error(), "vocabulary") {
+		t.Fatalf("want vocabulary error, got %v", err)
+	}
+}
+
+func TestValidateRejectsHostTargetOutsideVocabulary(t *testing.T) {
+	m := &Manifest{Version: 1, Targets: []string{"hub"},
+		Host: Host{Targets: []string{"mars"}}}
+	err := Validate(m)
+	if err == nil || !strings.Contains(err.Error(), "vocabulary") {
+		t.Fatalf("want vocabulary error, got %v", err)
+	}
+}
+
+func TestValidateAcceptsValidScheduledJob(t *testing.T) {
+	m := &Manifest{Version: 1, Targets: []string{"hub", "laptop"},
+		Host: Host{Targets: []string{"hub"}},
+		ScheduledJobs: map[string]ScheduledJob{
+			"j": {Schedule: "0 6 * * *", Command: "echo x", RunsOn: []string{"hub"}},
+		}}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
