@@ -1,6 +1,7 @@
 package fsmerge
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -18,7 +19,7 @@ func newMemFS() *memFS {
 func (m *memFS) ReadFile(path string) ([]byte, error) {
 	d, ok := m.files[path]
 	if !ok {
-		return nil, &notExistError{path}
+		return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrNotExist}
 	}
 	return append([]byte(nil), d...), nil
 }
@@ -31,10 +32,6 @@ func (m *memFS) WriteFile(path string, data []byte, _ os.FileMode) error {
 func (m *memFS) MkdirAll(path string, _ os.FileMode) error {
 	return nil
 }
-
-type notExistError struct{ path string }
-
-func (e *notExistError) Error() string { return "not exist: " + e.path }
 
 func contains(s, substr string) bool {
 	return strings.Contains(s, substr)
@@ -82,5 +79,27 @@ func TestEnsureImportLineIdempotent(t *testing.T) {
 	out := string(fs.files["/CLAUDE.md"])
 	if n := countLines(out, "@.claude/ainfra/context.md"); n != 1 {
 		t.Errorf("import line appears %d times, want 1: %q", n, out)
+	}
+}
+
+// errFS always returns the given error from ReadFile and never writes.
+type errFS struct {
+	readErr error
+	wrote   bool
+}
+
+func (e *errFS) ReadFile(_ string) ([]byte, error)              { return nil, e.readErr }
+func (e *errFS) WriteFile(_ string, _ []byte, _ os.FileMode) error { e.wrote = true; return nil }
+func (e *errFS) MkdirAll(_ string, _ os.FileMode) error            { return nil }
+
+func TestMergeJSONKeysReturnsOtherReadErrors(t *testing.T) {
+	permErr := errors.New("permission denied")
+	fk := &errFS{readErr: permErr}
+	err := MergeJSONKeys(fk, "/c.json", "mcpServers", map[string]any{"k": 1}, []string{"k"})
+	if err == nil {
+		t.Fatal("expected error from MergeJSONKeys, got nil")
+	}
+	if fk.wrote {
+		t.Error("MergeJSONKeys must not write the file when ReadFile returns a non-not-exist error")
 	}
 }

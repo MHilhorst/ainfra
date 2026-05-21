@@ -6,6 +6,14 @@ import (
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 )
 
+// channelOrder is the order providers are observed and applied. Channels that
+// other channels depend on (cliTools install binaries, backgroundServices are
+// required by MCP servers) come first.
+var channelOrder = []string{
+	"cliTools", "backgroundServices", "mcpServers",
+	"skills", "plugins", "rules", "tools", "hooks", "commands",
+}
+
 // Orchestrator loads locks, reads the applied ledger, and drives all registered
 // providers through plan and apply in a deterministic order.
 type Orchestrator struct {
@@ -71,12 +79,27 @@ func (o *Orchestrator) ApplyAll(desired *lockfile.Lock) error {
 	return WriteApplied(o.root, desired)
 }
 
-// sortedChannels returns the registered channel names in deterministic order.
+// sortedChannels returns registered channel names in dependency-aware order.
+// Channels listed in channelOrder come first (in that order); any remaining
+// registered channels are appended alphabetically.
 func (o *Orchestrator) sortedChannels() []string {
-	channels := make([]string, 0, len(o.providers))
-	for ch := range o.providers {
-		channels = append(channels, ch)
+	seen := make(map[string]bool, len(o.providers))
+	result := make([]string, 0, len(o.providers))
+
+	for _, ch := range channelOrder {
+		if _, ok := o.providers[ch]; ok {
+			result = append(result, ch)
+			seen[ch] = true
+		}
 	}
-	sort.Strings(channels)
-	return channels
+
+	remaining := make([]string, 0)
+	for ch := range o.providers {
+		if !seen[ch] {
+			remaining = append(remaining, ch)
+		}
+	}
+	sort.Strings(remaining)
+	result = append(result, remaining...)
+	return result
 }

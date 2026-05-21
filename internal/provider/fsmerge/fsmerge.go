@@ -6,6 +6,8 @@ package fsmerge
 
 import (
 	"encoding/json"
+	"errors"
+	iofs "io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,8 +30,10 @@ type FS interface {
 // preserved untouched.
 func MergeJSONKeys(fs FS, path, topKey string, desired map[string]any, ownedKeys []string) error {
 	raw, err := fs.ReadFile(path)
-	if err != nil {
+	if errors.Is(err, iofs.ErrNotExist) {
 		raw = []byte("{}")
+	} else if err != nil {
+		return err
 	}
 
 	var doc map[string]any
@@ -79,8 +83,10 @@ func WriteOwnedFile(fs FS, path string, content []byte) error {
 // idempotent.
 func EnsureImportLine(fs FS, claudeMdPath, importPath string) error {
 	raw, err := fs.ReadFile(claudeMdPath)
-	if err != nil {
+	if errors.Is(err, iofs.ErrNotExist) {
 		raw = []byte{}
+	} else if err != nil {
+		return err
 	}
 
 	line := "@" + importPath
