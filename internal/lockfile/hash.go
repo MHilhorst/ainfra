@@ -4,44 +4,21 @@ package lockfile
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"fmt"
-	"sort"
-	"strings"
+	"encoding/json"
 )
 
-// ContentHash returns a sha256: hash of v in a normalized form: map keys
-// sorted, so cosmetic ordering differences are never false drift (spec §5).
+// ContentHash returns a sha256: hash of v in a normalized form. It uses JSON
+// encoding, which sorts map keys (so cosmetic key ordering is never false
+// drift), quotes and escapes strings (so structurally different values cannot
+// collide), and preserves type distinctions (the int 1 and the string "1"
+// hash differently). See spec §5.
 func ContentHash(v any) string {
-	var b strings.Builder
-	writeNormalized(&b, v)
-	sum := sha256.Sum256([]byte(b.String()))
-	return "sha256:" + hex.EncodeToString(sum[:])
-}
-
-func writeNormalized(b *strings.Builder, v any) {
-	switch t := v.(type) {
-	case map[string]any:
-		keys := make([]string, 0, len(t))
-		for k := range t {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		b.WriteByte('{')
-		for _, k := range keys {
-			b.WriteString(k)
-			b.WriteByte(':')
-			writeNormalized(b, t[k])
-			b.WriteByte(',')
-		}
-		b.WriteByte('}')
-	case []any:
-		b.WriteByte('[')
-		for _, e := range t {
-			writeNormalized(b, e)
-			b.WriteByte(',')
-		}
-		b.WriteByte(']')
-	default:
-		fmt.Fprintf(b, "%v", t)
+	data, err := json.Marshal(v)
+	if err != nil {
+		// v holds a type JSON cannot encode — a programming error. Hash the
+		// error text so the result stays deterministic instead of panicking.
+		data = []byte("aistack:unhashable:" + err.Error())
 	}
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
