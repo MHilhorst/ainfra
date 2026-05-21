@@ -2,10 +2,11 @@ package lockfile
 
 // Lock is one ainfra.lock file (spec Phase 2).
 type Lock struct {
-	Version      int     `yaml:"version"`
-	GeneratedAt  string  `yaml:"generatedAt"`
-	ManifestHash string  `yaml:"manifestHash,omitempty"`
-	Entries      Entries `yaml:"entries"`
+	Version      int                  `yaml:"version"`
+	GeneratedAt  string               `yaml:"generatedAt"`
+	ManifestHash string               `yaml:"manifestHash,omitempty"`
+	Entries      Entries              `yaml:"entries"`
+	Secrets      map[string]SecretRef `yaml:"secrets,omitempty"`
 }
 
 // Entries groups lock entries by channel.
@@ -33,4 +34,15 @@ type Entry struct {
 	ResolvedVersion string         `yaml:"resolvedVersion,omitempty"`
 	Requires        []string       `yaml:"requires,omitempty"`
 	ContentHash     string         `yaml:"contentHash"`
+}
+
+// SecretRef is a resolved secret placeholder recorded in the lockfile. It
+// holds a reference only — never a value. ainfra exec resolves Ref at session
+// time and exports Var into the child environment.
+type SecretRef struct {
+	Var    string `yaml:"var"`    // the AINFRA_SECRET_* environment variable name
+	Ref    string `yaml:"ref"`    // the secret reference, e.g. op://Vault/item/field
+	Scheme string `yaml:"scheme"` // op, env, ...
+	Scope  string `yaml:"scope"`  // shared | personal
+	Layer  string `yaml:"layer"`  // team | repo | personal
 }
