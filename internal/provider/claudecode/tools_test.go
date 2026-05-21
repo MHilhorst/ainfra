@@ -1,15 +1,15 @@
-package channels_test
+package claudecode_test
 
 import (
 	"encoding/json"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestToolsChannel(t *testing.T) {
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	if got := p.Channel(); got != "tools" {
 		t.Fatalf("Channel() = %q, want %q", got, "tools")
 	}
@@ -19,7 +19,7 @@ func TestToolsObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -38,7 +38,7 @@ func TestToolsObserve_WithManagedKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -63,7 +63,7 @@ func TestToolsObserve_NoManagedKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -101,7 +101,7 @@ func TestToolsApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -174,7 +174,7 @@ func TestToolsApply_Create_StringSlice(t *testing.T) {
 		},
 	}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -235,7 +235,7 @@ func TestToolsApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -290,7 +290,7 @@ func TestToolsApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Tools{}
+	p := claudecode.Tools{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)

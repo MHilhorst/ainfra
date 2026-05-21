@@ -1,15 +1,15 @@
-package channels_test
+package claudecode_test
 
 import (
 	"strings"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestServicesChannel(t *testing.T) {
-	p := channels.Services{}
+	p := claudecode.Services{}
 	if got := p.Channel(); got != "backgroundServices" {
 		t.Fatalf("Channel() = %q, want %q", got, "backgroundServices")
 	}
@@ -19,7 +19,7 @@ func TestServicesObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -41,7 +41,7 @@ func TestServicesObserve_WithServices(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -78,7 +78,7 @@ func TestServicesObserve_IgnoresFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -115,7 +115,7 @@ func TestServicesApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -174,7 +174,7 @@ func TestServicesApply_Create_NoCommand(t *testing.T) {
 		},
 	}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -218,7 +218,7 @@ func TestServicesApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply Delete: unexpected error: %v", err)
@@ -260,7 +260,7 @@ func TestServicesApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Services{}
+	p := claudecode.Services{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply DryRun: unexpected error: %v", err)
