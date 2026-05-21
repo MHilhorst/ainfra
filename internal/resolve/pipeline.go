@@ -65,8 +65,8 @@ func RunLock(dir string) error {
 		}
 		for id, srv := range m.MCPServers {
 			if srv.Template == "" {
-				// Only templated instances are resolved in this phase;
-				// fully-inlined mcpServers are handled by the follow-up plan.
+				// Templated instances are resolved in this loop; inline
+				// (non-templated) mcpServers are resolved in the second layer loop.
 				continue
 			}
 			tmpl := allTemplates[srv.Template]
@@ -122,7 +122,8 @@ func RunLock(dir string) error {
 		if out.MCPServer != nil {
 			entry.Version = out.MCPServer.Version
 			entry.ContentHash = lockfile.ContentHash(map[string]any{
-				"command": out.MCPServer.Command, "version": out.MCPServer.Version,
+				"command": out.MCPServer.Command, "args": out.MCPServer.Args,
+				"version": out.MCPServer.Version, "transport": out.MCPServer.Transport,
 				"env": toAnyMap(out.MCPServer.Env),
 			})
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
