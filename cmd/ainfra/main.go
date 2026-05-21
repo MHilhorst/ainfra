@@ -17,6 +17,7 @@ func main() {
 // main so tests can drive it with their own streams.
 func run(args []string, stdout, stderr io.Writer) int {
 	reg := cli.NewRegistry(stdout, stderr, version.Version)
+	reg.Add(newInitCommand())
 	reg.Add(newLockCommand())
 	reg.Add(newPlanCommand())
 	reg.Add(newApplyCommand())
