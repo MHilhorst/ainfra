@@ -1,0 +1,70 @@
+version: 1
+
+# ---------------------------------------------------------------------------
+# A showcase ainfra.yaml — what a normal team's Claude Code setup looks like
+# as config-as-code. The harder, fully-templated case lives in
+# examples/multi-database/; this one is the friendly, read-in-30-seconds form.
+#
+# It is a sample: ainfra does not itself depend on these servers. Try it:
+#   ainfra validate     # static-checks every channel below
+#   ainfra lock         # resolves the manifest and writes ainfra.lock
+#
+# What resolves today: hooks and commands, plus templated MCP servers. Inline
+# MCP servers and cliTools are validated now and fully resolved once the
+# channel provider layer lands (see docs/design.md, "Status" in README).
+# ---------------------------------------------------------------------------
+
+# --- Installable substrate: binaries the channels below rest on --------------
+cliTools:
+  ripgrep:
+    versionConstraint: ">=14.0"
+    install:
+      brew: { formula: ripgrep }
+      apt:  { package: ripgrep }
+    check:
+      command: "rg --version"
+      versionRegex: 'ripgrep (\d+\.\d+\.\d+)'
+
+# --- Secrets: references only — ainfra never stores a credential value -------
+secrets:
+  github-token:
+    mode: direct
+    scope: personal                       # each developer supplies their own
+    ref: "op://Private/github/personal-access-token"
+
+# --- MCP servers: what lands in each developer's .mcp.json -------------------
+mcpServers:
+  # A local filesystem server — no credentials, scoped to the repo.
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    version: "0.6.2"                       # package-launched servers must pin a version
+
+  # The GitHub server — its token comes from the reference declared above.
+  github:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    version: "0.6.2"
+    secret:
+      token: github-token                  # references the github-token secret
+
+# --- Hooks: automation bound to Claude Code lifecycle events -----------------
+hooks:
+  gofmt-after-edit:
+    event: PostToolUse
+    matcher: "Edit|Write"
+    command: "gofmt -w ."
+    timeout: 5000
+
+# --- Skills: PREVIEW ---------------------------------------------------------
+# The design defines a skills channel (one of eight — see docs/design.md §1),
+# but the resolver does not process it yet: ainfra silently ignores this block
+# for now. It is shown here only to illustrate the intended shape.
+skills:
+  pdf-processing:
+    source: "github:anthropics/skills/document-skills/pdf"
+    version: "1.4.0"
+  team-runbooks:
+    source: "./skills/runbooks"
