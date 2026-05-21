@@ -3,8 +3,8 @@ package resolve
 import "testing"
 
 func TestMergeHigherLayerWins(t *testing.T) {
-	team := map[string]Entry{"srv": {Value: "team", Overridable: false}}
-	personal := map[string]Entry{"srv": {Value: "personal"}}
+	team := map[string]MergeEntry{"srv": {Value: "team", Overridable: false}}
+	personal := map[string]MergeEntry{"srv": {Value: "personal"}}
 	merged, err := Merge([]LayerEntries{
 		{Layer: "team", Entries: team},
 		{Layer: "personal", Entries: personal},
@@ -18,8 +18,8 @@ func TestMergeHigherLayerWins(t *testing.T) {
 }
 
 func TestMergeOverridableLetsLowerLayerWin(t *testing.T) {
-	team := map[string]Entry{"srv": {Value: "team", Overridable: true}}
-	personal := map[string]Entry{"srv": {Value: "personal"}}
+	team := map[string]MergeEntry{"srv": {Value: "team", Overridable: true}}
+	personal := map[string]MergeEntry{"srv": {Value: "personal"}}
 	merged, err := Merge([]LayerEntries{
 		{Layer: "team", Entries: team},
 		{Layer: "personal", Entries: personal},
@@ -34,8 +34,8 @@ func TestMergeOverridableLetsLowerLayerWin(t *testing.T) {
 
 func TestMergeAddsUniqueEntries(t *testing.T) {
 	merged, err := Merge([]LayerEntries{
-		{Layer: "repo", Entries: map[string]Entry{"a": {Value: "1"}}},
-		{Layer: "personal", Entries: map[string]Entry{"b": {Value: "2"}}},
+		{Layer: "repo", Entries: map[string]MergeEntry{"a": {Value: "1"}}},
+		{Layer: "personal", Entries: map[string]MergeEntry{"b": {Value: "2"}}},
 	})
 	if err != nil {
 		t.Fatalf("Merge: %v", err)
@@ -49,13 +49,13 @@ func TestMergeAddsUniqueEntries(t *testing.T) {
 // because repo's entry, once it replaces team's, is itself not overridable.
 func TestMergeThreeLayerChain(t *testing.T) {
 	merged, err := Merge([]LayerEntries{
-		{Layer: "team", Entries: map[string]Entry{
+		{Layer: "team", Entries: map[string]MergeEntry{
 			"srv": {Value: "team", Overridable: true},
 		}},
-		{Layer: "repo", Entries: map[string]Entry{
+		{Layer: "repo", Entries: map[string]MergeEntry{
 			"srv": {Value: "repo", Overridable: false},
 		}},
-		{Layer: "personal", Entries: map[string]Entry{
+		{Layer: "personal", Entries: map[string]MergeEntry{
 			"srv": {Value: "personal"},
 		}},
 	})

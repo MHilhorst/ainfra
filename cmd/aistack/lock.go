@@ -18,6 +18,6 @@ func cmdLock() int {
 		fmt.Fprintln(os.Stderr, "aistack lock:", err)
 		return 1
 	}
-	fmt.Println("aistack: wrote ai-stack.lock")
+	fmt.Println("aistack: wrote ai-stack.lock and ai-stack.personal.lock")
 	return 0
 }

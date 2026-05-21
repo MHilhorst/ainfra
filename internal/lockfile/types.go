@@ -4,7 +4,7 @@ package lockfile
 type Lock struct {
 	Version      int     `yaml:"version"`
 	GeneratedAt  string  `yaml:"generatedAt"`
-	ManifestHash string  `yaml:"manifestHash"`
+	ManifestHash string  `yaml:"manifestHash,omitempty"`
 	Entries      Entries `yaml:"entries"`
 }
 
