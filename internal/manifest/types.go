@@ -25,7 +25,8 @@ type Manifest struct {
 
 // Source names a team/org layer to extend.
 type Source struct {
-	Source string `yaml:"source"`
+	// Location is a path, git+https:// URL, or npm: reference to the layer (spec §1).
+	Location string `yaml:"source"`
 }
 
 // Precondition is a verify-only check (spec §6).
@@ -55,7 +56,9 @@ type BackgroundService struct {
 
 // Secret is a reference to a credential, never a value (spec §3).
 type Secret struct {
-	Mode    string `yaml:"mode"`
+	Mode string `yaml:"mode"`
+	// Value holds a literal credential only in mode: direct with an inline
+	// literal (spec §3). Empty for reference (Ref) and brokered modes.
 	Value   string `yaml:"value"`
 	Ref     string `yaml:"ref"`
 	Gateway string `yaml:"gateway"`
