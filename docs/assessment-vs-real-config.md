@@ -46,7 +46,7 @@ schema extension · Gap = not expressible.
 | Team `CLAUDE.md` (static) | `rules` | Clean |
 | Per-dev templated `CLAUDE.md` | `rules` | Gap — no per-developer rules templating |
 | Permission `allow`/`deny` | `tools` | Clean |
-| Permission `ask` tier | `tools` | Gap — schema has only `allow`/`deny` |
+| Permission `ask` tier | `tools` | Clean — three-tier `allow`/`ask`/`deny` |
 | CLI tools via `brew` / `npm -g` | `cliTools` | Clean — pinned npm globals are a strong fit |
 | CLI tools via `pip` / `composer` / source | `cliTools` | Gap — no `pip`/`composer` adapter |
 | `op://` secrets, shared + personal vaults | environment primitive | **Clean — strong fit** (`scope` = the two vaults) |
@@ -105,15 +105,17 @@ These are recorded honestly; they are *not* closed by Iteration 3:
    as Iteration 4 and then reverted from `main`; it is deferred for now, not
    abandoned.
 2. **HTTP MCP `headers`.** A small schema addition for `transport: http`.
-3. **Permission `ask` tier.** Claude Code permissions are three-tier; the
-   `tools` channel models only `allow`/`deny`.
-4. **Plugin `source` git + subpath.** Real marketplaces use GitHub sources.
-5. **`pip` / `composer` `cliTool` adapters**, and acceptance that
+3. **Plugin `source` git + subpath.** Real marketplaces use GitHub sources.
+4. **`pip` / `composer` `cliTool` adapters**, and acceptance that
    build-from-source binaries stay declare-and-check.
-6. **Secret-to-file.** Some CLIs read a credential *file*; the environment
+5. **Secret-to-file.** Some CLIs read a credential *file*; the environment
    primitive resolves env vars only.
-7. **Per-developer `rules` templating.** The real `CLAUDE.md` is rendered per
+6. **Per-developer `rules` templating.** The real `CLAUDE.md` is rendered per
    developer; the `rules` channel is static-file-oriented.
+
+The **permission `ask` tier** was previously listed here; the `tools` channel
+now models the full three-tier `allow` / `ask` / `deny` policy, so that gap is
+closed.
 
 ## 6. The honest bottom line
 

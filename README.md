@@ -26,7 +26,10 @@ See [docs/design.md](docs/design.md) for the full, decided design.
 ## Quick start
 
 ```sh
+go install github.com/MHilhorst/ainfra/cmd/ainfra@latest
+# or, from a checkout of this repo:
 go build -o ainfra ./cmd/ainfra
+
 ainfra version
 ```
 
@@ -48,6 +51,7 @@ per-command detail.
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` in the current repo (`--personal`, `--force`) |
 | `validate` | Static-check the manifest without resolving it |
+| `schema` | Print the JSON Schema for `ainfra.yaml` — point an editor at it for autocomplete |
 | `lock` | Resolve the manifest and write `ainfra.lock` |
 | `plan` | Preview the diff between desired and observed state *(pending the provider layer)* |
 | `apply` | Reconcile the environment to the manifest *(pending the provider layer)* |
@@ -60,7 +64,7 @@ disables colored output.
 ## Status
 
 The manifest and lockfile schemas, the resolution engine, and the CLI surface
-are built. `init`, `validate`, `lock`, and `version` work end to end. `plan`,
+are built. `init`, `validate`, `schema`, `lock`, and `version` work end to end. `plan`,
 `apply`, and `check` are specified and stubbed — their real behaviour depends on
 the channel provider layer, which is the next build phase.
 
@@ -71,7 +75,7 @@ the channel provider layer, which is the next build phase.
 | 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | implemented |
 | 3 | Channel provider interface — powers `plan` / `apply` / `check` | next |
 | 4 | Resolution & precedence engine | done |
-| 5 | CLI surface (`init` / `validate` / `lock` / `version`) | done |
+| 5 | CLI surface (`init` / `validate` / `schema` / `lock` / `version`) | done |
 
 The schema is the product hypothesis; code is the proof. Phases 1 and 2 were
 validated *on paper* against five scenarios — see
@@ -86,8 +90,9 @@ internal/
   cli/           command registry, dispatch, flags, help
   ui/            terminal rendering — color, plan diffs, errors, prompts
   diag/          structured diagnostic error type
-  manifest/      ainfra.yaml schema, layer loading, validation
+  manifest/      ainfra.yaml schema, strict layer loading, validation
   resolve/       template instantiation, layer merge, port allocation, lock pipeline
+  schema/        JSON Schema generation for ainfra.yaml (reflected from manifest)
   graph/         dependency graph and topological sort
   lockfile/      ainfra.lock schema, content hashing, read/write
   version/       build version

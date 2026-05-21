@@ -123,3 +123,55 @@ func TestValidateAllResolvesCrossLayerTemplate(t *testing.T) {
 		t.Fatalf("cross-layer template should validate: %v", err)
 	}
 }
+
+func TestValidateRejectsSkillWithoutSource(t *testing.T) {
+	m := &Manifest{Version: 1, Skills: map[string]Skill{"s": {Version: "1.0.0"}}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "skill declares no source") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "skills.s" {
+		t.Errorf("path = %q, want skills.s", d.Path)
+	}
+}
+
+func TestValidateRejectsPluginWithoutSource(t *testing.T) {
+	m := &Manifest{Version: 1, Plugins: map[string]Plugin{"p": {}}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "plugin declares no source") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsRuleWithoutTarget(t *testing.T) {
+	m := &Manifest{Version: 1, Rules: map[string]Rule{"r": {Source: "./r.md"}}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "no target") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+}
+
+func TestValidateRejectsEmptyPermissionPattern(t *testing.T) {
+	m := &Manifest{Version: 1, Tools: &Tools{
+		Permissions: &Permissions{Allow: []string{"  "}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if d.Path != "tools.permissions.allow" {
+		t.Errorf("path = %q, want tools.permissions.allow", d.Path)
+	}
+}
+
+func TestValidateAcceptsWellFormedChannels(t *testing.T) {
+	m := &Manifest{Version: 1,
+		Skills:  map[string]Skill{"s": {Source: "github:acme/skills/x", Version: "1.0.0"}},
+		Plugins: map[string]Plugin{"p": {Source: "npm:@acme/p@1.0.0"}},
+		Rules:   map[string]Rule{"r": {Target: "CLAUDE.md", Source: "./r.md"}},
+		Tools: &Tools{
+			Builtins:    &Builtins{Disabled: []string{"WebFetch"}},
+			Permissions: &Permissions{Allow: []string{"Bash(go build:*)"}, Deny: []string{"Bash(rm:*)"}},
+		},
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
