@@ -88,7 +88,7 @@ type errFS struct {
 	wrote   bool
 }
 
-func (e *errFS) ReadFile(_ string) ([]byte, error)              { return nil, e.readErr }
+func (e *errFS) ReadFile(_ string) ([]byte, error)                 { return nil, e.readErr }
 func (e *errFS) WriteFile(_ string, _ []byte, _ os.FileMode) error { e.wrote = true; return nil }
 func (e *errFS) MkdirAll(_ string, _ os.FileMode) error            { return nil }
 
