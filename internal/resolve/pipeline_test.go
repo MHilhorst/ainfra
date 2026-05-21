@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/lockfile"
 )
 
 func TestLockPipelineOnMultiDBExample(t *testing.T) {
@@ -202,14 +204,23 @@ commands:
 	if err := RunLock(dir); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
-	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
-		t.Fatalf("lock not written: %v", err)
+		t.Fatalf("read lock: %v", err)
 	}
-	out := string(data)
-	for _, want := range []string{"svc:db-a-tunnel", "cli:ssh", "cli:node"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("lock missing requires ref %q\n---\n%s", want, out)
+	cases := []struct {
+		name string
+		got  []string
+		want string
+	}{
+		{"templated MCP server", lock.Entries.MCPServers["db-a"].Requires, "svc:db-a-tunnel"},
+		{"background service", lock.Entries.BackgroundServices["db-a-tunnel"].Requires, "cli:ssh"},
+		{"hook", lock.Entries.Hooks["guard"].Requires, "cli:node"},
+		{"command", lock.Entries.Commands["ship"].Requires, "cli:node"},
+	}
+	for _, c := range cases {
+		if len(c.got) != 1 || c.got[0] != c.want {
+			t.Errorf("%s requires = %v, want [%s]", c.name, c.got, c.want)
 		}
 	}
 }
