@@ -23,10 +23,6 @@ type Manifest struct {
 	MCPServers         map[string]MCPServer         `yaml:"mcpServers"`
 	Hooks              map[string]Hook              `yaml:"hooks"`
 	Commands           map[string]Command           `yaml:"commands"`
-	ScheduledJobs      map[string]ScheduledJob      `yaml:"scheduledJobs"`
-	// Targets is the governed vocabulary of machine-target labels (spec §13).
-	Targets []string `yaml:"targets"`
-	Host    Host     `yaml:"host"`
 }
 
 // Source names a team/org layer to extend.
@@ -139,29 +135,6 @@ type Command struct {
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
-}
-
-// ScheduledJob is a cron-style recurring command (spec §13). It is
-// targeted-infrastructure: it runs only on machines whose targets intersect
-// its RunsOn, not on every developer's machine.
-type ScheduledJob struct {
-	Schedule    string    `yaml:"schedule"`
-	Command     string    `yaml:"command"`
-	Source      string    `yaml:"source"`
-	RunsOn      []string  `yaml:"runsOn"`
-	Description string    `yaml:"description"`
-	Requires    []Require `yaml:"requires"`
-	Enabled     *bool     `yaml:"enabled"`
-	Overridable bool      `yaml:"overridable"`
-}
-
-// Host declares which target labels the current machine carries (spec §13).
-// It lives in the personal layer; the AINFRA_TARGETS env var can override it
-// for ephemeral machines. Consumed at apply time, not at lock time.
-type Host struct {
-	// Targets are the labels THIS machine carries — a subset of the
-	// manifest-level Targets vocabulary.
-	Targets []string `yaml:"targets"`
 }
 
 // Require is one dependency-graph edge (spec §9).

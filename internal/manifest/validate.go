@@ -54,31 +54,5 @@ func Validate(m *Manifest) error {
 			return fmt.Errorf("commands.%s: a command must declare a source", id)
 		}
 	}
-	vocabulary := map[string]bool{}
-	for _, t := range m.Targets {
-		vocabulary[t] = true
-	}
-	for _, id := range slices.Sorted(maps.Keys(m.ScheduledJobs)) {
-		j := m.ScheduledJobs[id]
-		if j.Schedule == "" {
-			return fmt.Errorf("scheduledJobs.%s: a scheduled job must declare a schedule", id)
-		}
-		if j.Command == "" {
-			return fmt.Errorf("scheduledJobs.%s: a scheduled job must declare a command", id)
-		}
-		if len(j.RunsOn) == 0 {
-			return fmt.Errorf("scheduledJobs.%s: a scheduled job must declare runsOn", id)
-		}
-		for _, t := range j.RunsOn {
-			if !vocabulary[t] {
-				return fmt.Errorf("scheduledJobs.%s: runsOn target %q is not in the declared targets vocabulary", id, t)
-			}
-		}
-	}
-	for i, t := range m.Host.Targets {
-		if !vocabulary[t] {
-			return fmt.Errorf("host.targets[%d]: %q is not in the declared targets vocabulary", i, t)
-		}
-	}
 	return nil
 }

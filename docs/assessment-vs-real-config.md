@@ -54,7 +54,7 @@ schema extension · Gap = not expressible.
 | tunnel→VPN, MCP→binary dependencies | `requires` graph | **Clean — strongest fit** |
 | **7 hooks** | **`hooks` (NEW — Iteration 3)** | **Clean — channel added by this change** |
 | **9 slash commands** | **`commands` (NEW — Iteration 3)** | **Clean — channel added by this change** |
-| **5 cron jobs** | **`scheduledJobs` (NEW — Iteration 4)** | **Clean — channel added** (targeted-infrastructure) |
+| 5 cron jobs | — | Gap — designed, not built (see the scheduled-jobs design doc) |
 | `tvt` CLI, `bootstrap-hub.sh`, ide-configs | — | Out of scope (correctly) |
 
 ## 3. The three axes
@@ -99,17 +99,20 @@ This converts the two biggest "Gap" rows above into "Clean."
 
 These are recorded honestly; they are *not* closed by Iteration 3:
 
-Iteration 4 closed the scheduled-jobs gap with a `scheduledJobs` channel; the items below remain.
-
-1. **HTTP MCP `headers`.** A small schema addition for `transport: http`.
-2. **Permission `ask` tier.** Claude Code permissions are three-tier; the
+1. **Scheduled jobs.** The 5 headless `claude -p` cron runs. A full design
+   exists — a `scheduledJobs` targeted-infrastructure channel
+   (`docs/superpowers/specs/2026-05-21-scheduled-jobs-design.md`). It was built
+   as Iteration 4 and then reverted from `main`; it is deferred for now, not
+   abandoned.
+2. **HTTP MCP `headers`.** A small schema addition for `transport: http`.
+3. **Permission `ask` tier.** Claude Code permissions are three-tier; the
    `tools` channel models only `allow`/`deny`.
-3. **Plugin `source` git + subpath.** Real marketplaces use GitHub sources.
-4. **`pip` / `composer` `cliTool` adapters**, and acceptance that
+4. **Plugin `source` git + subpath.** Real marketplaces use GitHub sources.
+5. **`pip` / `composer` `cliTool` adapters**, and acceptance that
    build-from-source binaries stay declare-and-check.
-5. **Secret-to-file.** Some CLIs read a credential *file*; the environment
+6. **Secret-to-file.** Some CLIs read a credential *file*; the environment
    primitive resolves env vars only.
-6. **Per-developer `rules` templating.** The real `CLAUDE.md` is rendered per
+7. **Per-developer `rules` templating.** The real `CLAUDE.md` is rendered per
    developer; the `rules` channel is static-file-oriented.
 
 ## 6. The honest bottom line
@@ -117,6 +120,5 @@ Iteration 4 closed the scheduled-jobs gap with a `scheduledJobs` channel; the it
 Where `ainfra` fits, it replaces imperative scripts (`tvt sync`,
 `install-tunnels.sh`, hand-edited `.mcp.json`) with one declarative manifest and
 a lockfile — the "nice setup way." With Iteration 3, that now covers the
-automation layer's hooks and commands too. With Iteration 4, scheduled jobs are
-covered as a targeted-infrastructure channel. Everything else open is a small,
-localised schema extension.
+automation layer's hooks and commands too. Scheduled jobs remain designed but
+deferred; everything else open is a small, localised schema extension.

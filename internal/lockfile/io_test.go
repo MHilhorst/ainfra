@@ -61,34 +61,12 @@ func TestReadSparseFileInitialisesMaps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read: %v", err)
 	}
-	// All six channel maps must be non-nil so a caller can write into them.
+	// All five channel maps must be non-nil so a caller can write into them.
 	got.Entries.MCPServers["a"] = Entry{}
 	got.Entries.BackgroundServices["b"] = Entry{}
 	got.Entries.Hooks["c"] = Entry{}
 	got.Entries.Commands["d"] = Entry{}
-	got.Entries.ScheduledJobs["e"] = Entry{}
 	got.Entries.CLITools["f"] = Entry{}
-}
-
-func TestWriteThenReadRoundTripsScheduledJobs(t *testing.T) {
-	dir := t.TempDir()
-	lock := &Lock{Version: 1, Entries: Entries{
-		ScheduledJobs: map[string]Entry{
-			"nightly": {Layer: "repo", RunsOn: []string{"hub"}, ContentHash: "sha256:xyz"},
-		},
-	}}
-	path := filepath.Join(dir, "ainfra.lock")
-	if err := Write(path, lock); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-	got, err := Read(path)
-	if err != nil {
-		t.Fatalf("Read: %v", err)
-	}
-	e := got.Entries.ScheduledJobs["nightly"]
-	if e.ContentHash != "sha256:xyz" || len(e.RunsOn) != 1 || e.RunsOn[0] != "hub" {
-		t.Errorf("round-trip lost scheduled job data: %+v", e)
-	}
 }
 
 func writeFile(t *testing.T, path, body string) error {

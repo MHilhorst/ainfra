@@ -1,7 +1,9 @@
 # Scheduled Jobs Channel — Design
 
 **Date:** 2026-05-21
-**Status:** approved design, ready for an implementation plan
+**Status:** deferred. This channel was built as Iteration 4 and then reverted
+from `main`. This document and its implementation plan are retained as the
+record of the design for when the channel is revisited.
 **Iteration:** 4 (follows the hooks/commands channels of Iteration 3)
 
 ## 1. What this is — and why it is different
