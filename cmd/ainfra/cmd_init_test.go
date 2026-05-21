@@ -76,7 +76,7 @@ func TestInitScaffoldsAgentField(t *testing.T) {
 	dir := t.TempDir()
 	code := run([]string{"--chdir", dir, "init"}, &bytes.Buffer{}, &bytes.Buffer{})
 	if code != 0 {
-		t.Fatalf("runInit exit code = %d, want 0", code)
+		t.Fatalf("init exit code = %d, want 0", code)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
 	if err != nil {
