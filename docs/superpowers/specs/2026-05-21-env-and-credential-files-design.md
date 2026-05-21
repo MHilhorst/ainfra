@@ -18,7 +18,8 @@ The real `tvt-config` repo configures HTTP MCP servers that need auth headers,
 (`aws`, `gcloud`). The current schema cannot express any of the three:
 
 - An HTTP MCP server has no `headers` map — only `env`, which an HTTP transport
-  does not consume.
+  does not consume. It also has no `url` field: `transport: http` is named in
+  the schema but the endpoint cannot be declared at all.
 - A `cliTool` has no `env` map and no way to bind a secret — credentials for a
   CLI cannot be declared at all.
 - A `cliTool` has no `requires` field, so it cannot even declare a dependency
@@ -28,12 +29,17 @@ This iteration adds exactly what is needed to close those, and nothing more.
 
 ---
 
-## 1. HTTP MCP `headers`
+## 1. HTTP MCP `url` and `headers`
 
-`MCPServer` gains `headers: map[string]string`. Header values are interpolated
-by the same mechanism as `mcpServers.env` — `${secret.<name>}`,
-`${secrets.<id>}`, and `${resolved.<name>}` outside templates; the full four
-namespaces inside a template body (spec §4.4).
+`MCPServer` gains two fields:
+
+- `url: string` — the HTTP endpoint. Required for `transport: http`; an HTTP
+  server cannot be declared without it. This is a pre-existing schema gap that
+  must be closed here, because `headers` is meaningless without an endpoint.
+- `headers: map[string]string` — request headers. Header values are
+  interpolated by the same mechanism as `mcpServers.env` — `${secret.<name>}`,
+  `${secrets.<id>}`, and `${resolved.<name>}` outside templates; the full four
+  namespaces inside a template body (spec §4.4).
 
 ```yaml
 mcpServers:
@@ -48,14 +54,19 @@ mcpServers:
 
 ### 1.1 Transport coupling — a validation rule
 
-`headers` is meaningful only for `transport: http`. Declaring `headers` on a
-`stdio` server is a hard validation error, with a hint, in the same spirit as
-the loader's `KnownFields(true)` strict decoding (design §13). Symmetrically,
-`command` / `args` / `version` remain `stdio`-only. The rule lives in
+The two transports use disjoint field sets:
+
+- `transport: http` requires `url`; `headers` is optional. `command` / `args` /
+  `version` on an HTTP server are a hard error.
+- `transport: stdio` requires `command`; `url` and `headers` on a stdio server
+  are a hard error.
+
+Each violation fails loudly with a hint, in the same spirit as the loader's
+`KnownFields(true)` strict decoding (design §13). The rule lives in
 `internal/manifest/validate.go` and is covered by a loader test.
 
 This is not enforced by the type system — both transports share one `MCPServer`
-struct — so it is an explicit validation check, not a structural guarantee.
+struct — so these are explicit validation checks, not structural guarantees.
 
 ---
 
@@ -185,6 +196,7 @@ no hand-maintained schema file to edit.
 
 | Struct | Field | Type | Notes |
 |--------|-------|------|-------|
+| `MCPServer` | `URL` | `string` | required for `transport: http` |
 | `MCPServer` | `Headers` | `map[string]string` | `transport: http` only |
 | `CLITool` | `Env` | `map[string]string` | delivered via `settings.json` |
 | `CLITool` | `Secret` | `map[string]any` | inline secret bindings |
@@ -196,15 +208,15 @@ No new struct types. No lockfile change.
 
 ## 6. Files touched
 
-- `internal/manifest/types.go` — the four fields above.
-- `internal/manifest/validate.go` (+ `validate_test.go`) — the `headers`↔`http`
-  coupling rule.
+- `internal/manifest/types.go` — the five fields above.
+- `internal/manifest/validate.go` (+ `validate_test.go`) — the transport
+  field-set coupling rules (§1.1).
 - `internal/resolve/` — route `headers` and `cliTools.env` through the same
   interpolation path as `mcpServers.env` (`template.go` / `pipeline.go`).
 - `internal/graph/` — confirm a `cliTool`→`precondition` edge resolves; add a
   test.
-- `spec/manifest-schema.md` — §5 (`headers`), §6 (`file-exists` `mode`), §7
-  (CLI `env` / `secret` / `requires`).
+- `spec/manifest-schema.md` — §5 (`url` + `headers`), §6 (`file-exists`
+  `mode`), §7 (CLI `env` / `secret` / `requires`).
 - `docs/assessment-vs-real-config.md` — add an "Iteration 5" section; move gaps
   #2 and #5 to Clean. Gap #5 is reframed: Clean as verify-only — ainfra checks
   credential files and deliberately does not write them.
