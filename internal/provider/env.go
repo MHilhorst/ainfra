@@ -3,6 +3,8 @@ package provider
 import (
 	"os"
 	"os/exec"
+
+	"github.com/MHilhorst/ainfra/internal/provider/fetch"
 )
 
 // Filesystem is the file I/O surface a provider may use. Production code uses
@@ -28,6 +30,7 @@ type CommandRunner interface {
 type Env struct {
 	FS     Filesystem
 	Runner CommandRunner
+	Fetch  fetch.Fetcher
 	Home   string // Claude Code config root (e.g. the user's home directory)
 	Root   string // the repo root the manifest was resolved from
 	DryRun bool

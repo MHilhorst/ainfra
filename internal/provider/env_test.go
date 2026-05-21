@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/provider/fetch"
 )
 
 func TestOSFilesystemRoundTrip(t *testing.T) {
@@ -28,5 +30,28 @@ func TestOSFilesystemRoundTrip(t *testing.T) {
 	}
 	if _, err := fs.Stat(path); !os.IsNotExist(err) {
 		t.Errorf("stat after remove = %v, want not-exist", err)
+	}
+}
+
+func TestEnvFetchField(t *testing.T) {
+	// Confirm the Fetch field exists and accepts a fetch.Fetcher.
+	bundle := fetch.Bundle{"hello.txt": []byte("world")}
+	env := Env{
+		Fetch: fetch.FakeFetcher{Bundles: map[string]fetch.Bundle{"src": bundle}},
+	}
+	got, err := env.Fetch.Fetch("src", "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if string(got["hello.txt"]) != "world" {
+		t.Errorf("hello.txt = %q, want %q", got["hello.txt"], "world")
+	}
+}
+
+func TestEnvZeroValueUsable(t *testing.T) {
+	// A zero Env must not panic; Fetch is nil but that is valid until a provider uses it.
+	var env Env
+	if env.Fetch != nil {
+		t.Errorf("zero Env.Fetch should be nil, got %v", env.Fetch)
 	}
 }
