@@ -8,8 +8,7 @@ type Entry struct {
 	Layer       string
 }
 
-// LayerEntries is one layer's entries, in descending authority order
-// when passed to Merge (team first, personal last).
+// LayerEntries is one config layer's channel entries, keyed by entry id.
 type LayerEntries struct {
 	Layer   string
 	Entries map[string]Entry
@@ -17,7 +16,8 @@ type LayerEntries struct {
 
 // Merge applies the Option-C precedence rule (spec §1): a higher-authority
 // layer wins unless its entry is Overridable, in which case the next
-// lower-authority layer's entry replaces it.
+// lower-authority layer's entry replaces it. The layers slice must be in
+// descending authority order — team first, personal last.
 func Merge(layers []LayerEntries) (map[string]Entry, error) {
 	out := map[string]Entry{}
 	for _, layer := range layers {
