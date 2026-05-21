@@ -207,6 +207,32 @@ func TestValidateRejectsEmptyDisabledBuiltin(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsRemoteRuleWithoutVersion(t *testing.T) {
+	m := &Manifest{Version: 1, Rules: map[string]Rule{
+		"r": {Target: "CLAUDE.md", Source: "git+https://github.com/acme/rules.git"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "pin an exact version") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "rules.r" {
+		t.Errorf("path = %q, want rules.r", d.Path)
+	}
+}
+
+func TestValidateRejectsEmptyDenyPermission(t *testing.T) {
+	m := &Manifest{Version: 1, Tools: &Tools{
+		Permissions: ToolPermissions{Deny: []string{"  "}},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "empty") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if !strings.Contains(d.Path, "tools.permissions.deny") {
+		t.Errorf("path = %q, want tools.permissions.deny[...]", d.Path)
+	}
+}
+
 func TestValidateAcceptsValidNewChannels(t *testing.T) {
 	m := &Manifest{Version: 1,
 		Rules: map[string]Rule{"r": {Target: "CLAUDE.md", Source: "./rules/r.md"}},
