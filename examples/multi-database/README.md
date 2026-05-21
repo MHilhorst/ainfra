@@ -5,14 +5,17 @@ primary [validation gate](../../docs/validation.md#scenario-5--the-multi-databas
 
 ## What it demonstrates
 
-Four MySQL databases, each behind an SSH tunnel that needs the team VPN, plus a
-hook and a slash command. The files here show the design holding up:
+Four MySQL databases, each behind an SSH tunnel that needs the team VPN; a
+fifth MCP server reached over HTTP with an auth header; a credential-file
+precondition; plus a hook and a slash command. The files here show the design
+holding up:
 
 | File | Role |
 |------|------|
-| `ainfra.yaml` | Repo layer — one template, four instances, a hook, a command. The committed source of truth. |
+| `ainfra.yaml` | Repo layer — one template, four instances, one HTTP server, a hook, a command. The committed source of truth. |
 | `ainfra.personal.yaml` | Personal layer — a developer's own dev replica, reusing the team template. (In a real repo this file is gitignored; here it is tracked as an illustration.) |
-| `ainfra.lock` | Generated resolved state — four distinct tool-allocated ports, plus `hooks` and `commands` entries with content hashes. |
+| `ainfra.lock` | Generated resolved state for the `team`/`repo` layers — four distinct tool-allocated ports, plus `hooks` and `commands` entries with content hashes. |
+| `ainfra.personal.lock` | Generated resolved state for the `personal` layer — gitignored in a real repo, tracked here to match `ainfra.personal.yaml`. |
 | `hooks/`, `commands/` | The hook script and command markdown the manifest's `source` fields point at. |
 
 ## The point
@@ -52,3 +55,16 @@ same `requires` edges, same content hashing in the lockfile:
 
 Both land in `ainfra.lock` with a `contentHash`, so a teammate's `ainfra check`
 detects if a hook script or command is altered after the fact.
+
+## Beyond the template
+
+Two entries deliberately sit outside the `mysql-over-ssh-tunnel` template, to
+show the schema covers more than the headline case:
+
+- `mcpServers.linear` — a non-templated `transport: http` server. It declares a
+  `url` and an `Authorization` header sourced from an `op://` secret, instead of
+  a `command`/`args` subprocess launch.
+- `preconditions.mysql-defaults-file` — a `file-exists` check on `~/.my.cnf`
+  with `mode: "0600"`. ainfra *verifies* the credential file exists with the
+  right permissions and never writes it — the environment primitive stays
+  reference-only. `cliTools.mysql-client` depends on it via `requires`.
