@@ -44,7 +44,9 @@ func run(args []string) int {
 	case "help", "--help", "-h":
 		fmt.Print(usage)
 		return 0
-	case "init", "plan", "apply", "check", "lock":
+	case "lock":
+		return cmdLock()
+	case "init", "plan", "apply", "check":
 		fmt.Fprintf(os.Stderr, "aistack: %q is not implemented yet (see docs/superpowers/plans/)\n", args[0])
 		return 1
 	default:
