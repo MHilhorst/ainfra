@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -114,5 +115,42 @@ commands:
 	c := m.Commands["ship"]
 	if c.Source != "./commands/ship.md" || c.Description != "Fast-path merge." {
 		t.Errorf("command not parsed: %+v", c)
+	}
+}
+
+func TestStrictDecodeAcceptsAgentsGatingField(t *testing.T) {
+	src := `
+version: 1
+agent: codex
+mcpServers:
+  github:
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    version: "0.6.2"
+    agents: [claude-code, codex]
+hooks:
+  gofmt:
+    event: PostToolUse
+    command: gofmt -w .
+    agents: [claude-code]
+tools:
+  builtins:
+    disabled: [WebFetch]
+  agents: [claude-code]
+`
+	var m Manifest
+	dec := yaml.NewDecoder(strings.NewReader(src))
+	dec.KnownFields(true)
+	if err := dec.Decode(&m); err != nil {
+		t.Fatalf("strict decode rejected the agents field: %v", err)
+	}
+	if got := m.MCPServers["github"].Agents; len(got) != 2 {
+		t.Errorf("mcpServers.github.agents = %v, want 2 entries", got)
+	}
+	if got := m.Hooks["gofmt"].Agents; len(got) != 1 || got[0] != "claude-code" {
+		t.Errorf("hooks.gofmt.agents = %v, want [claude-code]", got)
+	}
+	if got := m.Tools.Agents; len(got) != 1 || got[0] != "claude-code" {
+		t.Errorf("tools.agents = %v, want [claude-code]", got)
 	}
 }

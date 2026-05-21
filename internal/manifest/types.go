@@ -14,6 +14,7 @@ const (
 // Manifest is one parsed ainfra.yaml file (a single layer).
 type Manifest struct {
 	Version            int                          `yaml:"version"`
+	Agent              string                       `yaml:"agent,omitempty"`
 	Extends            []Source                     `yaml:"extends"`
 	Preconditions      map[string]Precondition      `yaml:"preconditions"`
 	CLITools           map[string]CLITool           `yaml:"cliTools"`
@@ -52,6 +53,7 @@ type CLITool struct {
 	Secret            map[string]any            `yaml:"secret"`
 	Requires          []Require                 `yaml:"requires"`
 	Overridable       bool                      `yaml:"overridable"`
+	Agents            []string                  `yaml:"agents,omitempty"`
 }
 
 // BackgroundService is a persistent process (spec §8).
@@ -124,6 +126,7 @@ type MCPServer struct {
 	Requires     []Require         `yaml:"requires"`
 	Enabled      *bool             `yaml:"enabled"`
 	Overridable  bool              `yaml:"overridable"`
+	Agents       []string          `yaml:"agents,omitempty"`
 }
 
 // Hook is a Claude Code hook — automation bound to a lifecycle event (spec §11).
@@ -136,6 +139,7 @@ type Hook struct {
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
+	Agents      []string  `yaml:"agents,omitempty"`
 }
 
 // Command is a Claude Code slash command — a sourced markdown file (spec §12).
@@ -146,6 +150,7 @@ type Command struct {
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
+	Agents      []string  `yaml:"agents,omitempty"`
 }
 
 // Require is one dependency-graph edge (spec §9).
@@ -164,6 +169,7 @@ type Skill struct {
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
+	Agents      []string  `yaml:"agents,omitempty"`
 }
 
 // Plugin is an installable plugin bundle (spec §10).
@@ -173,6 +179,7 @@ type Plugin struct {
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
+	Agents      []string  `yaml:"agents,omitempty"`
 }
 
 // Rule is a static context file — CLAUDE.md or similar (spec §10).
@@ -183,6 +190,7 @@ type Rule struct {
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
+	Agents      []string  `yaml:"agents,omitempty"`
 }
 
 // Tools is the built-in tooling channel — a singleton, not an id-keyed map
@@ -190,6 +198,7 @@ type Rule struct {
 type Tools struct {
 	Builtins    *Builtins    `yaml:"builtins"`
 	Permissions *Permissions `yaml:"permissions"`
+	Agents      []string     `yaml:"agents,omitempty"`
 }
 
 // Builtins toggles Claude Code's built-in tools.

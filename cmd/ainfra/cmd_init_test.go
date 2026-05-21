@@ -71,3 +71,18 @@ func TestInitGitignoreIsIdempotent(t *testing.T) {
 		t.Errorf(".gitignore entry duplicated: %q", gi)
 	}
 }
+
+func TestInitScaffoldsAgentField(t *testing.T) {
+	dir := t.TempDir()
+	code := run([]string{"--chdir", dir, "init"}, &bytes.Buffer{}, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("init exit code = %d, want 0", code)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
+	if err != nil {
+		t.Fatalf("reading scaffolded manifest: %v", err)
+	}
+	if !strings.Contains(string(data), "agent: claude-code") {
+		t.Errorf("scaffolded manifest does not declare  agent: claude-code\n%s", data)
+	}
+}

@@ -67,12 +67,38 @@ pattern would replace the team's entire list.
 This is the Option-C freedom/guardrail balance expressed for a list-valued
 channel: additive by default, with team guardrails a lower layer cannot lift.
 
+### 1.2 The target agent
+
+`agent` names the AI coding agent ainfra renders for: `claude-code` (the
+default) or `codex`. It is a scalar, so the `overridable` mechanism — which
+arbitrates id-keyed entries — does not apply. The highest-authority layer that
+declares a non-empty `agent` wins (team, then repo, then personal): a repo that
+sets `agent` standardizes the team on it; a repo that omits it leaves the
+choice to each developer's personal layer.
+
+Not every channel exists for every agent — Codex has no skills, plugins,
+hooks, built-in toggles, or slash commands. Any channel entry may carry an
+`agents:` list to scope it:
+
+```yaml
+hooks:
+  gofmt-after-edit:
+    event: PostToolUse
+    command: gofmt -w .
+    agents: [claude-code]   # this hook applies only when agent is claude-code
+```
+
+Under a resolved `agent`, an entry in a channel that agent cannot render is a
+hard validation error — unless its `agents:` list omits that agent, which
+cleanly scopes the entry away. An ungated entry never silently disappears.
+
 ---
 
 ## 2. Top-level structure
 
 ```yaml
 version: 1
+agent:              claude-code  # which AI agent to render for (§1.2)
 extends:            []      # team/org layer sources
 preconditions:      {}      # things the tool can only verify (§6)
 cliTools:           {}      # installable substrate binaries (§7)
