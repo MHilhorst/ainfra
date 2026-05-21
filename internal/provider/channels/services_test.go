@@ -65,6 +65,32 @@ func TestServicesObserve_WithServices(t *testing.T) {
 	}
 }
 
+func TestServicesObserve_IgnoresFiles(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	// one real service directory
+	if err := mem.MkdirAll("/repo/.ainfra/services/real-svc", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// one stray file directly under services/
+	if err := mem.WriteFile("/repo/.ainfra/services/.gitkeep", []byte{}, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := channels.Services{}
+	resources, err := p.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: unexpected error: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("Observe: got %d resources, want 1 (stray file must be skipped); resources = %v", len(resources), resources)
+	}
+	if resources[0].ID != "real-svc" {
+		t.Errorf("Observe: resource ID = %q, want %q", resources[0].ID, "real-svc")
+	}
+}
+
 func TestServicesApply_Create(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}

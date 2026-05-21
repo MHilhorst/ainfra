@@ -42,6 +42,10 @@ func (Services) Observe(env provider.Env) ([]provider.Resource, error) {
 
 	var resources []provider.Resource
 	for _, name := range entries {
+		info, err := env.FS.Stat(filepath.Join(servicesDir(env), name))
+		if err != nil || !info.IsDir() {
+			continue
+		}
 		resources = append(resources, provider.Resource{
 			ID:      name,
 			Channel: "backgroundServices",

@@ -255,6 +255,70 @@ func TestCLIToolsApply_DryRun_NoInstall(t *testing.T) {
 	}
 }
 
+func TestCLIToolsApply_MultiMethodDeterministic(t *testing.T) {
+	// Both brew and npm are recognised; sorted order means brew comes first.
+	// Running Apply multiple times must always invoke the same adapter.
+	for i := range 5 {
+		runner := provider.NewFakeRunner()
+		// brew: not installed
+		runner.Script["brew list --versions mything"] = provider.FakeResult{Err: errors.New("not found")}
+		runner.Script["brew install mything"] = provider.FakeResult{Output: []byte("installed")}
+		// npm would also be recognised but must never be reached
+		runner.Script["npm ls -g --depth 0 mything"] = provider.FakeResult{Err: errors.New("not found")}
+		runner.Script["npm install -g mything"] = provider.FakeResult{Output: []byte("installed")}
+
+		env := provider.Env{
+			FS:     provider.NewMemFilesystem(),
+			Runner: runner,
+			Root:   "/repo",
+		}
+
+		plan := provider.ChannelPlan{
+			Channel: "cliTools",
+			Changes: []provider.Change{
+				{
+					Kind: provider.ChangeCreate,
+					ID:   "mything",
+					Resource: provider.Resource{
+						ID:      "mything",
+						Channel: "cliTools",
+						Payload: map[string]any{
+							"install": map[string]any{
+								"brew": "mything",
+								"npm":  "mything",
+							},
+						},
+					},
+				},
+			},
+		}
+
+		p := channels.CLITools{}
+		_, err := p.Apply(env, plan)
+		if err != nil {
+			t.Fatalf("iteration %d: Apply: unexpected error: %v", i, err)
+		}
+
+		// brew must have been used (sorted order: brew < npm)
+		brewInstallSeen := false
+		npmInstallSeen := false
+		for _, call := range runner.Calls {
+			if call == "brew install mything" {
+				brewInstallSeen = true
+			}
+			if call == "npm install -g mything" {
+				npmInstallSeen = true
+			}
+		}
+		if !brewInstallSeen {
+			t.Errorf("iteration %d: expected brew to be selected (sorted first), calls = %v", i, runner.Calls)
+		}
+		if npmInstallSeen {
+			t.Errorf("iteration %d: npm must not be used when brew is selected first, calls = %v", i, runner.Calls)
+		}
+	}
+}
+
 func TestCLIToolsApply_Delete_Noop(t *testing.T) {
 	runner := provider.NewFakeRunner()
 

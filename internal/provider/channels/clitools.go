@@ -2,6 +2,8 @@ package channels
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/pkg"
@@ -49,7 +51,7 @@ func (CLITools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.App
 		var matched provider.Change
 		handled := false
 
-		for method := range installMap {
+		for _, method := range slices.Sorted(maps.Keys(installMap)) {
 			adapter, ok := pkg.Select(method)
 			if !ok {
 				continue
