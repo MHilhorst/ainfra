@@ -139,23 +139,24 @@ func runPlan(ctx cli.Context) int {
 }
 
 func newApplyCommand() *cli.Command {
-	var yes, dryRun bool
+	var yes, dryRun, noInstall bool
 	return &cli.Command{
 		Name:      "apply",
 		Summary:   "Reconcile the environment to match the manifest",
-		UsageLine: "ainfra apply [--yes] [--dry-run]",
+		UsageLine: "ainfra apply [--yes] [--dry-run] [--no-install]",
 		Example:   "ainfra apply --dry-run",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
 			fs.BoolVar(&dryRun, "dry-run", false, "preview the apply without writing anything")
+			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
 		},
 		Run: func(ctx cli.Context) int {
-			return runApply(ctx, yes, dryRun)
+			return runApply(ctx, yes, dryRun, noInstall)
 		},
 	}
 }
 
-func runApply(ctx cli.Context, yes, dryRun bool) int {
+func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 	dir := ctx.Dir
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
@@ -191,6 +192,7 @@ func runApply(ctx cli.Context, yes, dryRun bool) int {
 	}
 	env := buildEnv(dir)
 	env.DryRun = dryRun
+	env.NoInstall = noInstall
 	orch := provider.NewOrchestrator(dir, env, providers)
 	plans, err := orch.PlanAllRendered(rendered)
 	if err != nil {

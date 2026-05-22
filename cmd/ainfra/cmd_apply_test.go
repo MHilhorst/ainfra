@@ -113,6 +113,69 @@ func TestApplyDryRun(t *testing.T) {
 	}
 }
 
+func TestApplyNoInstall(t *testing.T) {
+	dir := t.TempDir()
+
+	srcContent := "# Hello command\n"
+	if err := os.WriteFile(filepath.Join(dir, "hello.md"), []byte(srcContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// A CLI tool whose binary is absent and whose only install method is
+	// unrecognised. Without --no-install the cliTools channel (applied before
+	// commands) fails the declare-and-check probe and aborts the apply.
+	yaml := "version: 1\n" +
+		"cliTools:\n" +
+		"  ainfra-absent-tool-xyz:\n" +
+		"    install:\n" +
+		"      manual: {}\n" +
+		"commands:\n" +
+		"  hello:\n" +
+		"    source: hello.md\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes", "--no-install"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("apply --yes --no-install: code=%d out=%q err=%q", code, out.String(), errOut.String())
+	}
+
+	// The file-writing channels still reconcile.
+	dest := filepath.Join(dir, ".claude", "commands", "hello.md")
+	if _, err := os.Stat(dest); err != nil {
+		t.Errorf("apply --no-install: expected %s to be written, got: %v", dest, err)
+	}
+}
+
+func TestApplyWithoutNoInstallFailsOnAbsentTool(t *testing.T) {
+	dir := t.TempDir()
+
+	yaml := "version: 1\n" +
+		"cliTools:\n" +
+		"  ainfra-absent-tool-xyz:\n" +
+		"    install:\n" +
+		"      manual: {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("apply --yes (no --no-install): expected non-zero exit for an absent tool, got 0; out=%q err=%q",
+			out.String(), errOut.String())
+	}
+}
+
 func TestApplyNoLockFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
