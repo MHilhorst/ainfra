@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -123,6 +124,41 @@ func TestOrchestratorBackfillsObservedHash(t *testing.T) {
 	}
 	if plan2["skills"].Empty() {
 		t.Errorf("expected non-empty plan when desired hash differs from backfilled hash, got empty")
+	}
+}
+
+func TestApplyAllRenderedDryRunSkipsLedger(t *testing.T) {
+	root := t.TempDir()
+	skills := &stubProvider{channel: "skills"} // observes nothing -> "s" is a create
+	o := NewOrchestrator(root, Env{DryRun: true}, []Provider{skills})
+
+	rendered := map[string][]Resource{
+		"skills": {{ID: "s", Channel: "skills", ContentHash: "h1"}},
+	}
+	if err := o.ApplyAllRendered(rendered, newTestLock()); err != nil {
+		t.Fatalf("ApplyAllRendered (dry run): %v", err)
+	}
+	if len(skills.applied) != 1 {
+		t.Errorf("dry run should still call provider Apply, got %+v", skills.applied)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ainfra", "applied.lock")); !os.IsNotExist(err) {
+		t.Errorf("dry run wrote the applied ledger; want it skipped (stat err = %v)", err)
+	}
+}
+
+func TestApplyAllRenderedWritesLedgerWhenNotDryRun(t *testing.T) {
+	root := t.TempDir()
+	skills := &stubProvider{channel: "skills"}
+	o := NewOrchestrator(root, Env{}, []Provider{skills})
+
+	rendered := map[string][]Resource{
+		"skills": {{ID: "s", Channel: "skills", ContentHash: "h1"}},
+	}
+	if err := o.ApplyAllRendered(rendered, newTestLock()); err != nil {
+		t.Fatalf("ApplyAllRendered: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".ainfra", "applied.lock")); err != nil {
+		t.Errorf("non-dry-run apply did not write the applied ledger: %v", err)
 	}
 }
 

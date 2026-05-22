@@ -133,7 +133,8 @@ func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[stri
 // success writes the applied ledger from desired (the lockfile that produced
 // the rendered resources). This is the correct path for apply: the lockfile
 // supplies content hashes for drift detection while the rendered resources
-// supply Payload for file writes.
+// supply Payload for file writes. When env.DryRun is set, providers still run
+// but the applied ledger is not written.
 func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired *lockfile.Lock) error {
 	plans, err := o.PlanAllRendered(rendered)
 	if err != nil {
@@ -151,6 +152,11 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 		}
 	}
 
+	// A dry run exercises every provider's Apply (each no-ops its own writes)
+	// but must not record a ledger — the machine was not reconciled.
+	if o.env.DryRun {
+		return nil
+	}
 	return WriteApplied(o.root, desired)
 }
 
