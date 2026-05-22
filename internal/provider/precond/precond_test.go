@@ -104,3 +104,22 @@ func TestCheckAll_EmptySlice(t *testing.T) {
 		t.Fatalf("CheckAll(nil): expected 0 failures, got %d", len(failures))
 	}
 }
+
+func TestCheckAll_DNSResolves(t *testing.T) {
+	env := provider.Env{Runner: provider.NewFakeRunner()}
+	ps := []precond.Precondition{
+		{ID: "resolves", Kind: "dns-resolves", Host: "localhost"},
+		{ID: "missing", Kind: "dns-resolves", Host: "nonexistent-host.invalid", Remediation: "connect the VPN"},
+		{ID: "no-host", Kind: "dns-resolves", Host: ""},
+	}
+	failures := precond.CheckAll(env, ps)
+	if len(failures) != 1 {
+		t.Fatalf("got %d failures %v, want 1 (only the .invalid host)", len(failures), failures)
+	}
+	if failures[0].ID != "missing" {
+		t.Errorf("failure ID = %q, want %q", failures[0].ID, "missing")
+	}
+	if failures[0].Remediation != "connect the VPN" {
+		t.Errorf("remediation = %q, want it carried through", failures[0].Remediation)
+	}
+}

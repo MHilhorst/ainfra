@@ -466,8 +466,9 @@ func runCheck(ctx cli.Context) int {
 	}
 
 	secretFailures := checkSecrets(committed, personal, secret.DefaultRegistry())
+	precondFailures := checkPreconditions(dir, buildEnv(dir))
 
-	if allEmpty && len(secretFailures) == 0 {
+	if allEmpty && len(secretFailures) == 0 && len(precondFailures) == 0 {
 		fmt.Fprintln(ctx.Stdout, "No drift.")
 		return 0
 	}
@@ -475,6 +476,12 @@ func runCheck(ctx cli.Context) int {
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	if !allEmpty {
 		ui.RenderPlan(ctx.Stdout, c, plans)
+	}
+	if len(precondFailures) > 0 {
+		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
+		for _, f := range precondFailures {
+			fmt.Fprintf(ctx.Stderr, "  %s: %s\n", f.ID, f.Remediation)
+		}
 	}
 	if len(secretFailures) > 0 {
 		fmt.Fprintln(ctx.Stderr, "Unresolvable secrets:")
@@ -526,28 +533,25 @@ func checkPreconditions(dir string, env provider.Env) []precond.Failure {
 				continue
 			}
 			seen[id] = true
-			p := m.Preconditions[id]
-			cmd := shellCommand(p.Check)
-			ps = append(ps, precond.Precondition{
-				ID:          id,
-				Command:     cmd,
-				Remediation: p.Remediation,
-			})
+			ps = append(ps, toPrecondition(id, m.Preconditions[id]))
 		}
 	}
 	return precond.CheckAll(env, ps)
 }
 
-// shellCommand extracts the shell command from a manifest precondition check
-// map. The check map may have a "shell" key whose value is the command string.
-func shellCommand(check map[string]any) string {
-	if check == nil {
-		return ""
-	}
-	if v, ok := check["shell"]; ok {
-		if s, ok := v.(string); ok {
-			return strings.TrimSpace(s)
+// toPrecondition converts a manifest precondition into a precond.Precondition.
+// It reads check.type: "dns-resolves" (evaluated against check.host) — anything
+// else falls back to a "shell" command (the default kind).
+func toPrecondition(id string, p manifest.Precondition) precond.Precondition {
+	pc := precond.Precondition{ID: id, Remediation: p.Remediation}
+	switch t, _ := p.Check["type"].(string); t {
+	case "dns-resolves":
+		pc.Kind = "dns-resolves"
+		pc.Host, _ = p.Check["host"].(string)
+	default:
+		if s, ok := p.Check["shell"].(string); ok {
+			pc.Command = strings.TrimSpace(s)
 		}
 	}
-	return ""
+	return pc
 }
