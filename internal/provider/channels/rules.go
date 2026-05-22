@@ -27,6 +27,34 @@ func fragmentPath(env provider.Env, id string) string {
 	return filepath.Join(rulesDir(env), id+".md")
 }
 
+// resolveRuleTarget turns a rule's target path into an absolute path. A
+// "~"-prefixed target is user-level and expands against env.Home; an absolute
+// target is used verbatim; any other target is repo-level and joins env.Root.
+func resolveRuleTarget(env provider.Env, target string) string {
+	switch {
+	case target == "~":
+		return env.Home
+	case strings.HasPrefix(target, "~/"):
+		return filepath.Join(env.Home, target[2:])
+	case filepath.IsAbs(target):
+		return target
+	default:
+		return filepath.Join(env.Root, target)
+	}
+}
+
+// fragmentFor returns where a rule's fragment file is written. It is
+// co-located with the target: a user-level ("~") target keeps its fragment
+// under env.Home so the target's @import line resolves correctly; every other
+// target keeps it under env.Root.
+func fragmentFor(env provider.Env, target, id string) string {
+	base := env.Root
+	if target == "~" || strings.HasPrefix(target, "~/") {
+		base = env.Home
+	}
+	return filepath.Join(base, ".claude", "ainfra", id+".md")
+}
+
 // Observe lists *.md files in <root>/.claude/ainfra/ and returns a Resource
 // per file. A missing directory is treated as no resources. ContentHash is
 // left empty; the orchestrator backfills it from the ledger.
@@ -77,12 +105,17 @@ func (Rules) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 					target = "CLAUDE.md"
 				}
 				content, _ := c.Resource.Payload["content"].(string)
-				err = fsmerge.WriteOwnedFile(env.FS, fragmentPath(env, c.ID), []byte(content))
+				fragment := fragmentFor(env, target, c.ID)
+				err = fsmerge.WriteOwnedFile(env.FS, fragment, []byte(content))
 				if err != nil {
 					return provider.ApplyResult{}, err
 				}
-				importPath := ".claude/ainfra/" + c.ID + ".md"
-				err = fsmerge.EnsureImportLine(env.FS, filepath.Join(env.Root, target), importPath)
+				targetPath := resolveRuleTarget(env, target)
+				importPath, relErr := filepath.Rel(filepath.Dir(targetPath), fragment)
+				if relErr != nil {
+					return provider.ApplyResult{}, relErr
+				}
+				err = fsmerge.EnsureImportLine(env.FS, targetPath, importPath)
 			case provider.ChangeDelete:
 				err = env.FS.Remove(fragmentPath(env, c.ID))
 			}
