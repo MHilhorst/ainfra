@@ -14,32 +14,37 @@ func TestMCPChannel(t *testing.T) {
 	}
 }
 
-func TestMCPObserveEmpty(t *testing.T) {
+func TestMCPObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Home: "/home"}
 	got, err := (codex.MCP{}).Observe(env)
 	if err != nil {
-		t.Fatalf("Observe: %v", err)
+		t.Fatalf("Observe: unexpected error: %v", err)
 	}
 	if len(got) != 0 {
 		t.Fatalf("Observe: got %d resources, want 0", len(got))
 	}
 }
 
-func TestMCPObserveWithServers(t *testing.T) {
+func TestMCPObserve_WithServers(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	mem.WriteFile("/home/.codex/config.toml",
-		[]byte("[mcp_servers.a]\ncommand = \"cmd-a\"\n\n[mcp_servers.foreign]\ncommand = \"cmd-f\"\n"), 0o644)
+	if err := mem.WriteFile("/home/.codex/config.toml",
+		[]byte("[mcp_servers.a]\ncommand = \"cmd-a\"\n\n[mcp_servers.foreign]\ncommand = \"cmd-f\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	env := provider.Env{FS: mem, Home: "/home"}
 	got, err := (codex.MCP{}).Observe(env)
 	if err != nil {
-		t.Fatalf("Observe: %v", err)
+		t.Fatalf("Observe: unexpected error: %v", err)
 	}
 	ids := map[string]bool{}
 	for _, r := range got {
 		ids[r.ID] = true
 		if r.Channel != "mcpServers" {
-			t.Errorf("resource %q: Channel = %q", r.ID, r.Channel)
+			t.Errorf("resource %q: Channel = %q, want mcpServers", r.ID, r.Channel)
+		}
+		if r.ContentHash != "" {
+			t.Errorf("resource %q: ContentHash should be empty, got %q", r.ID, r.ContentHash)
 		}
 	}
 	if !ids["a"] || !ids["foreign"] {
@@ -47,7 +52,7 @@ func TestMCPObserveWithServers(t *testing.T) {
 	}
 }
 
-func TestMCPApplyCreate(t *testing.T) {
+func TestMCPApply_Create(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Home: "/home"}
 	plan := provider.ChannelPlan{
@@ -69,7 +74,7 @@ func TestMCPApplyCreate(t *testing.T) {
 	}
 	result, err := (codex.MCP{}).Apply(env, plan)
 	if err != nil {
-		t.Fatalf("Apply: %v", err)
+		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 	if len(result.Applied) != 1 {
 		t.Fatalf("Applied = %d, want 1", len(result.Applied))
@@ -86,7 +91,57 @@ func TestMCPApplyCreate(t *testing.T) {
 	}
 }
 
-func TestMCPApplyDryRunWritesNothing(t *testing.T) {
+func TestMCPApply_Delete(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	if err := mem.WriteFile("/home/.codex/config.toml",
+		[]byte("[mcp_servers.github]\ncommand = \"old\"\n\n[mcp_servers.foreign]\ncommand = \"keep\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := provider.Env{FS: mem, Home: "/home"}
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{{
+			Kind:     provider.ChangeDelete,
+			ID:       "github",
+			Resource: provider.Resource{ID: "github", Channel: "mcpServers"},
+		}},
+	}
+	if _, err := (codex.MCP{}).Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	out := string(mem.Files["/home/.codex/config.toml"])
+	if strings.Contains(out, "[mcp_servers.github]") {
+		t.Errorf("deleted server 'github' still present:\n%s", out)
+	}
+	if !strings.Contains(out, "[mcp_servers.foreign]") {
+		t.Errorf("foreign server 'foreign' should be preserved:\n%s", out)
+	}
+}
+
+func TestMCPApply_Noop(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Home: "/home"}
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{{
+			Kind:     provider.ChangeNoop,
+			ID:       "github",
+			Resource: provider.Resource{ID: "github", Channel: "mcpServers"},
+		}},
+	}
+	result, err := (codex.MCP{}).Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 0 {
+		t.Errorf("Applied = %d, want 0 for a noop-only plan", len(result.Applied))
+	}
+	if _, ok := mem.Files["/home/.codex/config.toml"]; ok {
+		t.Error("a noop-only plan must not write the file")
+	}
+}
+
+func TestMCPApply_DryRunWritesNothing(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Home: "/home", DryRun: true}
 	plan := provider.ChannelPlan{
@@ -98,7 +153,7 @@ func TestMCPApplyDryRunWritesNothing(t *testing.T) {
 		}},
 	}
 	if _, err := (codex.MCP{}).Apply(env, plan); err != nil {
-		t.Fatalf("Apply: %v", err)
+		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 	if _, ok := mem.Files["/home/.codex/config.toml"]; ok {
 		t.Error("DryRun must not write the file")
