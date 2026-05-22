@@ -28,6 +28,9 @@ func ResourcesByChannel(l *lockfile.Lock) map[string][]Resource {
 	for id, e := range l.Entries.Skills {
 		out["skills"] = append(out["skills"], entryToResource(id, "skills", e))
 	}
+	for id, e := range l.Entries.Marketplaces {
+		out["marketplaces"] = append(out["marketplaces"], entryToResource(id, "marketplaces", e))
+	}
 	for id, e := range l.Entries.Plugins {
 		out["plugins"] = append(out["plugins"], entryToResource(id, "plugins", e))
 	}
@@ -59,6 +62,7 @@ var channelPrefix = map[string]string{
 	"commands":           "cmd",
 	"cliTools":           "cli",
 	"skills":             "skill",
+	"marketplaces":       "marketplace",
 	"plugins":            "plugin",
 	"rules":              "rule",
 	"tools":              "tools",
@@ -83,6 +87,7 @@ func ApplyOrder(l *lockfile.Lock) ([]string, error) {
 		{"commands", l.Entries.Commands},
 		{"cliTools", l.Entries.CLITools},
 		{"skills", l.Entries.Skills},
+		{"marketplaces", l.Entries.Marketplaces},
 		{"plugins", l.Entries.Plugins},
 		{"rules", l.Entries.Rules},
 		{"tools", l.Entries.Tools},

@@ -48,6 +48,9 @@ func ensureMaps(l *Lock) *Lock {
 	if l.Entries.Skills == nil {
 		l.Entries.Skills = map[string]Entry{}
 	}
+	if l.Entries.Marketplaces == nil {
+		l.Entries.Marketplaces = map[string]Entry{}
+	}
 	if l.Entries.Plugins == nil {
 		l.Entries.Plugins = map[string]Entry{}
 	}
