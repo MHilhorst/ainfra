@@ -139,20 +139,23 @@ func runPlan(ctx cli.Context) int {
 }
 
 func newApplyCommand() *cli.Command {
-	var yes bool
+	var yes, dryRun bool
 	return &cli.Command{
 		Name:      "apply",
 		Summary:   "Reconcile the environment to match the manifest",
-		UsageLine: "ainfra apply [--yes]",
-		Example:   "ainfra apply --yes",
-		SetFlags:  func(fs *flag.FlagSet) { fs.BoolVar(&yes, "yes", false, "skip confirmation prompt") },
+		UsageLine: "ainfra apply [--yes] [--dry-run]",
+		Example:   "ainfra apply --dry-run",
+		SetFlags: func(fs *flag.FlagSet) {
+			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
+			fs.BoolVar(&dryRun, "dry-run", false, "preview the apply without writing anything")
+		},
 		Run: func(ctx cli.Context) int {
-			return runApply(ctx, yes)
+			return runApply(ctx, yes, dryRun)
 		},
 	}
 }
 
-func runApply(ctx cli.Context, yes bool) int {
+func runApply(ctx cli.Context, yes, dryRun bool) int {
 	dir := ctx.Dir
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
@@ -186,7 +189,9 @@ func runApply(ctx cli.Context, yes bool) int {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
+	env := buildEnv(dir)
+	env.DryRun = dryRun
+	orch := provider.NewOrchestrator(dir, env, providers)
 	plans, err := orch.PlanAllRendered(rendered)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -210,7 +215,7 @@ func runApply(ctx cli.Context, yes bool) int {
 	ui.RenderPlan(ctx.Stdout, c, plans)
 
 	// Check preconditions before applying.
-	if failures := checkPreconditions(dir, buildEnv(dir)); len(failures) > 0 {
+	if failures := checkPreconditions(dir, env); len(failures) > 0 {
 		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
 		for _, f := range failures {
 			fmt.Fprintf(ctx.Stderr, "  %s: %s\n", f.ID, f.Remediation)
@@ -218,8 +223,8 @@ func runApply(ctx cli.Context, yes bool) int {
 		return 1
 	}
 
-	// Confirm unless --yes.
-	if !yes {
+	// Confirm unless --yes or --dry-run (a dry run changes nothing).
+	if !yes && !dryRun {
 		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Do you want to apply these changes? (yes/no): ")
 		if err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
@@ -236,7 +241,11 @@ func runApply(ctx cli.Context, yes bool) int {
 		return 1
 	}
 
-	fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	if dryRun {
+		fmt.Fprintln(ctx.Stdout, "Dry run complete — no changes were applied.")
+	} else {
+		fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	}
 	return 0
 }
 

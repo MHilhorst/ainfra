@@ -75,6 +75,44 @@ func TestApplySecondRunNothingToDo(t *testing.T) {
 	}
 }
 
+func TestApplyDryRun(t *testing.T) {
+	dir := t.TempDir()
+
+	srcContent := "# Hello command\n"
+	if err := os.WriteFile(filepath.Join(dir, "hello.md"), []byte(srcContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "version: 1\ncommands:\n  hello:\n    source: hello.md\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--dry-run"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("apply --dry-run: code=%d out=%q err=%q", code, out.String(), errOut.String())
+	}
+
+	// The command file must NOT be written.
+	dest := filepath.Join(dir, ".claude", "commands", "hello.md")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
+		t.Errorf("apply --dry-run wrote %s; want no write (stat err = %v)", dest, err)
+	}
+	// The applied ledger must NOT be written.
+	ledger := filepath.Join(dir, ".ainfra", "applied.lock")
+	if _, err := os.Stat(ledger); !os.IsNotExist(err) {
+		t.Errorf("apply --dry-run wrote the applied ledger; want no write (stat err = %v)", err)
+	}
+	// Output names it a dry run.
+	if !strings.Contains(out.String(), "Dry run") {
+		t.Errorf("apply --dry-run: expected 'Dry run' in output, got: %q", out.String())
+	}
+}
+
 func TestApplyNoLockFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
