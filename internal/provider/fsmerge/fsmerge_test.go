@@ -3,9 +3,21 @@ package fsmerge
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// realFS wraps the real os calls and satisfies FS. Used only in tests that
+// need to exercise real filesystem behaviour (parent-dir creation) that the
+// in-memory fake cannot reproduce.
+type realFS struct{}
+
+func (realFS) ReadFile(path string) ([]byte, error)                 { return os.ReadFile(path) }
+func (realFS) WriteFile(path string, data []byte, perm os.FileMode) error {
+	return os.WriteFile(path, data, perm)
+}
+func (realFS) MkdirAll(path string, perm os.FileMode) error { return os.MkdirAll(path, perm) }
 
 // memFS is a minimal in-memory FS for tests only.
 type memFS struct {
@@ -101,5 +113,29 @@ func TestMergeJSONKeysReturnsOtherReadErrors(t *testing.T) {
 	}
 	if fk.wrote {
 		t.Error("MergeJSONKeys must not write the file when ReadFile returns a non-not-exist error")
+	}
+}
+
+// TestEnsureImportLineCreatesParentDir verifies that EnsureImportLine creates
+// all missing parent directories before writing. The in-memory fake cannot
+// exercise this because its WriteFile succeeds regardless; a real on-disk
+// filesystem is required.
+func TestEnsureImportLineCreatesParentDir(t *testing.T) {
+	tmp := t.TempDir()
+	// Target is two levels deep; neither subdirectory exists yet.
+	target := filepath.Join(tmp, "docs", "nested", "CLAUDE.md")
+	importPath := ".claude/ainfra/context.md"
+
+	if err := EnsureImportLine(realFS{}, target, importPath); err != nil {
+		t.Fatalf("EnsureImportLine returned unexpected error: %v", err)
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("target file not created: %v", err)
+	}
+	want := "@" + importPath
+	if !strings.Contains(string(data), want) {
+		t.Errorf("file content %q does not contain expected import line %q", string(data), want)
 	}
 }
