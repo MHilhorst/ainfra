@@ -3,6 +3,7 @@ package artifact
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -33,6 +34,24 @@ func TestVerifyDetectsTampering(t *testing.T) {
 	must(t, os.WriteFile(filepath.Join(dir, "ainfra.lock"), []byte("tampered"), 0o644))
 	if Verify(dir) == nil {
 		t.Error("Verify must reject a tampered artifact")
+	}
+}
+
+func TestVerifyRejectsPathTraversal(t *testing.T) {
+	dir := t.TempDir()
+	d := Descriptor{SchemaVersion: 1, ArtifactURL: "https://x", Agent: "claude-desktop"}
+	must(t, Write(dir, d, map[string][]byte{"ainfra.lock": []byte("a")}))
+
+	// Overwrite the manifest with a traversal path as the filename.
+	malicious := "abc123  ../something\n"
+	must(t, os.WriteFile(filepath.Join(dir, ManifestName), []byte(malicious), 0o644))
+
+	err := Verify(dir)
+	if err == nil {
+		t.Fatal("Verify must reject a manifest with a path-traversal filename")
+	}
+	if !strings.Contains(err.Error(), "unsafe path") {
+		t.Errorf("Verify error should mention 'unsafe path', got: %v", err)
 	}
 }
 

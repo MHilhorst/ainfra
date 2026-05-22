@@ -95,6 +95,9 @@ func Verify(dir string) error {
 		if !ok {
 			return fmt.Errorf("artifact: malformed %s line %q", ManifestName, line)
 		}
+		if filepath.IsAbs(name) || name != filepath.Clean(name) || strings.HasPrefix(name, "..") {
+			return fmt.Errorf("artifact: unsafe path %q in %s", name, ManifestName)
+		}
 		content, err := os.ReadFile(filepath.Join(dir, name))
 		if err != nil {
 			return fmt.Errorf("artifact: %s missing: %w", name, err)

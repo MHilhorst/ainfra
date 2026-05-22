@@ -40,6 +40,10 @@ func runInstaller(ctx cli.Context, out string) int {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no publish: block in ainfra.yaml — add one to generate an installer"))
 		return 1
 	}
+	if err := manifest.ValidateAll(layers); err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
 	pub := repo.Publish
 
 	params := installer.Params{

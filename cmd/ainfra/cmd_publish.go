@@ -41,6 +41,10 @@ func runPublish(ctx cli.Context, out string) int {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no publish: block in ainfra.yaml — add one to publish an artifact"))
 		return 1
 	}
+	if err := manifest.ValidateAll(layers); err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
 	pub := repo.Publish
 
 	lockPath := filepath.Join(dir, "ainfra.lock")

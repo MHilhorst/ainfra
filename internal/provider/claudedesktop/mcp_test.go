@@ -94,39 +94,22 @@ func TestObserveMissingFileNoResources(t *testing.T) {
 	}
 }
 
-// TestConfigPathPerOS verifies that configPath resolves to the correct
-// OS-specific path. The darwin path must contain "Application Support"; the
-// windows path must contain "AppData/Roaming".
+// TestConfigPathPerOS verifies that configPathFor resolves to the correct
+// OS-specific path for both darwin and windows.
 func TestConfigPathPerOS(t *testing.T) {
-	// We test the darwin path indirectly by checking that Observe on a darwin
-	// machine reads from a path containing "Application Support".
-	// For the darwin case (current OS on CI and dev machines) we write the file
-	// at the darwin path and verify Observe can read it.
-	mem := provider.NewMemFilesystem()
-	darwinPath := "/home/Library/Application Support/Claude/claude_desktop_config.json"
-	content := []byte(`{"mcpServers":{"a":{"command":"cmd-a"}}}`)
-	if err := mem.WriteFile(darwinPath, content, 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	env := provider.Env{FS: mem, Home: "/home"}
-	got, err := (claudedesktop.MCP{}).Observe(env)
-	if err != nil {
-		t.Fatalf("Observe: unexpected error: %v", err)
-	}
-	// On darwin this will find the server; on windows the path will differ and
-	// Observe will return nil (no resources) — both are valid outcomes for the
-	// path-resolution contract.
-	_ = got // presence of error is the important check
-
-	// Verify the darwin path constant contains "Application Support".
+	darwinPath := claudedesktop.ConfigPathFor("/home/u", "darwin")
 	if !strings.Contains(darwinPath, "Application Support") {
 		t.Errorf("darwin path %q should contain 'Application Support'", darwinPath)
 	}
+	if !strings.Contains(darwinPath, "claude_desktop_config.json") {
+		t.Errorf("darwin path %q should end with claude_desktop_config.json", darwinPath)
+	}
 
-	// Verify the windows path would contain "AppData/Roaming".
-	windowsPath := "/home/AppData/Roaming/Claude/claude_desktop_config.json"
-	if !strings.Contains(windowsPath, "AppData/Roaming") {
+	windowsPath := claudedesktop.ConfigPathFor("/home/u", "windows")
+	if !strings.Contains(windowsPath, "AppData") || !strings.Contains(windowsPath, "Roaming") {
 		t.Errorf("windows path %q should contain 'AppData/Roaming'", windowsPath)
+	}
+	if !strings.Contains(windowsPath, "claude_desktop_config.json") {
+		t.Errorf("windows path %q should end with claude_desktop_config.json", windowsPath)
 	}
 }

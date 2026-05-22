@@ -35,7 +35,7 @@ func TestPublishNoLockFile(t *testing.T) {
 	yaml := `version: 1
 publish:
   artifactURL: https://example.com/artifact
-  agent: claude
+  agent: claude-desktop
   sync:
     intervalMinutes: 60
     runAtLogin: true
@@ -51,6 +51,33 @@ publish:
 	combined := out.String() + errOut.String()
 	if !strings.Contains(combined, "ainfra lock") {
 		t.Errorf("publish without ainfra.lock: expected 'ainfra lock' hint, got: %q", combined)
+	}
+}
+
+func TestPublishInvalidAgent(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+publish:
+  artifactURL: https://example.com/artifact
+  agent: bogus
+  sync:
+    intervalMinutes: 60
+    runAtLogin: true
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.lock"), []byte(`{"version":1,"entries":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "publish"}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("publish with invalid agent: expected non-zero exit, got 0")
+	}
+	combined := out.String() + errOut.String()
+	if !strings.Contains(combined, "bogus") {
+		t.Errorf("publish with invalid agent: expected 'bogus' in error, got: %q", combined)
 	}
 }
 

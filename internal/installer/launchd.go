@@ -4,6 +4,7 @@
 package installer
 
 import (
+	"encoding/xml"
 	"fmt"
 	"strings"
 )
@@ -23,6 +24,13 @@ type Params struct {
 	RunAtLogin      bool
 }
 
+// xmlEscape returns s with XML special characters escaped.
+func xmlEscape(s string) string {
+	var esc strings.Builder
+	xml.EscapeText(&esc, []byte(s)) //nolint:errcheck // strings.Builder never returns an error
+	return esc.String()
+}
+
 // LaunchdPlist renders a launchd LaunchAgent plist that runs
 // `ainfra apply --from <url> --yes` on an interval (StartInterval is in
 // seconds) and, when RunAtLogin is set, also at login.
@@ -31,10 +39,10 @@ func LaunchdPlist(p Params) string {
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>` + "\n")
 	b.WriteString(`<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">` + "\n")
 	b.WriteString(`<plist version="1.0">` + "\n<dict>\n")
-	fmt.Fprintf(&b, "  <key>Label</key><string>%s</string>\n", p.Label)
+	fmt.Fprintf(&b, "  <key>Label</key><string>%s</string>\n", xmlEscape(p.Label))
 	b.WriteString("  <key>ProgramArguments</key>\n  <array>\n")
 	for _, arg := range []string{p.BinPath, "apply", "--from", p.ArtifactURL, "--yes"} {
-		fmt.Fprintf(&b, "    <string>%s</string>\n", arg)
+		fmt.Fprintf(&b, "    <string>%s</string>\n", xmlEscape(arg))
 	}
 	b.WriteString("  </array>\n")
 	if p.RunAtLogin {

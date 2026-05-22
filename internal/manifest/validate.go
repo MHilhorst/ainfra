@@ -354,7 +354,7 @@ func checkEntryAgent(e channelEntry, target agent.ID) *diag.Diagnostic {
 				Summary: fmt.Sprintf("unknown agent %q in agents:", a),
 				Path:    e.path(),
 				Detail:  fmt.Sprintf("Entry %q gates to agent %q, which ainfra does not know.", e.path(), a),
-				Hint:    "Valid agents: claude-code, codex.",
+				Hint:    "Valid agents: claude-code, codex, claude-desktop.",
 			}
 		}
 	}
@@ -394,7 +394,7 @@ func validateAgentCapabilities(layers map[Layer]*Manifest) error {
 			File:    agentFileFor[setLayer],
 			Path:    "agent",
 			Detail:  fmt.Sprintf("The agent field selects which AI agent ainfra renders for; %q is not one ainfra knows.", id),
-			Hint:    "Valid agents: claude-code, codex.",
+			Hint:    "Valid agents: claude-code, codex, claude-desktop.",
 		}
 	}
 	target := agent.ID(id)

@@ -20,14 +20,21 @@ type MCP struct{}
 // Channel returns the channel name this provider manages.
 func (MCP) Channel() string { return "mcpServers" }
 
+// configPathFor returns the OS-specific Claude Desktop config file path for
+// the given home directory and OS name. Extracted as a pure helper so it can
+// be tested without running on the target OS.
+func configPathFor(home, goos string) string {
+	switch goos {
+	case "windows":
+		return filepath.Join(home, "AppData", "Roaming", "Claude", "claude_desktop_config.json")
+	default: // darwin and anything else
+		return filepath.Join(home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
+	}
+}
+
 // configPath returns the OS-specific Claude Desktop config file path.
 func configPath(env provider.Env) string {
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(env.Home, "AppData", "Roaming", "Claude", "claude_desktop_config.json")
-	default: // darwin and anything else
-		return filepath.Join(env.Home, "Library", "Application Support", "Claude", "claude_desktop_config.json")
-	}
+	return configPathFor(env.Home, runtime.GOOS)
 }
 
 // Observe reads the config file and returns a Resource per mcpServers key.

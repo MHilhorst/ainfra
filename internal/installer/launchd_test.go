@@ -24,6 +24,21 @@ func TestLaunchdPlistOmitsRunAtLoadWhenFalse(t *testing.T) {
 	}
 }
 
+func TestLaunchdPlistEscapesURL(t *testing.T) {
+	out := LaunchdPlist(Params{
+		Label:           "com.ainfra.subscriber",
+		BinPath:         "/usr/local/bin/ainfra",
+		ArtifactURL:     "https://x/a?p=1&q=2",
+		IntervalMinutes: 60,
+	})
+	if strings.Contains(out, "&q=2") {
+		t.Error("plist must not contain bare '&' in URL; expected XML-escaped '&amp;'")
+	}
+	if !strings.Contains(out, "&amp;") {
+		t.Errorf("plist must contain '&amp;' for escaped '&' in URL, got:\n%s", out)
+	}
+}
+
 func TestInstallScriptReferencesURLAndPlistPath(t *testing.T) {
 	p := Params{
 		Label:           "com.ainfra.subscriber",
