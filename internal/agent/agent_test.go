@@ -43,3 +43,17 @@ func TestDefaultIsClaudeCode(t *testing.T) {
 		t.Errorf("Default = %q, want %q", Default, ClaudeCode)
 	}
 }
+
+func TestClaudeDesktopKnownAndMCPOnly(t *testing.T) {
+	if !Known("claude-desktop") {
+		t.Fatal("claude-desktop should be a known agent")
+	}
+	if !Supports(ClaudeDesktop, ChannelMCPServers) {
+		t.Error("claude-desktop must support mcpServers")
+	}
+	for _, ch := range []string{ChannelHooks, ChannelCommands, ChannelRules, ChannelSkills, ChannelPlugins, ChannelTools, ChannelCLITools} {
+		if Supports(ClaudeDesktop, ch) {
+			t.Errorf("claude-desktop must not support %q", ch)
+		}
+	}
+}

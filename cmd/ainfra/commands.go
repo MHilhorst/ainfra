@@ -164,20 +164,89 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 
 func newApplyCommand() *cli.Command {
 	var yes, dryRun, noInstall bool
+	var from string
 	return &cli.Command{
 		Name:      "apply",
-		Summary:   "Reconcile the environment to match the manifest",
-		UsageLine: "ainfra apply [--yes] [--dry-run] [--no-install]",
-		Example:   "ainfra apply --dry-run",
+		Summary:   "Reconcile the environment to match the manifest or a published artifact",
+		UsageLine: "ainfra apply [--yes] [--dry-run] [--no-install] [--from <url-or-dir>]",
+		Example:   "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
 			fs.BoolVar(&dryRun, "dry-run", false, "preview the apply without writing anything")
 			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
+			fs.StringVar(&from, "from", "", "reconcile against a published artifact instead of a repo")
 		},
 		Run: func(ctx cli.Context) int {
+			if from != "" {
+				return runApplyFrom(ctx, from, yes)
+			}
 			return runApply(ctx, yes, dryRun, noInstall)
 		},
 	}
+}
+
+func runApplyFrom(ctx cli.Context, from string, yes bool) int {
+	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+
+	dir, cleanup, err := artifactSource(from)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	defer cleanup()
+
+	providers, rendered, lock, err := loadArtifact(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	env, home, err := subscriberEnv()
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	orch := provider.NewOrchestrator(home, env, providers)
+	plans, err := orch.PlanAllRendered(rendered)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
+	allEmpty := true
+	for _, p := range plans {
+		if !p.Empty() {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		fmt.Fprintln(ctx.Stdout, "Nothing to do.")
+		return 0
+	}
+
+	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+	ui.RenderPlan(ctx.Stdout, c, plans)
+
+	if !yes {
+		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Do you want to apply these changes? (yes/no): ")
+		if err != nil {
+			ui.RenderError(ctx.Stderr, errColor, err)
+			return 1
+		}
+		if !ok {
+			fmt.Fprintln(ctx.Stdout, "Aborted.")
+			return 0
+		}
+	}
+
+	results, err := orch.ApplyAllRendered(rendered, lock)
+	renderApplySummary(ctx.Stdout, results)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	return 0
 }
 
 func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
@@ -280,13 +349,65 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 }
 
 func newCheckCommand() *cli.Command {
+	var from string
 	return &cli.Command{
 		Name:      "check",
-		Summary:   "Verify the environment matches the lockfile; report drift",
-		UsageLine: "ainfra check",
-		Example:   "ainfra check",
-		Run:       runCheck,
+		Summary:   "Verify the environment matches the lockfile or a published artifact; report drift",
+		UsageLine: "ainfra check [--from <url-or-dir>]",
+		Example:   "ainfra check --from https://downloads.example.com/ainfra/sales",
+		SetFlags: func(fs *flag.FlagSet) {
+			fs.StringVar(&from, "from", "", "check against a published artifact instead of a repo")
+		},
+		Run: func(ctx cli.Context) int {
+			if from != "" {
+				return runCheckFrom(ctx, from)
+			}
+			return runCheck(ctx)
+		},
 	}
+}
+
+func runCheckFrom(ctx cli.Context, from string) int {
+	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+
+	dir, cleanup, err := artifactSource(from)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	defer cleanup()
+
+	providers, rendered, _, err := loadArtifact(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	env, home, err := subscriberEnv()
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	orch := provider.NewOrchestrator(home, env, providers)
+	plans, err := orch.PlanAllRendered(rendered)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
+	allEmpty := true
+	for _, p := range plans {
+		if !p.Empty() {
+			allEmpty = false
+			break
+		}
+	}
+	if allEmpty {
+		fmt.Fprintln(ctx.Stdout, "No drift.")
+		return 0
+	}
+	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+	ui.RenderPlan(ctx.Stdout, c, plans)
+	return 1
 }
 
 func runCheck(ctx cli.Context) int {

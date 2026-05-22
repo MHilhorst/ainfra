@@ -59,6 +59,7 @@ type Manifest struct {
 	Rules              map[string]Rule              `yaml:"rules"`
 	Vars               map[string]Var               `yaml:"vars"`
 	Tools              *Tools                       `yaml:"tools"`
+	Publish            *Publish                     `yaml:"publish,omitempty"`
 }
 
 // Source names a team/org layer to extend.
@@ -236,6 +237,20 @@ type Tools struct {
 	Builtins    *Builtins    `yaml:"builtins"`
 	Permissions *Permissions `yaml:"permissions"`
 	Agents      []string     `yaml:"agents,omitempty"`
+}
+
+// Publish configures the artifact a team publishes for subscriber machines
+// (spec: docs/superpowers/specs/2026-05-22-subscriber-mode-design.md §5).
+type Publish struct {
+	ArtifactURL string      `yaml:"artifactURL"`
+	Agent       string      `yaml:"agent"`
+	Sync        PublishSync `yaml:"sync"`
+}
+
+// PublishSync controls the subscriber's generated scheduled job.
+type PublishSync struct {
+	IntervalMinutes int  `yaml:"intervalMinutes"`
+	RunAtLogin      bool `yaml:"runAtLogin"`
 }
 
 // Builtins toggles Claude Code's built-in tools.

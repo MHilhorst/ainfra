@@ -60,3 +60,19 @@ func TestForAgentUnknownErrors(t *testing.T) {
 		t.Error("expected an error for an unknown agent, got nil")
 	}
 }
+
+func TestForAgentClaudeDesktop(t *testing.T) {
+	ps, err := agentset.ForAgent(agent.ClaudeDesktop)
+	if err != nil {
+		t.Fatalf("ForAgent(claude-desktop): %v", err)
+	}
+	var hasMCP bool
+	for _, p := range ps {
+		if p.Channel() == "mcpServers" {
+			hasMCP = true
+		}
+	}
+	if !hasMCP {
+		t.Error("claude-desktop provider set must include the mcpServers provider")
+	}
+}

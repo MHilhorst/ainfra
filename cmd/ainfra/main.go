@@ -21,6 +21,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newValidateCommand())
 	reg.Add(newSchemaCommand())
 	reg.Add(newLockCommand())
+	reg.Add(newPublishCommand())
+	reg.Add(newInstallerCommand())
 	reg.Add(newPlanCommand())
 	reg.Add(newApplyCommand())
 	reg.Add(newCheckCommand())

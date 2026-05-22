@@ -137,8 +137,10 @@ Run `ainfra --help` for the command list, or `ainfra <command> --help` for per-c
 | `schema` | Print the JSON Schema for `ainfra.yaml` — point an editor at it for autocomplete |
 | `lock` | Resolve the manifest and write `ainfra.lock` |
 | `plan` | Preview the diff between desired and observed state |
-| `apply` | Reconcile the environment to the manifest |
-| `check` | Verify the environment matches the lockfile; report drift |
+| `apply` | Reconcile the environment to the manifest — or to a published artifact with `--from` |
+| `check` | Verify the environment matches the lockfile (or a `--from` artifact); report drift |
+| `publish` | Package the resolved lockfile into a subscriber artifact (`--out`) |
+| `installer` | Generate a one-time macOS installer for subscriber machines (`--out`) |
 | `version` | Print the ainfra version |
 
 Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output.
@@ -150,6 +152,16 @@ ainfra reconciles a Claude Code or Codex environment today. `init`, `validate`, 
 The schemas were validated *on paper* against five scenarios — see [docs/validation.md](docs/validation.md) — before any implementation code was written.
 
 Both Claude Code and Codex are supported targets, and the pluggable secret resolver (`op://` and `env://`) is built. Local source files and inline or templated MCP servers work today; fetching sources from remote locations (git/npm) and gateway adapters are the remaining follow-ups.
+
+### Subscriber mode — non-engineers
+
+Engineers manage AI tooling as config-as-code in the repo. Non-engineers (sales, support) need the MCP servers in their **Claude Desktop app**, with no repo and no terminal. ainfra bridges this without owning a runtime:
+
+- `ainfra publish` packages the resolved lockfile into a hash-pinned **artifact** (`ainfra.lock` + rendered resources + an `ainfra.sub.json` descriptor + `MANIFEST.sha256`). The team hosts that artifact at a URL.
+- `ainfra apply --from <url>` reconciles a machine against the artifact — rendering `claude_desktop_config.json` — with no repo and no manifest. A failed fetch is a safe no-op: the machine stays on last-known-good config.
+- `ainfra installer` emits a one-time macOS installer that drops a launchd job running `apply --from` at login and on a configurable interval.
+
+The `publish:` block in `ainfra.yaml` configures the artifact URL, target agent, and sync cadence — the team owns every knob; the subscriber configures nothing. See [docs/superpowers/specs/2026-05-22-subscriber-mode-design.md](docs/superpowers/specs/2026-05-22-subscriber-mode-design.md).
 
 ## Build
 
