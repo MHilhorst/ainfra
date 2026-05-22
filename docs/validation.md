@@ -124,6 +124,7 @@ tool-owned-resolved separation (design §8) carries the weight.
 | 5 — Multi-database | Holds |
 
 The gate is passed. Both iterations were found cheaply, on paper, exactly as
-§11 intends — and are now reflected in the specs. Implementation may proceed
-against the iterated schema; see
+§11 intends — and are reflected in the specs. Implementation proceeded against
+the iterated schema; all five build phases (design §10) are now complete. The
+plan that drove it is
 [docs/superpowers/plans/2026-05-21-ainfra-cli.md](superpowers/plans/2026-05-21-ainfra-cli.md).

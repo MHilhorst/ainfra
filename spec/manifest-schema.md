@@ -1,11 +1,13 @@
 # Phase 1 — Manifest Schema (`ainfra.yaml`)
 
-Status: **drafted, under validation.** This spec is proven by
-[docs/validation.md](../docs/validation.md). If a validation scenario cannot be
-expressed cleanly, this spec is iterated — not worked around in code.
+Status: **implemented.** This spec was proven on paper against
+[docs/validation.md](../docs/validation.md) — where a scenario bent the schema,
+the schema was iterated rather than worked around in code — and is now enforced
+by the loader, `ainfra validate`, and the reflected JSON Schema (`ainfra
+schema`).
 
-The manifest is YAML. `version: 1` is the only stable promise; everything else
-may change until the validation gate passes.
+The manifest is YAML. `version: 1` is the stable wire promise; schema iterations
+are recorded inline below and in the validation gate.
 
 ---
 

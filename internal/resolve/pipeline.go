@@ -38,6 +38,18 @@ func RunLock(dir string) error {
 		}
 	}
 
+	// Merge top-level secrets: across layers, same precedence as templates.
+	allSecrets := map[string]manifest.Secret{}
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		if m, ok := layers[layerName]; ok {
+			for name, s := range m.Secrets {
+				if _, exists := allSecrets[name]; !exists {
+					allSecrets[name] = s
+				}
+			}
+		}
+	}
+
 	// Validate every layer. ValidateAll merges templates across layers and
 	// tags each diagnostic with its source file — the same check
 	// `ainfra validate` runs.
@@ -70,6 +82,9 @@ func RunLock(dir string) error {
 				// (non-templated) mcpServers are resolved in the second layer loop.
 				continue
 			}
+			if srv.Enabled != nil && !*srv.Enabled {
+				continue // disabled servers are not locked
+			}
 			tmpl := allTemplates[srv.Template]
 			insts = append(insts, tagged{id, layerName, srv, tmpl})
 			for field, rf := range tmpl.Resolved {
@@ -88,6 +103,7 @@ func RunLock(dir string) error {
 
 	g := graph.New()
 	lock := &lockfile.Lock{Version: 1, GeneratedAt: time.Now().UTC().Format(time.RFC3339),
+		Secrets: map[string]lockfile.SecretRef{},
 		Entries: lockfile.Entries{
 			MCPServers:         map[string]lockfile.Entry{},
 			BackgroundServices: map[string]lockfile.Entry{},
@@ -121,6 +137,13 @@ func RunLock(dir string) error {
 		g.AddNode("mcp:" + ti.id)
 		entry := lockfile.Entry{Layer: string(ti.layer), FromTemplate: ti.inst.Template, Resolved: resolved}
 		if out.MCPServer != nil {
+			refs, err := substituteSecrets(out.MCPServer, "mcpServers", ti.id, ti.layer, ti.inst.Secret, allSecrets)
+			if err != nil {
+				return err
+			}
+			for v, sr := range refs {
+				lock.Secrets[v] = sr
+			}
 			entry.Version = out.MCPServer.Version
 			entry.ContentHash = lockfile.ContentHash(map[string]any{
 				"command": out.MCPServer.Command, "args": out.MCPServer.Args,
@@ -182,6 +205,16 @@ func RunLock(dir string) error {
 			srv := m.MCPServers[id]
 			if srv.Template != "" {
 				continue // templated servers are resolved in the first loop
+			}
+			if srv.Enabled != nil && !*srv.Enabled {
+				continue // disabled servers are not locked
+			}
+			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets)
+			if err != nil {
+				return err
+			}
+			for v, sr := range refs {
+				lock.Secrets[v] = sr
 			}
 			node := "mcp:" + id
 			g.AddNode(node)
@@ -262,6 +295,15 @@ func RunLock(dir string) error {
 		}
 		for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {
 			t := m.CLITools[id]
+			if len(t.Secret) > 0 {
+				refs, _, err := collectSecretRefs("cliTools", id, layerName, t.Secret, allSecrets)
+				if err != nil {
+					return err
+				}
+				for v, sr := range refs {
+					lock.Secrets[v] = sr
+				}
+			}
 			g.AddNode("cli:" + id)
 			lock.Entries.CLITools[id] = lockfile.Entry{
 				Layer:      string(layerName),
@@ -371,12 +413,14 @@ func portsFromLock(l *lockfile.Lock) map[string]map[string]int {
 // (spec §7 — the layered lockfile).
 func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	mk := func() *lockfile.Lock {
-		return &lockfile.Lock{Version: 1, GeneratedAt: l.GeneratedAt, Entries: lockfile.Entries{
-			MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
-			Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
-			CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
-			Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
-			Tools: map[string]lockfile.Entry{}}}
+		return &lockfile.Lock{Version: 1, GeneratedAt: l.GeneratedAt,
+			Secrets: map[string]lockfile.SecretRef{},
+			Entries: lockfile.Entries{
+				MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
+				Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
+				CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
+				Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
+				Tools: map[string]lockfile.Entry{}}}
 	}
 	committed, personal = mk(), mk()
 	route := func(dst func(*lockfile.Lock) map[string]lockfile.Entry, src map[string]lockfile.Entry) {
@@ -397,5 +441,12 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Plugins }, l.Entries.Plugins)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Rules }, l.Entries.Rules)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Tools }, l.Entries.Tools)
+	for v, sr := range l.Secrets {
+		if sr.Layer == string(manifest.LayerPersonal) {
+			personal.Secrets[v] = sr
+		} else {
+			committed.Secrets[v] = sr
+		}
+	}
 	return committed, personal
 }

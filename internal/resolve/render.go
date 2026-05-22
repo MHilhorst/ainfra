@@ -60,11 +60,16 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				continue
 			}
 			srv := m.MCPServers[id]
+			// A server with enabled: false is omitted from .mcp.json.
+			if srv.Enabled != nil && !*srv.Enabled {
+				continue
+			}
 			entry := merged.mcpServers[id]
 			var args []string
 			var envMap map[string]string
 			var headersMap map[string]string
 			cmd := srv.Command
+			version := srv.Version
 			transport := srv.Transport
 			url := srv.URL
 
@@ -79,16 +84,46 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				if err == nil && inst.MCPServer != nil {
 					cmd = inst.MCPServer.Command
 					args = inst.MCPServer.Args
+					version = inst.MCPServer.Version
 					envMap = inst.MCPServer.Env
 					transport = inst.MCPServer.Transport
 					url = inst.MCPServer.URL
 					headersMap = inst.MCPServer.Headers
+				}
+				// A template may also produce a background service; emit it as
+				// a backgroundServices resource so the channel can reconcile it.
+				if err == nil && inst.Service != nil {
+					sid := inst.Service.ID
+					if markSeen(seen, "backgroundServices", sid) {
+						sEntry := merged.backgroundServices[sid]
+						result["backgroundServices"] = append(result["backgroundServices"], provider.Resource{
+							ID:          sid,
+							Channel:     "backgroundServices",
+							Layer:       sEntry.Layer,
+							ContentHash: sEntry.ContentHash,
+							Requires:    sEntry.Requires,
+							Payload: map[string]any{
+								"kind": inst.Service.Kind,
+								"spec": inst.Service.Spec,
+							},
+						})
+					}
 				}
 			} else {
 				args = srv.Args
 				envMap = srv.Env
 				headersMap = srv.Headers
 			}
+
+			// Pin the package version into the launch args so package-launched
+			// servers install the locked version instead of floating to latest.
+			args = pinPackageVersion(cmd, args, version)
+
+			secSrv := &manifest.MCPServer{Env: envMap, Headers: headersMap, URL: url}
+			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers)); err != nil {
+				return nil, err
+			}
+			envMap, headersMap, url = secSrv.Env, secSrv.Headers, secSrv.URL
 
 			payload := map[string]any{
 				"command":   cmd,
@@ -115,18 +150,27 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			}
 			h := m.Hooks[id]
 			entry := merged.hooks[id]
+			payload := map[string]any{
+				"event":   h.Event,
+				"matcher": h.Matcher,
+				"command": h.Command,
+				"timeout": h.Timeout,
+			}
+			// A hook may carry a bundled source script; the channel installs
+			// it alongside the hook so `command` can reference it.
+			if h.Source != "" && !isRemoteSource(h.Source) {
+				if raw, err := os.ReadFile(filepath.Join(dir, h.Source)); err == nil {
+					payload["scriptName"] = filepath.Base(h.Source)
+					payload["scriptContent"] = string(raw)
+				}
+			}
 			result["hooks"] = append(result["hooks"], provider.Resource{
 				ID:          id,
 				Channel:     "hooks",
 				Layer:       entry.Layer,
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
-				Payload: map[string]any{
-					"event":   h.Event,
-					"matcher": h.Matcher,
-					"command": h.Command,
-					"timeout": h.Timeout,
-				},
+				Payload:     payload,
 			})
 		}
 
@@ -323,6 +367,41 @@ func isRemoteSource(source string) bool {
 		strings.HasPrefix(source, "http://")
 }
 
+// packageLaunchers are commands that launch a server from a package registry,
+// where a pinned version belongs in the package argument itself.
+var packageLaunchers = map[string]bool{"npx": true, "uvx": true, "pipx": true}
+
+// pinPackageVersion appends @version to the package argument of a
+// package-launched server (npx/uvx/pipx), so the runtime command installs the
+// pinned version instead of floating to latest. The package is the first
+// non-flag argument; an argument that already carries a version is left alone.
+func pinPackageVersion(command string, args []string, version string) []string {
+	if version == "" || !packageLaunchers[command] || len(args) == 0 {
+		return args
+	}
+	out := append([]string(nil), args...)
+	for i, a := range out {
+		if strings.HasPrefix(a, "-") {
+			continue
+		}
+		if !argHasVersion(a) {
+			out[i] = a + "@" + version
+		}
+		break
+	}
+	return out
+}
+
+// argHasVersion reports whether a package argument already carries a @version
+// suffix. A leading @ (a scoped package) is skipped before the check.
+func argHasVersion(arg string) bool {
+	s := arg
+	if strings.HasPrefix(s, "@") {
+		s = s[1:]
+	}
+	return strings.Contains(s, "@")
+}
+
 // mergedEntries holds entry maps from both committed and personal lockfiles.
 type mergedEntries struct {
 	mcpServers         map[string]lockfile.Entry
@@ -358,6 +437,24 @@ func mergeLockEntries(committed, personal *lockfile.Lock) mergedEntries {
 		rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
 		tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
 	}
+}
+
+// collectSecrets merges top-level secrets: from all layers; higher layers take
+// precedence (same logic as collectTemplates).
+func collectSecrets(layers map[manifest.Layer]*manifest.Manifest) map[string]manifest.Secret {
+	all := map[string]manifest.Secret{}
+	for _, layerName := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+		m, ok := layers[layerName]
+		if !ok {
+			continue
+		}
+		for name, s := range m.Secrets {
+			if _, exists := all[name]; !exists {
+				all[name] = s
+			}
+		}
+	}
+	return all
 }
 
 // collectTemplates merges templates from all layers; lower layers take

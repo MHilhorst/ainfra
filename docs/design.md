@@ -1,8 +1,9 @@
 # ainfra — Design
 
-This is the canonical, decided design. Sections 0–11 are stable. Section 12
-lists the two open items. The manifest *syntax* (Phase 1) is proven by the
-[validation gate](validation.md), not by this document.
+This is the canonical, decided design. Sections 0–13 are stable; §12 records the
+decisions that were once open and are now resolved. Section 14 covers the
+agent-targeting axis added during Phase 3. The manifest *syntax* (Phase 1) is
+proven by the [validation gate](validation.md), not by this document.
 
 ## 0. What this is
 
@@ -49,6 +50,10 @@ Two cross-cutting primitives, touching every channel:
 
 - **Environment** — secret/config values, in three modes (§5)
 - **Dependency graph** — `requires:` edges between channels and what they need (§7)
+
+A third axis cuts across all eight channels: the **target agent** (§14). The
+channel list above is what Claude Code can render; another agent renders a
+subset, and each entry can be capability-gated to the agents it applies to.
 
 ## 2. Locked architectural decisions
 
@@ -162,11 +167,15 @@ what a normal package install needs.
 
 ## 10. Build phases
 
+All five phases are implemented — see the
+[README status table](../README.md#status).
+
 - **Phase 0 — Foundation.** This repo and design.
 - **Phase 1 — Manifest schema (`ainfra.yaml`).** See [spec](../spec/manifest-schema.md).
 - **Phase 2 — Lockfile schema (`ainfra.lock`).** See [spec](../spec/lockfile-schema.md).
 - **Phase 3 — Channel provider interface.** One contract every channel
-  implements: `resolve() → plan() → apply() → check()`.
+  implements: `resolve() → plan() → apply() → check()`. The agent-targeting
+  axis (§14) landed within this phase.
 - **Phase 4 — Resolution & precedence engine.** Merges the three layers under
   the Option-C rule.
 - **Phase 5 — CLI surface.** `init`, `plan`, `apply`, `check`, `lock`.
@@ -202,3 +211,35 @@ constraints, not aspirations — they are enforced by code and tests.
 | **Undetected post-apply drift** — config is applied once, the environment then mutates unnoticed | Any apply-once tool without a verify step | `check` recomputes content hashes against the lockfile and reports drift; it is exit-code-clean for CI. |
 | **Apply without preview** — a change is reconciled before anyone sees its effect | The mistake Terraform's `plan` exists to prevent | `plan` is a required, side-effect-free step before `apply`. |
 | **Schema too rigid** — teams cannot express their case, so they fork or copy-paste | Brittle, hardcoded config tools | Templates + layers (§8) and generic capability toggles (§8 — no hardcoded server knowledge) keep the schema extensible without forking. |
+
+## 14. Target agent — a chooseable axis
+
+ainfra's name and channel vocabulary are Claude Code's, but its engine is not:
+layering, precedence, content hashing, template instantiation, and the
+dependency graph are pure mechanism with no agent knowledge. Agent-specific
+knowledge lives only at the edges. That makes the target agent a *chooseable
+axis* rather than a hardcoded assumption — decided as part of Phase 3, the cheap
+window before the channel provider layer was written.
+
+Two orthogonal concerns:
+
+- **Channel providers** own channel *semantics* — resolving sources, versions,
+  and content hashes; merge rules; dependency edges. This is **target-neutral**:
+  an MCP server resolves to the same package and hash regardless of agent.
+- **Renderers** own agent *I/O* — where an artifact lives on disk, its file
+  format, and how to read current state. One renderer per agent.
+
+A manifest names its target with the scalar `agent` field (`claude-code`, the
+default, or `codex`). Because it is a scalar, Option C's `overridable` mechanism
+does not apply; the highest-authority layer that declares a non-empty `agent`
+wins. Not every channel exists for every agent — Codex has no skills, plugins,
+hooks, built-in toggles, or slash commands. Any entry may carry an `agents:`
+list to scope it; an entry in a channel the resolved agent cannot render is a
+hard validation error *unless* its `agents:` list gates it away. The
+`ainfra.lock` file stays target-neutral — it pins inputs, and each renderer
+derives its agent's artifacts from the same locked state.
+
+**Current state.** The `agent` field, capability registry, and gating
+validation are implemented. The Claude Code renderer is built; the Codex
+renderer is a follow-up. The full design is
+[multi-agent-renderers-design.md](superpowers/specs/2026-05-21-multi-agent-renderers-design.md).

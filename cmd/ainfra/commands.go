@@ -4,7 +4,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,6 +16,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/precond"
 	"github.com/MHilhorst/ainfra/internal/resolve"
+	"github.com/MHilhorst/ainfra/internal/secret"
 	"github.com/MHilhorst/ainfra/internal/ui"
 	"github.com/MHilhorst/ainfra/internal/version"
 )
@@ -326,14 +329,42 @@ func runCheck(ctx cli.Context) int {
 			break
 		}
 	}
-	if allEmpty {
+
+	secretFailures := checkSecrets(committed, personal, secret.DefaultRegistry())
+
+	if allEmpty && len(secretFailures) == 0 {
 		fmt.Fprintln(ctx.Stdout, "No drift.")
 		return 0
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	ui.RenderPlan(ctx.Stdout, c, plans)
+	if !allEmpty {
+		ui.RenderPlan(ctx.Stdout, c, plans)
+	}
+	if len(secretFailures) > 0 {
+		fmt.Fprintln(ctx.Stderr, "Unresolvable secrets:")
+		for _, f := range secretFailures {
+			fmt.Fprintf(ctx.Stderr, "  %s\n", f)
+		}
+	}
 	return 1
+}
+
+// checkSecrets verifies every secret reference in both lockfiles is resolvable.
+// It returns one message per unresolvable ref; the messages never contain a
+// secret value.
+func checkSecrets(committed, personal *lockfile.Lock, reg *secret.Registry) []string {
+	refs := map[string]lockfile.SecretRef{}
+	maps.Copy(refs, committed.Secrets)
+	maps.Copy(refs, personal.Secrets)
+
+	var failures []string
+	for _, v := range slices.Sorted(maps.Keys(refs)) {
+		if err := reg.Check(refs[v].Ref); err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+	return failures
 }
 
 // checkPreconditions loads the manifest layers and runs all declared

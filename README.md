@@ -71,18 +71,22 @@ disables colored output.
 
 The manifest and lockfile schemas, the resolution engine, the channel provider
 layer, and the full CLI surface are built. `init`, `validate`, `schema`, `lock`,
-`version`, `plan`, `apply`, and `check` all work end to end. Remote (git/npm)
-source fetching, the pluggable secret resolver, and gateway adapters are
-follow-up phases.
+`version`, `plan`, `apply`, and `check` all work end to end.
+
+ainfra reconciles a Claude Code environment today. The manifest also carries an
+`agent:` field (`claude-code` or `codex`) and capability-gates each channel per
+agent — so the schema is already agent-agnostic. Remote (git/npm) source
+fetching, the pluggable secret resolver, gateway adapters, and the Codex
+renderer are follow-up phases.
 
 | Phase | Deliverable | State |
 |-------|-------------|-------|
 | 0 | Repo, design doc, validation gate | done |
-| 1 | Manifest schema (`ainfra.yaml`) — [spec](spec/manifest-schema.md) | implemented |
-| 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | implemented |
+| 1 | Manifest schema (`ainfra.yaml`) — [spec](spec/manifest-schema.md) | done |
+| 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | done |
 | 3 | Channel provider interface — powers `plan` / `apply` / `check` | done |
 | 4 | Resolution & precedence engine | done |
-| 5 | CLI surface (`init` / `validate` / `schema` / `lock` / `version`) | done |
+| 5 | CLI surface — all eight commands | done |
 
 The schema is the product hypothesis; code is the proof. Phases 1 and 2 were
 validated *on paper* against five scenarios — see
@@ -92,16 +96,25 @@ validated *on paper* against five scenarios — see
 
 ```
 ainfra.yaml      Showcase manifest — a small team setup, the read-in-30s example
-cmd/ainfra/      CLI entry point and command definitions
+cmd/ainfra/      CLI entry point, command definitions, reconcile wiring
 internal/
+  agent/         registry of target AI agents and each one's channel capabilities
   cli/           command registry, dispatch, flags, help
-  ui/            terminal rendering — color, plan diffs, errors, prompts
   diag/          structured diagnostic error type
-  manifest/      ainfra.yaml schema, strict layer loading, validation
-  resolve/       template instantiation, layer merge, port allocation, lock pipeline
-  schema/        JSON Schema generation for ainfra.yaml (reflected from manifest)
   graph/         dependency graph and topological sort
   lockfile/      ainfra.lock schema, content hashing, read/write
+  manifest/      ainfra.yaml schema, strict layer loading, validation
+  provider/      channel reconciliation — plan/apply/check, diff, environment
+    agentset/    assembles the provider set for the resolved target agent
+    claudecode/  Claude Code channel providers (mcp, hooks, commands, rules, …)
+    shared/      agent-agnostic providers (the cliTools substrate)
+    fetch/       retrieve channel-entry bundles from their declared sources
+    fsmerge/     filesystem materialization and merge helpers
+    pkg/         package-registry resolution for package-launched MCP servers
+    precond/     precondition checks (DNS, TCP, file, command)
+  resolve/       template instantiation, layer merge, port allocation, lock pipeline
+  schema/        JSON Schema generation for ainfra.yaml (reflected from manifest)
+  ui/            terminal rendering — color, plan diffs, errors, prompts
   version/       build version
 spec/            Manifest and lockfile schema specifications
 examples/        Worked manifests — multi-database is the hardest case

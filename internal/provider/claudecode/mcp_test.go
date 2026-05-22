@@ -134,6 +134,68 @@ func TestMCPApply_Create(t *testing.T) {
 	}
 }
 
+func TestMCPApply_HTTPTransport(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "httpserver",
+				Resource: provider.Resource{
+					ID:      "httpserver",
+					Channel: "mcpServers",
+					Payload: map[string]any{
+						"transport": "http",
+						"url":       "https://example.com/sse",
+						"headers": map[string]any{
+							"Authorization": "Bearer ${AINFRA_SECRET_X}",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p := claudecode.MCP{}
+	if _, err := p.Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+
+	raw, err := mem.ReadFile("/repo/.mcp.json")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
+	}
+	servers, ok := doc["mcpServers"].(map[string]any)
+	if !ok {
+		t.Fatal("mcpServers not a map")
+	}
+	httpserver, ok := servers["httpserver"].(map[string]any)
+	if !ok {
+		t.Fatal("httpserver not present or not a map")
+	}
+	if httpserver["type"] != "http" {
+		t.Errorf("type = %v, want %q", httpserver["type"], "http")
+	}
+	if httpserver["url"] != "https://example.com/sse" {
+		t.Errorf("url = %v, want %q", httpserver["url"], "https://example.com/sse")
+	}
+	headers, ok := httpserver["headers"].(map[string]any)
+	if !ok {
+		t.Fatalf("headers not present or not a map: %v", httpserver["headers"])
+	}
+	if headers["Authorization"] != "Bearer ${AINFRA_SECRET_X}" {
+		t.Errorf("headers[Authorization] = %v, want %q", headers["Authorization"], "Bearer ${AINFRA_SECRET_X}")
+	}
+}
+
 func TestMCPApply_Delete(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	existing := `{"mcpServers":{"myserver":{"command":"npx"},"foreign":{"command":"other"}}}`

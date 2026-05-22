@@ -96,8 +96,8 @@ commands:
 			raw, err := os.ReadFile(settingsFile)
 			if err != nil {
 				t.Errorf("apply --yes: cannot read settings.json: %v", err)
-			} else if !strings.Contains(string(raw), "on-session-start") {
-				t.Errorf("apply --yes: settings.json does not contain hook 'on-session-start': %q", string(raw))
+			} else if !strings.Contains(string(raw), `"SessionStart"`) || !strings.Contains(string(raw), "session started") {
+				t.Errorf("apply --yes: settings.json missing the SessionStart hook in Claude Code schema: %q", string(raw))
 			}
 		}
 
@@ -250,6 +250,118 @@ tools:
 	}
 
 	// Step 5: second plan — must show no changes.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("plan (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		combined := out.String() + errOut.String()
+		if !strings.Contains(combined, "No changes") {
+			t.Errorf("plan (after apply): expected 'No changes', got: %q", combined)
+		}
+	}
+}
+
+// TestE2ECodexReconciliation exercises the full lock -> plan -> apply -> check ->
+// plan cycle for an `agent: codex` manifest, verifying the Codex provider set
+// reconciles MCP servers into ~/.codex/config.toml and rules into AGENTS.md.
+// HOME is redirected to a temp dir so the real ~/.codex is never touched.
+func TestE2ECodexReconciliation(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	// Local source file for the rule.
+	if err := os.WriteFile(filepath.Join(dir, "team.md"), []byte("Follow the team conventions.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := `version: 1
+agent: codex
+mcpServers:
+  filesystem:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    version: "0.6.2"
+rules:
+  team-conventions:
+    source: team.md
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Step 1: lock.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "lock"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("lock: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+	}
+
+	// Step 2: plan — must report pending changes.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("plan (before apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		combined := out.String() + errOut.String()
+		if !strings.Contains(combined, "to add") {
+			t.Errorf("plan (before apply): expected 'to add', got: %q", combined)
+		}
+	}
+
+	// Step 3: apply --yes — must write config.toml and AGENTS.md.
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("apply --yes: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+
+		configFile := filepath.Join(home, ".codex", "config.toml")
+		raw, err := os.ReadFile(configFile)
+		if err != nil {
+			t.Fatalf("apply --yes: config.toml not written at %s: %v", configFile, err)
+		}
+		if !strings.Contains(string(raw), "[mcp_servers.filesystem]") {
+			t.Errorf("apply --yes: config.toml missing [mcp_servers.filesystem]: %q", string(raw))
+		}
+
+		agentsFile := filepath.Join(dir, "AGENTS.md")
+		rawA, err := os.ReadFile(agentsFile)
+		if err != nil {
+			t.Fatalf("apply --yes: AGENTS.md not written at %s: %v", agentsFile, err)
+		}
+		if !strings.Contains(string(rawA), "<!-- ainfra:rule team-conventions -->") {
+			t.Errorf("apply --yes: AGENTS.md missing rule marker: %q", string(rawA))
+		}
+		if !strings.Contains(string(rawA), "Follow the team conventions.") {
+			t.Errorf("apply --yes: AGENTS.md missing rule content: %q", string(rawA))
+		}
+	}
+
+	// Step 4: check — must exit 0 (no drift).
+	{
+		var out, errOut bytes.Buffer
+		code := run([]string{"--chdir", dir, "check"}, &out, &errOut)
+		if code != 0 {
+			t.Fatalf("check (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		}
+		combined := out.String() + errOut.String()
+		if !strings.Contains(combined, "No drift") {
+			t.Errorf("check (after apply): expected 'No drift', got: %q", combined)
+		}
+	}
+
+	// Step 5: second plan — must show no changes (idempotence).
 	{
 		var out, errOut bytes.Buffer
 		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
