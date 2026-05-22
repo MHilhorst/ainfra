@@ -238,7 +238,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 		}
 	}
 
-	if err := orch.ApplyAllRendered(rendered, merged); err != nil {
+	if _, err := orch.ApplyAllRendered(rendered, merged); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}

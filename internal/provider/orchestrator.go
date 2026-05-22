@@ -130,17 +130,26 @@ func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[stri
 	return result, nil
 }
 
-// ApplyAllRendered applies rendered resources (which carry Payload) and on
-// success writes the applied ledger from desired (the lockfile that produced
-// the rendered resources). This is the correct path for apply: the lockfile
-// supplies content hashes for drift detection while the rendered resources
-// supply Payload for file writes. When env.DryRun is set, providers still run
-// but the applied ledger is not written.
-func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired *lockfile.Lock) error {
+// ApplyAllRendered applies rendered resources (which carry Payload) and writes
+// the applied ledger. Unlike a fail-fast apply, it does not stop on the first
+// error: it applies every channel, skips resources whose requires: dependency
+// failed earlier in the run, and writes a partial ledger (succeeded resources
+// take their desired entry; failed or skipped ones fall back to prior). It
+// returns the per-channel results and, if anything failed, an *ApplyError.
+// When env.DryRun is set, providers still run but the ledger is not written.
+func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired *lockfile.Lock) ([]ApplyResult, error) {
 	plans, err := o.PlanAllRendered(rendered)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	prior, err := ReadApplied(o.root)
+	if err != nil {
+		return nil, err
+	}
+
+	failedRefs := map[string]bool{} // node refs that failed or were skipped
+	var results []ApplyResult
+	var errs []error
 
 	for _, ch := range o.sortedChannels() {
 		plan := plans[ch]
@@ -148,17 +157,45 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 			continue
 		}
 		p := o.providers[ch]
-		if _, err := p.Apply(o.env, plan); err != nil {
-			return err
+
+		runnable, skipped := splitBlocked(plan, failedRefs)
+
+		res := ApplyResult{Channel: ch}
+		r, applyErr := p.Apply(o.env, runnable)
+		if applyErr != nil {
+			// A catastrophic channel error fails every runnable change in it.
+			for _, c := range runnable.Changes {
+				if c.Kind != ChangeNoop {
+					res.Failed = append(res.Failed, ChangeFailure{Change: c, Err: applyErr})
+				}
+			}
+		} else {
+			res = r
+			res.Channel = ch
+		}
+		res.Skipped = append(res.Skipped, skipped...)
+
+		for _, f := range res.Failed {
+			failedRefs[nodeRef(ch, f.Change.ID)] = true
+			errs = append(errs, fmt.Errorf("%s %s: %w", ch, f.Change.ID, f.Err))
+		}
+		for _, s := range res.Skipped {
+			failedRefs[nodeRef(ch, s.Change.ID)] = true
+		}
+		results = append(results, res)
+	}
+
+	ledger := buildLedger(prior, desired, results)
+	if !o.env.DryRun {
+		if err := WriteApplied(o.root, ledger); err != nil {
+			return results, err
 		}
 	}
 
-	// A dry run exercises every provider's Apply (each no-ops its own writes)
-	// but must not record a ledger — the machine was not reconciled.
-	if o.env.DryRun {
-		return nil
+	if len(errs) > 0 {
+		return results, &ApplyError{Errs: errs}
 	}
-	return WriteApplied(o.root, desired)
+	return results, nil
 }
 
 // nodeRef returns the dependency-graph node ref for a resource — the same

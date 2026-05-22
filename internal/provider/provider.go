@@ -2,6 +2,8 @@
 // machinery (diff, environment, orchestration) every channel provider uses.
 package provider
 
+import "fmt"
+
 // ChangeKind classifies a single planned mutation.
 type ChangeKind int
 
@@ -95,4 +97,19 @@ type Provider interface {
 	Channel() string
 	Observe(env Env) ([]Resource, error)
 	Apply(env Env, plan ChannelPlan) (ApplyResult, error)
+}
+
+// ApplyError aggregates the per-resource failures of a partial apply. When it
+// is returned the applied ledger has already been written for everything that
+// succeeded.
+type ApplyError struct {
+	Errs []error
+}
+
+// Error summarizes the failures. The full per-resource list is on Errs.
+func (e *ApplyError) Error() string {
+	if len(e.Errs) == 1 {
+		return e.Errs[0].Error()
+	}
+	return fmt.Sprintf("%d resources failed to apply", len(e.Errs))
 }
