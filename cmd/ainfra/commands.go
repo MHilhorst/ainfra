@@ -64,6 +64,7 @@ func mergeLocks(committed, personal *lockfile.Lock) *lockfile.Lock {
 			Commands:           merge(committed.Entries.Commands, personal.Entries.Commands),
 			CLITools:           merge(committed.Entries.CLITools, personal.Entries.CLITools),
 			Skills:             merge(committed.Entries.Skills, personal.Entries.Skills),
+			Marketplaces:       merge(committed.Entries.Marketplaces, personal.Entries.Marketplaces),
 			Plugins:            merge(committed.Entries.Plugins, personal.Entries.Plugins),
 			Rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
 			Tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
