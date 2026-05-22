@@ -11,7 +11,7 @@ import (
 // required by MCP servers) come first.
 var channelOrder = []string{
 	"cliTools", "backgroundServices", "mcpServers",
-	"skills", "plugins", "rules", "tools", "hooks", "commands",
+	"skills", "marketplaces", "plugins", "rules", "tools", "hooks", "commands",
 }
 
 // Orchestrator loads locks, reads the applied ledger, and drives all registered
