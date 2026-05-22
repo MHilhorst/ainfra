@@ -24,6 +24,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newPlanCommand())
 	reg.Add(newApplyCommand())
 	reg.Add(newCheckCommand())
+	reg.Add(newExecCommand())
 	reg.Add(newVersionCommand())
 	return reg.Dispatch(args)
 }
