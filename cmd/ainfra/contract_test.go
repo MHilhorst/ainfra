@@ -21,8 +21,8 @@ import (
 //     covered by internal/provider/claudecode unit tests.
 //   - skills: Apply needs env.Fetch wired to a real or fake fetcher, not
 //     supplied here; can be added once the fixture/wiring supports it.
-//   - backgroundServices: the fixture's template produces only an mcpServer,
-//     not a service, so it renders zero resources; add once fixture covers it.
+//   - backgroundServices: the fixture declares no backgroundServices and its
+//     template's produces: block emits only an mcpServer, so the channel renders zero resources; add once fixture covers it.
 func TestRenderChannelContract(t *testing.T) {
 	dir := t.TempDir()
 	copyTestdata(t, filepath.Join("testdata", "representative"), dir)
