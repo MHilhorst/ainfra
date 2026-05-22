@@ -141,20 +141,20 @@ func runPlan(ctx cli.Context) int {
 
 // renderApplySummary prints the one-line apply tally and, for any failed or
 // skipped resource, a reason line.
-func renderApplySummary(stdout, stderr io.Writer, results []provider.ApplyResult) {
+func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 	var applied, skipped, failed int
 	for _, r := range results {
 		applied += len(r.Applied)
 		skipped += len(r.Skipped)
 		failed += len(r.Failed)
 	}
-	fmt.Fprintf(stdout, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
+	fmt.Fprintf(w, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
 	for _, r := range results {
 		for _, f := range r.Failed {
-			fmt.Fprintf(stderr, "  failed:  %s %s — %v\n", r.Channel, f.Change.ID, f.Err)
+			fmt.Fprintf(w, "  failed:  %s %s — %v\n", r.Channel, f.Change.ID, f.Err)
 		}
 		for _, s := range r.Skipped {
-			fmt.Fprintf(stderr, "  skipped: %s %s — %s\n", r.Channel, s.Change.ID, s.Reason)
+			fmt.Fprintf(w, "  skipped: %s %s — %s\n", r.Channel, s.Change.ID, s.Reason)
 		}
 	}
 }
@@ -260,7 +260,9 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 	}
 
 	results, err := orch.ApplyAllRendered(rendered, merged)
-	renderApplySummary(ctx.Stdout, ctx.Stderr, results)
+	if !dryRun {
+		renderApplySummary(ctx.Stdout, results)
+	}
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
