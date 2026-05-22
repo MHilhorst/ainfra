@@ -2,6 +2,8 @@
 // and loads it from the three config layers.
 package manifest
 
+import "gopkg.in/yaml.v3"
+
 // Layer identifies which config layer a definition came from.
 type Layer string
 
@@ -10,6 +12,33 @@ const (
 	LayerRepo     Layer = "repo"
 	LayerPersonal Layer = "personal"
 )
+
+// Var is one template variable. It is written either as a scalar (a literal
+// value) or as a mapping declaring how the value is sourced.
+type Var struct {
+	From    string `yaml:"from"`    // "value" | "env" | "command"
+	Value   string `yaml:"value"`
+	Env     string `yaml:"env"`
+	Command string `yaml:"command"`
+}
+
+// UnmarshalYAML accepts a scalar (literal value) or a mapping form.
+func (v *Var) UnmarshalYAML(node *yaml.Node) error {
+	if node.Kind == yaml.ScalarNode {
+		v.From, v.Value = "value", node.Value
+		return nil
+	}
+	type rawVar Var
+	var r rawVar
+	if err := node.Decode(&r); err != nil {
+		return err
+	}
+	*v = Var(r)
+	if v.From == "" {
+		v.From = "value"
+	}
+	return nil
+}
 
 // Manifest is one parsed ainfra.yaml file (a single layer).
 type Manifest struct {
@@ -28,6 +57,7 @@ type Manifest struct {
 	Marketplaces       map[string]Marketplace       `yaml:"marketplaces"`
 	Plugins            map[string]Plugin            `yaml:"plugins"`
 	Rules              map[string]Rule              `yaml:"rules"`
+	Vars               map[string]Var               `yaml:"vars"`
 	Tools              *Tools                       `yaml:"tools"`
 }
 
@@ -192,6 +222,7 @@ type Plugin struct {
 type Rule struct {
 	Target      string    `yaml:"target"`
 	Source      string    `yaml:"source"`
+	Template    bool      `yaml:"template"`
 	Version     string    `yaml:"version"`
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`

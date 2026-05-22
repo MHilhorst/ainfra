@@ -497,6 +497,61 @@ func TestValidateAllRejectsEntryGatedToAnAgentThatCannotRenderIt(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsVarWithBogusFrom(t *testing.T) {
+	m := &Manifest{Version: 1, Vars: map[string]Var{
+		"X": {From: "bogus", Value: "v"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "unknown var source") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "vars.X" {
+		t.Errorf("path = %q, want vars.X", d.Path)
+	}
+}
+
+func TestValidateRejectsEnvVarWithoutEnvField(t *testing.T) {
+	m := &Manifest{Version: 1, Vars: map[string]Var{
+		"Y": {From: "env"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "env") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "vars.Y" {
+		t.Errorf("path = %q, want vars.Y", d.Path)
+	}
+}
+
+func TestValidateRejectsCommandVarWithoutCommandField(t *testing.T) {
+	m := &Manifest{Version: 1, Vars: map[string]Var{
+		"Z": {From: "command"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "command") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "vars.Z" {
+		t.Errorf("path = %q, want vars.Z", d.Path)
+	}
+}
+
+func TestValidateAcceptsValidVarsWithTemplateRule(t *testing.T) {
+	m := &Manifest{Version: 1,
+		Vars: map[string]Var{
+			"TEAM":    {From: "value", Value: "Acme"},
+			"NAME":    {From: "command", Command: "git config user.name"},
+			"MY_ENV":  {From: "env", Env: "USER"},
+		},
+		Rules: map[string]Rule{
+			"r1": {Source: "./r.md", Template: true},
+		},
+	}
+	if err := Validate(m); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestValidateAllRejectsUnknownAgentInGatingList(t *testing.T) {
 	layers := map[Layer]*Manifest{
 		LayerRepo: {Version: 1,
