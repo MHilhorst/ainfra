@@ -41,9 +41,9 @@ exits non-zero when it finds drift (config quietly falling out of sync with what
 was declared), so it works as a CI gate.
 
 `ainfra plan` requires a committed `ainfra.lock`; run `ainfra lock` once after
-editing the manifest. A few features are not yet implemented: fetching sources
-from remote locations (git/npm), the pluggable secret resolver, and gateway
-adapters. Local source files and inline MCP server definitions work today.
+editing the manifest. Two features are not yet implemented: fetching sources
+from remote locations (git/npm) and gateway adapters. Local source files and
+inline MCP server definitions work today.
 
 ## Authoring a setup
 

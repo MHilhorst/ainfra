@@ -4,7 +4,7 @@
 
 Think Terraform — a declarative manifest, `plan` before `apply`, a lockfile — but for your team's AI development setup.
 
-Claude Code today · Codex next
+Claude Code · Codex
 
 **[Quick start](docs/quickstart.md)** · **[Design](docs/design.md)** · **[Manifest schema](spec/manifest-schema.md)** · **[Worked example](examples/multi-database/)**
 
@@ -70,7 +70,7 @@ One `ainfra.yaml` describes every channel your agents need, in a file you commit
 - **[plan before apply](docs/quickstart.md)** — every change is previewed; nothing is reconciled unseen
 - **[Dependency-aware](docs/design.md#7-the-dependency-graph--the-connective-layer)** — installs CLI tools, verifies preconditions (VPN, SSH keys), and starts background services in the right order
 - **[No runtime lock-in](docs/design.md#0-what-this-is)** — writes the native files your tools already read; remove ainfra and they keep working
-- **[Agent-aware](docs/design.md#14-target-agent--a-chooseable-axis)** — Claude Code today; the engine is agent-agnostic, with a Codex renderer as a follow-up
+- **[Agent-aware](docs/design.md#14-target-agent--a-chooseable-axis)** — the engine is agent-agnostic; Claude Code and Codex are both supported targets
 
 ### 3. Verified in sync — the lockfile
 
@@ -145,11 +145,11 @@ Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disable
 
 ## Status
 
-ainfra reconciles a Claude Code environment today. `init`, `validate`, `schema`, `lock`, `plan`, `apply`, `check`, and `version` all work end to end. The manifest and lockfile schemas, the resolution engine, the channel provider layer, and the full CLI are built and tested across five completed build phases (see [docs/design.md §10](docs/design.md#10-build-phases)).
+ainfra reconciles a Claude Code or Codex environment today. `init`, `validate`, `schema`, `lock`, `plan`, `apply`, `check`, and `version` all work end to end. The manifest and lockfile schemas, the resolution engine, the channel provider layer, and the full CLI are built and tested across five completed build phases (see [docs/design.md §10](docs/design.md#10-build-phases)).
 
 The schemas were validated *on paper* against five scenarios — see [docs/validation.md](docs/validation.md) — before any implementation code was written.
 
-Local source files and inline or templated MCP servers work today. Follow-up phases: remote (git/npm) source fetching, the pluggable secret resolver, gateway adapters, and the Codex renderer. The manifest already carries an `agent:` field and capability-gates each channel per agent, so the schema is agent-agnostic ahead of the Codex renderer.
+Both Claude Code and Codex are supported targets, and the pluggable secret resolver (`op://` and `env://`) is built. Local source files and inline or templated MCP servers work today; fetching sources from remote locations (git/npm) and gateway adapters are the remaining follow-ups.
 
 ## Build
 

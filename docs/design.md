@@ -260,6 +260,6 @@ pins inputs, and each renderer derives its own agent's artifacts from the same
 locked state.
 
 **Current state.** The `agent` field, capability registry, and gating
-validation are implemented. The Claude Code renderer is built; the Codex
-renderer is a follow-up. The full design is
+validation are implemented, and both the Claude Code and Codex provider sets
+are built. The full design is
 [multi-agent-renderers-design.md](superpowers/specs/2026-05-21-multi-agent-renderers-design.md).
