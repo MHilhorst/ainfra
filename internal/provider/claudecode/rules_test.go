@@ -124,6 +124,52 @@ func TestRulesApply_Create(t *testing.T) {
 	}
 }
 
+func TestRulesApply_Create_HomeTarget(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo", Home: "/home/dev"}
+
+	plan := provider.ChannelPlan{
+		Channel: "rules",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "team-claude-md",
+				Resource: provider.Resource{
+					ID:      "team-claude-md",
+					Channel: "rules",
+					Payload: map[string]any{
+						"target":  "~/.claude/CLAUDE.md",
+						"content": "team rules",
+					},
+				},
+			},
+		},
+	}
+
+	p := claudecode.Rules{}
+	if _, err := p.Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+
+	// A "~" target expands against Home: the fragment is co-located there.
+	raw, err := mem.ReadFile("/home/dev/.claude/ainfra/team-claude-md.md")
+	if err != nil {
+		t.Fatalf("ReadFile home fragment: %v", err)
+	}
+	if string(raw) != "team rules" {
+		t.Errorf("fragment content = %q, want %q", string(raw), "team rules")
+	}
+
+	// The target is the home file, and its import line is relative to it.
+	targetRaw, err := mem.ReadFile("/home/dev/.claude/CLAUDE.md")
+	if err != nil {
+		t.Fatalf("ReadFile home target: %v", err)
+	}
+	if !strings.Contains(string(targetRaw), "@ainfra/team-claude-md.md") {
+		t.Errorf("home target missing relative import line, got: %q", string(targetRaw))
+	}
+}
+
 func TestRulesApply_Create_Idempotent(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
