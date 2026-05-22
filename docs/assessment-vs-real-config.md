@@ -160,18 +160,18 @@ against a real manifest surfaced them.
 
 ## 6. Gaps still open
 
-**#2, #3, and #4 are now closed:** the 1Password resolver ships and `ainfra
-exec` resolves all 14 tvt-config secrets; plugins install via the `claude` CLI
-from a registered marketplace; cliTool resolution (incl. the `composer`
-adapter) is built. What remains:
+**#2–#5 are now closed:** the 1Password resolver ships and `ainfra exec`
+resolves all 14 tvt-config secrets; plugins install via the `claude` CLI from a
+registered marketplace; cliTool resolution (incl. the `composer` adapter) is
+built; and the `rules` channel renders per-developer `CLAUDE.md` from a
+maintainer-declared `vars:` block (`{{FULL_NAME}}` etc. sourced from `git`/`gh`
+on each machine — `ainfra apply` is the only onboarding step). What remains:
 
-1. **Per-developer `rules` templating (#5).** `CLAUDE.md` is rendered per
-   developer with `{{FULL_NAME}}` and similar placeholders.
-2. **Scheduled jobs (#6).** The 5 headless `claude -p` cron runs — no
+1. **Scheduled jobs (#6).** The 5 headless `claude -p` cron runs — no
    `scheduledJobs` field exists in the schema.
-3. **Credential-file writing (#7).** `preconditions` *check* credential files;
+2. **Credential-file writing (#7).** `preconditions` *check* credential files;
    writing them (what `tvt sync` does) needs a write-capable primitive.
-4. **Externally-sourced standalone skills.** Agent-agnostic skill repos —
+3. **Externally-sourced standalone skills.** Agent-agnostic skill repos —
    e.g. `vercel-labs/skills`, installed via `npx skills` — are not Claude Code
    marketplaces and belong to the `skills:` channel, not `plugins`. A follow-up
    should delegate to the `skills` CLI, mirroring how #3 delegates to
