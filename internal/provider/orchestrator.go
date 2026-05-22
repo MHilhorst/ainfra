@@ -197,6 +197,65 @@ func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable Channe
 	return runnable, skipped
 }
 
+// buildLedger constructs the applied-state ledger after a (possibly partial)
+// apply. A resource that failed or was skipped falls back to its prior entry
+// (or is dropped if it had none); every other resource takes its desired entry.
+// With no failures the result equals desired — today's behaviour.
+func buildLedger(prior, desired *lockfile.Lock, results []ApplyResult) *lockfile.Lock {
+	bad := map[string]bool{} // key: "<channel>/<id>"
+	for _, r := range results {
+		for _, f := range r.Failed {
+			bad[r.Channel+"/"+f.Change.ID] = true
+		}
+		for _, s := range r.Skipped {
+			bad[r.Channel+"/"+s.Change.ID] = true
+		}
+	}
+	d, p := desired.Entries, prior.Entries
+	return &lockfile.Lock{
+		Version:      desired.Version,
+		GeneratedAt:  desired.GeneratedAt,
+		ManifestHash: desired.ManifestHash,
+		Entries: lockfile.Entries{
+			MCPServers:         mergeLedgerChannel("mcpServers", d.MCPServers, p.MCPServers, bad),
+			BackgroundServices: mergeLedgerChannel("backgroundServices", d.BackgroundServices, p.BackgroundServices, bad),
+			Hooks:              mergeLedgerChannel("hooks", d.Hooks, p.Hooks, bad),
+			Commands:           mergeLedgerChannel("commands", d.Commands, p.Commands, bad),
+			CLITools:           mergeLedgerChannel("cliTools", d.CLITools, p.CLITools, bad),
+			Skills:             mergeLedgerChannel("skills", d.Skills, p.Skills, bad),
+			Plugins:            mergeLedgerChannel("plugins", d.Plugins, p.Plugins, bad),
+			Rules:              mergeLedgerChannel("rules", d.Rules, p.Rules, bad),
+			Tools:              mergeLedgerChannel("tools", d.Tools, p.Tools, bad),
+		},
+	}
+}
+
+// mergeLedgerChannel merges one channel's desired and prior entry maps: a
+// "<channel>/<id>" present in bad takes the prior entry (or is dropped if prior
+// has none); otherwise the desired entry. Prior-only ids (e.g. a failed delete)
+// are re-added when bad.
+func mergeLedgerChannel(channel string, desiredCh, priorCh map[string]lockfile.Entry, bad map[string]bool) map[string]lockfile.Entry {
+	out := make(map[string]lockfile.Entry, len(desiredCh))
+	for id, e := range desiredCh {
+		if bad[channel+"/"+id] {
+			if pe, ok := priorCh[id]; ok {
+				out[id] = pe
+			}
+			continue
+		}
+		out[id] = e
+	}
+	for id, pe := range priorCh {
+		if _, inDesired := desiredCh[id]; inDesired {
+			continue
+		}
+		if bad[channel+"/"+id] {
+			out[id] = pe
+		}
+	}
+	return out
+}
+
 // sortedChannels returns registered channel names in dependency-aware order.
 // Channels listed in channelOrder come first (in that order); any remaining
 // registered channels are appended alphabetically.

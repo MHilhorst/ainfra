@@ -215,6 +215,49 @@ func TestNodeRef(t *testing.T) {
 	}
 }
 
+func TestBuildLedgerFailedFallsBackToPrior(t *testing.T) {
+	prior := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Skills:   map[string]lockfile.Entry{"s": {Layer: "repo", ContentHash: "old"}},
+		CLITools: map[string]lockfile.Entry{},
+	}}
+	desired := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Skills:   map[string]lockfile.Entry{"s": {Layer: "repo", ContentHash: "new"}},
+		CLITools: map[string]lockfile.Entry{"x": {Layer: "repo", ContentHash: "h"}},
+	}}
+	results := []ApplyResult{
+		{Channel: "skills", Applied: []Change{{Kind: ChangeUpdate, ID: "s"}}},
+		{Channel: "cliTools", Failed: []ChangeFailure{{Change: Change{Kind: ChangeCreate, ID: "x"}}}},
+	}
+
+	ledger := buildLedger(prior, desired, results)
+
+	// "s" succeeded -> desired entry ("new").
+	if got := ledger.Entries.Skills["s"].ContentHash; got != "new" {
+		t.Errorf("skills[s] hash = %q, want %q (succeeded -> desired)", got, "new")
+	}
+	// "x" failed to create and had no prior entry -> absent.
+	if _, ok := ledger.Entries.CLITools["x"]; ok {
+		t.Errorf("cliTools[x] present; want absent (failed create with no prior)")
+	}
+}
+
+func TestBuildLedgerNoFailuresEqualsDesired(t *testing.T) {
+	prior := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Skills: map[string]lockfile.Entry{"s": {Layer: "repo", ContentHash: "old"}},
+	}}
+	desired := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Skills: map[string]lockfile.Entry{"s": {Layer: "repo", ContentHash: "new"}},
+	}}
+	results := []ApplyResult{
+		{Channel: "skills", Applied: []Change{{Kind: ChangeUpdate, ID: "s"}}},
+	}
+
+	ledger := buildLedger(prior, desired, results)
+	if got := ledger.Entries.Skills["s"].ContentHash; got != "new" {
+		t.Errorf("skills[s] hash = %q, want %q (no failures -> desired)", got, "new")
+	}
+}
+
 func TestOrchestratorChannelOrder(t *testing.T) {
 	root := t.TempDir()
 	applyOrder := &[]string{}
