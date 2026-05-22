@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 
@@ -11,9 +12,17 @@ import (
 // TestRenderChannelContract renders a broad manifest and feeds every rendered
 // resource into its channel provider's Apply. A renderer/provider payload
 // mismatch makes the change silently drop from ApplyResult.Applied — this test
-// fails when that happens. cliTools runs under NoInstall so no real package
-// manager is invoked; marketplaces and plugins are covered by their own unit
-// tests (their Apply shells out to the `claude` CLI).
+// fails when that happens. The test is hermetic: env.Runner is a scripted
+// FakeRunner (no real package manager runs) and env.FS is in-memory (no real
+// disk writes).
+//
+// Four channels are excluded from contractChannels:
+//   - marketplaces and plugins: their Apply shells out to the `claude` CLI;
+//     covered by internal/provider/claudecode unit tests.
+//   - skills: Apply needs env.Fetch wired to a real or fake fetcher, not
+//     supplied here; can be added once the fixture/wiring supports it.
+//   - backgroundServices: the fixture's template produces only an mcpServer,
+//     not a service, so it renders zero resources; add once fixture covers it.
 func TestRenderChannelContract(t *testing.T) {
 	dir := t.TempDir()
 	copyTestdata(t, filepath.Join("testdata", "representative"), dir)
@@ -32,9 +41,7 @@ func TestRenderChannelContract(t *testing.T) {
 		byChannel[p.Channel()] = p
 	}
 
-	// Channels whose Apply writes files or runs no command under NoInstall.
-	// marketplaces and plugins are excluded — their Apply requires the `claude`
-	// CLI; they are covered by internal/provider/claudecode unit tests.
+	// See the function comment for which channels are excluded and why.
 	contractChannels := []string{
 		"cliTools", "mcpServers", "hooks", "commands", "rules", "tools",
 	}
@@ -52,12 +59,17 @@ func TestRenderChannelContract(t *testing.T) {
 		}
 		for _, r := range resources {
 			t.Run(ch+"/"+r.ID, func(t *testing.T) {
+				runner := provider.NewFakeRunner()
+				// The fixture's cliTool is `jq` installed via brew. Script its adapter
+				// commands so the cliTools channel exercises the full payload -> adapter
+				// path for real; the fake runner keeps it hermetic (no real brew runs).
+				runner.Script["brew list --versions jq"] = provider.FakeResult{Err: errors.New("not installed")}
+				runner.Script["brew install jq"] = provider.FakeResult{Output: []byte("ok")}
 				env := provider.Env{
-					FS:        provider.NewMemFilesystem(),
-					Runner:    provider.NewFakeRunner(),
-					Root:      dir,
-					Home:      filepath.Join(dir, "home"),
-					NoInstall: true,
+					FS:     provider.NewMemFilesystem(),
+					Runner: runner,
+					Root:   dir,
+					Home:   filepath.Join(dir, "home"),
 				}
 				plan := provider.ChannelPlan{
 					Channel: ch,
