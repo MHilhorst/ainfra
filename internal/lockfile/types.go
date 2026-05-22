@@ -17,6 +17,7 @@ type Entries struct {
 	Commands           map[string]Entry `yaml:"commands"`
 	CLITools           map[string]Entry `yaml:"cliTools"`
 	Skills             map[string]Entry `yaml:"skills"`
+	Marketplaces       map[string]Entry `yaml:"marketplaces,omitempty"`
 	Plugins            map[string]Entry `yaml:"plugins"`
 	Rules              map[string]Entry `yaml:"rules"`
 	Tools              map[string]Entry `yaml:"tools"`

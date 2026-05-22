@@ -93,8 +93,10 @@ skills:
   debug:
     source: ./skills/debug
     requires: [ { cliTool: node } ]
+marketplaces:
+  acme: { source: "github:acme/plugins" }
 plugins:
-  tvt: { source: "npm:@acme/tvt@2.0.1", version: "2.0.1" }
+  tvt: { marketplace: "acme", version: "2.0.1" }
 rules:
   team: { target: CLAUDE.md, source: ./rules/team.md }
 `
@@ -109,7 +111,7 @@ rules:
 		t.Fatalf("lock not written: %v", err)
 	}
 	out := string(data)
-	for _, want := range []string{"skills:", "debug", "plugins:", "tvt", "rules:", "team", "cli:node"} {
+	for _, want := range []string{"skills:", "debug", "marketplaces:", "acme", "plugins:", "tvt", "rules:", "team", "cli:node"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("lock missing %q\n---\n%s", want, out)
 		}
@@ -126,6 +128,142 @@ rules:
 	}
 	if e, ok := lock.Entries.Rules["team"]; !ok || e.ContentHash == "" {
 		t.Errorf("rule team = %+v, ok=%v", e, ok)
+	}
+}
+
+func TestLockPipelineResolvesMarketplaces(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+marketplaces:
+  my-org: { source: "github:my-org/plugins" }
+  local-mp: { source: "./local-marketplace" }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+	e, ok := lock.Entries.Marketplaces["my-org"]
+	if !ok {
+		t.Fatal("marketplace my-org not in lock")
+	}
+	if e.ContentHash == "" {
+		t.Error("marketplace my-org: ContentHash is empty")
+	}
+	if e.Layer != "repo" {
+		t.Errorf("marketplace my-org: Layer = %q, want repo", e.Layer)
+	}
+	_, ok2 := lock.Entries.Marketplaces["local-mp"]
+	if !ok2 {
+		t.Fatal("marketplace local-mp not in lock")
+	}
+}
+
+func TestLockPipelineMarketplaceSourceChangesHash(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	yaml1 := `version: 1
+marketplaces:
+  my-org: { source: "github:my-org/plugins" }
+`
+	yaml2 := `version: 1
+marketplaces:
+  my-org: { source: "github:my-org/other-plugins" }
+`
+	if err := os.WriteFile(filepath.Join(dir1, "ainfra.yaml"), []byte(yaml1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir2, "ainfra.yaml"), []byte(yaml2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir1); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir2); err != nil {
+		t.Fatal(err)
+	}
+	l1, _ := lockfile.Read(filepath.Join(dir1, "ainfra.lock"))
+	l2, _ := lockfile.Read(filepath.Join(dir2, "ainfra.lock"))
+	h1 := l1.Entries.Marketplaces["my-org"].ContentHash
+	h2 := l2.Entries.Marketplaces["my-org"].ContentHash
+	if h1 == h2 {
+		t.Errorf("different marketplace sources produced the same hash: %q", h1)
+	}
+}
+
+func TestLockPipelinePluginHashCoversMaketplace(t *testing.T) {
+	dir1 := t.TempDir()
+	dir2 := t.TempDir()
+
+	yaml1 := `version: 1
+marketplaces:
+  acme: { source: "github:acme/plugins" }
+plugins:
+  p: { marketplace: "acme" }
+`
+	yaml2 := `version: 1
+marketplaces:
+  acme: { source: "github:acme/plugins" }
+  other: { source: "github:other/plugins" }
+plugins:
+  p: { marketplace: "other" }
+`
+	if err := os.WriteFile(filepath.Join(dir1, "ainfra.yaml"), []byte(yaml1), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir2, "ainfra.yaml"), []byte(yaml2), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir1); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir2); err != nil {
+		t.Fatal(err)
+	}
+	l1, _ := lockfile.Read(filepath.Join(dir1, "ainfra.lock"))
+	l2, _ := lockfile.Read(filepath.Join(dir2, "ainfra.lock"))
+	h1 := l1.Entries.Plugins["p"].ContentHash
+	h2 := l2.Entries.Plugins["p"].ContentHash
+	if h1 == h2 {
+		t.Errorf("different plugin marketplaces produced the same hash: %q", h1)
+	}
+}
+
+func TestLockPipelinePersonalMarketplaceRoutesToPersonalLock(t *testing.T) {
+	dir := t.TempDir()
+	repoYAML := `version: 1`
+	personalYAML := `version: 1
+marketplaces:
+  personal-org: { source: "github:personal/plugins" }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(repoYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"), []byte(personalYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	committed, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read committed lock: %v", err)
+	}
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
+	if err != nil {
+		t.Fatalf("read personal lock: %v", err)
+	}
+	if _, ok := committed.Entries.Marketplaces["personal-org"]; ok {
+		t.Error("personal marketplace ended up in committed lock")
+	}
+	if _, ok := personal.Entries.Marketplaces["personal-org"]; !ok {
+		t.Error("personal marketplace missing from personal lock")
 	}
 }
 
