@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -88,7 +89,7 @@ func applyOne(env provider.Env, c provider.Change) error {
 	// No recognised adapter — declare-and-check fallback.
 	if !env.DryRun && !env.NoInstall {
 		if _, err := env.Runner.Run(id, "--version"); err != nil {
-			return fmt.Errorf("not installed and no supported install method is declared; install it manually")
+			return errors.New("not installed and no supported install method is declared; install it manually")
 		}
 	}
 	return nil
