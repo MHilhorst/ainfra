@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -33,18 +34,29 @@ func newSyncCommand() *cli.Command {
 // runSyncWith is the testable core of `ainfra sync`.
 func runSyncWith(ctx cli.Context, reg *secret.Registry) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-
-	lockPath := filepath.Join(ctx.Dir, "ainfra.lock")
-	if !fileExists(lockPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first"))
-		return 1
-	}
-	committed, err := lockfile.Read(lockPath)
+	count, path, err := syncSecrets(ctx.Dir, reg)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
-	personal, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.personal.lock"))
+	fmt.Fprintf(ctx.Stdout, "Wrote %d secrets to %s\n", count, path)
+	return 0
+}
+
+// syncSecrets resolves every secret referenced by the lockfiles at dir and
+// writes the values into the Claude Code settings env block. It returns the
+// number written and the settings path. Shared by `ainfra sync` and the final
+// step of `ainfra apply`.
+func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
+	lockPath := filepath.Join(dir, "ainfra.lock")
+	if !fileExists(lockPath) {
+		return 0, "", fmt.Errorf("ainfra.lock not found — run `ainfra lock` first")
+	}
+	committed, err := lockfile.Read(lockPath)
+	if err != nil {
+		return 0, "", err
+	}
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
 	if err != nil {
 		personal = &lockfile.Lock{}
 	}
@@ -67,26 +79,18 @@ func runSyncWith(ctx cli.Context, reg *secret.Registry) int {
 		resolved[sr.Var] = val
 	}
 	if len(failures) > 0 {
-		fmt.Fprintln(ctx.Stderr, "Could not resolve secrets:")
-		for _, f := range failures {
-			fmt.Fprintln(ctx.Stderr, f)
-		}
-		return 1
+		return 0, "", fmt.Errorf("could not resolve secrets:\n%s", strings.Join(failures, "\n"))
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
+		return 0, "", err
 	}
 	settingsPath := filepath.Join(home, ".claude", "settings.local.json")
 	if err := writeSettingsEnv(settingsPath, resolved); err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
+		return 0, "", err
 	}
-
-	fmt.Fprintf(ctx.Stdout, "Wrote %d secrets to %s\n", len(resolved), settingsPath)
-	return 0
+	return len(resolved), settingsPath, nil
 }
 
 // writeSettingsEnv merges the resolved secrets into the "env" object of the
