@@ -30,7 +30,7 @@ func TestCLIToolsObserve_ReturnsNil(t *testing.T) {
 	}
 }
 
-func TestCLIToolsApply_CreateWithBrew(t *testing.T) {
+func TestCLIToolsApply_CreateWithBrewFormula(t *testing.T) {
 	runner := provider.NewFakeRunner()
 	// brew list returns an error meaning "not installed"
 	runner.Script["brew list --versions jq"] = provider.FakeResult{Err: errors.New("not found")}
@@ -52,8 +52,8 @@ func TestCLIToolsApply_CreateWithBrew(t *testing.T) {
 					ID:      "jq",
 					Channel: "cliTools",
 					Payload: map[string]any{
-						"install": map[string]any{
-							"brew": "jq",
+						"install": map[string]map[string]any{
+							"brew": {"formula": "jq"},
 						},
 					},
 				},
@@ -73,7 +73,7 @@ func TestCLIToolsApply_CreateWithBrew(t *testing.T) {
 		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
 	}
 
-	// verify brew install was called
+	// verify brew install was called with the formula name, not the id
 	found := false
 	for _, call := range runner.Calls {
 		if call == "brew install jq" {
@@ -83,6 +83,57 @@ func TestCLIToolsApply_CreateWithBrew(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected 'brew install jq' call; calls = %v", runner.Calls)
+	}
+}
+
+func TestCLIToolsApply_CreateWithBrewCask(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["brew list --cask --versions 1password-cli"] = provider.FakeResult{Err: errors.New("not found")}
+	runner.Script["brew install --cask 1password-cli"] = provider.FakeResult{Output: []byte("installed")}
+
+	env := provider.Env{
+		FS:     provider.NewMemFilesystem(),
+		Runner: runner,
+		Root:   "/repo",
+	}
+
+	plan := provider.ChannelPlan{
+		Channel: "cliTools",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "op",
+				Resource: provider.Resource{
+					ID:      "op",
+					Channel: "cliTools",
+					Payload: map[string]any{
+						"install": map[string]map[string]any{
+							"brew": {"cask": "1password-cli"},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p := channels.CLITools{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+
+	found := false
+	for _, call := range runner.Calls {
+		if call == "brew install --cask 1password-cli" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected 'brew install --cask 1password-cli' call; calls = %v", runner.Calls)
 	}
 }
 
@@ -107,8 +158,8 @@ func TestCLIToolsApply_CreateWithBrew_AlreadyInstalled(t *testing.T) {
 					ID:      "jq",
 					Channel: "cliTools",
 					Payload: map[string]any{
-						"install": map[string]any{
-							"brew": "jq",
+						"install": map[string]map[string]any{
+							"brew": {"formula": "jq"},
 						},
 					},
 				},
@@ -133,6 +184,65 @@ func TestCLIToolsApply_CreateWithBrew_AlreadyInstalled(t *testing.T) {
 	}
 }
 
+// TestCLIToolsApply_CheckCommand verifies that when no adapter matches, the
+// check.command from the payload is used as the probe instead of "<id> --version".
+func TestCLIToolsApply_CheckCommand(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	// The check command is "mysql --version", not "mysql-client --version"
+	runner.Script["mysql --version"] = provider.FakeResult{Output: []byte("mysql 8.0")}
+
+	env := provider.Env{
+		FS:     provider.NewMemFilesystem(),
+		Runner: runner,
+		Root:   "/repo",
+	}
+
+	plan := provider.ChannelPlan{
+		Channel: "cliTools",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "mysql-client",
+				Resource: provider.Resource{
+					ID:      "mysql-client",
+					Channel: "cliTools",
+					Payload: map[string]any{
+						"install": map[string]map[string]any{
+							"manual": {"url": "https://example.com"},
+						},
+						"check": map[string]any{
+							"command": "mysql --version",
+						},
+					},
+				},
+			},
+		},
+	}
+
+	p := channels.CLITools{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+
+	// The runner must have seen "mysql --version", not "mysql-client --version"
+	found := false
+	for _, call := range runner.Calls {
+		if call == "mysql --version" {
+			found = true
+		}
+		if call == "mysql-client --version" {
+			t.Errorf("must not probe with id --version when check.command is set; calls = %v", runner.Calls)
+		}
+	}
+	if !found {
+		t.Errorf("expected 'mysql --version' probe call; calls = %v", runner.Calls)
+	}
+}
+
 func TestCLIToolsApply_UnknownMethodToolAbsent_ReturnsError(t *testing.T) {
 	runner := provider.NewFakeRunner()
 	// --version probe fails meaning not on PATH
@@ -154,8 +264,8 @@ func TestCLIToolsApply_UnknownMethodToolAbsent_ReturnsError(t *testing.T) {
 					ID:      "mytool",
 					Channel: "cliTools",
 					Payload: map[string]any{
-						"install": map[string]any{
-							"manual": "download from example.com",
+						"install": map[string]map[string]any{
+							"manual": {"url": "download from example.com"},
 						},
 					},
 				},
@@ -194,8 +304,8 @@ func TestCLIToolsApply_UnknownMethodToolPresent(t *testing.T) {
 					ID:      "mytool",
 					Channel: "cliTools",
 					Payload: map[string]any{
-						"install": map[string]any{
-							"manual": "download from example.com",
+						"install": map[string]map[string]any{
+							"manual": {"url": "download from example.com"},
 						},
 					},
 				},
@@ -233,8 +343,8 @@ func TestCLIToolsApply_DryRun_NoInstall(t *testing.T) {
 					ID:      "jq",
 					Channel: "cliTools",
 					Payload: map[string]any{
-						"install": map[string]any{
-							"brew": "jq",
+						"install": map[string]map[string]any{
+							"brew": {"formula": "jq"},
 						},
 					},
 				},
@@ -283,9 +393,9 @@ func TestCLIToolsApply_MultiMethodDeterministic(t *testing.T) {
 						ID:      "mything",
 						Channel: "cliTools",
 						Payload: map[string]any{
-							"install": map[string]any{
-								"brew": "mything",
-								"npm":  "mything",
+							"install": map[string]map[string]any{
+								"brew": {"formula": "mything"},
+								"npm":  {"package": "mything"},
 							},
 						},
 					},
