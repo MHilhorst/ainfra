@@ -15,22 +15,17 @@ func TestHooksChannel(t *testing.T) {
 	}
 }
 
-// Observe always returns nil — the event-keyed settings.json schema cannot be
-// mapped back to individual managed hooks, so hooks reconcile wholesale.
-func TestHooksObserve_AlwaysNil(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	env := provider.Env{FS: mem, Root: "/repo"}
-	settingsJSON := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}`
-	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(settingsJSON), 0o644); err != nil {
-		t.Fatal(err)
-	}
+// Observe sources managed hooks from the applied ledger, not settings.json:
+// with no ledger present it reports nothing, regardless of settings.json.
+func TestHooksObserve_NoLedgerEmpty(t *testing.T) {
+	env := provider.Env{Root: t.TempDir()}
 
 	resources, err := claudecode.Hooks{}.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
 	}
-	if resources != nil {
-		t.Fatalf("Observe: got %v, want nil", resources)
+	if len(resources) != 0 {
+		t.Fatalf("Observe: got %d resources with no ledger, want 0", len(resources))
 	}
 }
 

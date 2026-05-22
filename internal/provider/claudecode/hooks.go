@@ -22,12 +22,23 @@ func hooksPath(env provider.Env) string {
 	return filepath.Join(env.Root, ".claude", "settings.json")
 }
 
-// Observe returns nil. Claude Code's hooks schema groups hooks by event, not by
-// ainfra hook id, so the stored shape cannot be mapped back to individual
-// managed hooks. Hooks are therefore reconciled wholesale on every apply — the
-// same approach the CLITools channel takes.
-func (Hooks) Observe(_ provider.Env) ([]provider.Resource, error) {
-	return nil, nil
+// Observe reports the hooks ainfra currently manages, sourced from the applied
+// ledger. Claude Code's settings.json keys hooks by event, not by ainfra hook
+// id, so the written file cannot be mapped back to managed hooks; the ledger
+// is the authoritative record of what was applied. Returning it keeps `check`
+// idempotent after an apply. ContentHash is left empty — the orchestrator
+// backfills it from the ledger.
+func (Hooks) Observe(env provider.Env) ([]provider.Resource, error) {
+	applied, err := provider.ReadApplied(env.Root)
+	if err != nil {
+		return nil, err
+	}
+	managed := provider.ResourcesByChannel(applied)["hooks"]
+	out := make([]provider.Resource, 0, len(managed))
+	for _, r := range managed {
+		out = append(out, provider.Resource{ID: r.ID, Channel: "hooks"})
+	}
+	return out, nil
 }
 
 // Apply writes the managed hooks into .claude/settings.json in Claude Code's
