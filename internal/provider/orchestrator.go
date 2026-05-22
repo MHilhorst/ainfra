@@ -187,8 +187,8 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 
 	ledger := buildLedger(prior, desired, results)
 	if !o.env.DryRun {
-		if err := WriteApplied(o.root, ledger); err != nil {
-			return results, err
+		if werr := WriteApplied(o.root, ledger); werr != nil {
+			errs = append(errs, fmt.Errorf("writing applied ledger: %w", werr))
 		}
 	}
 

@@ -344,7 +344,7 @@ func TestApplyAllRenderedContinuesPastChannelFailure(t *testing.T) {
 		"cliTools": {{ID: "x", Channel: "cliTools", ContentHash: "h"}},
 		"skills":   {{ID: "s", Channel: "skills", ContentHash: "h"}},
 	}
-	_, err := o.ApplyAllRendered(rendered, newTestLock())
+	results, err := o.ApplyAllRendered(rendered, newTestLock())
 	if err == nil {
 		t.Fatal("expected an aggregated error, got nil")
 	}
@@ -354,6 +354,16 @@ func TestApplyAllRenderedContinuesPastChannelFailure(t *testing.T) {
 	// skills must still have been applied despite cliTools failing.
 	if skills.gotPlan.Empty() {
 		t.Error("skills channel was not applied after cliTools failed")
+	}
+	// cliTools must be reported with its catastrophic failure recorded.
+	failedCli := false
+	for _, r := range results {
+		if r.Channel == "cliTools" && len(r.Failed) > 0 {
+			failedCli = true
+		}
+	}
+	if !failedCli {
+		t.Errorf("cliTools not reported with a failure; results = %+v", results)
 	}
 }
 

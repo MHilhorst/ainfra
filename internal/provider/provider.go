@@ -108,8 +108,14 @@ type ApplyError struct {
 
 // Error summarizes the failures. The full per-resource list is on Errs.
 func (e *ApplyError) Error() string {
+	if len(e.Errs) == 0 {
+		return "apply failed"
+	}
 	if len(e.Errs) == 1 {
 		return e.Errs[0].Error()
 	}
 	return fmt.Sprintf("%d resources failed to apply", len(e.Errs))
 }
+
+// Unwrap exposes the per-resource errors to errors.Is and errors.As.
+func (e *ApplyError) Unwrap() []error { return e.Errs }
