@@ -9,8 +9,9 @@ package agent
 type ID string
 
 const (
-	ClaudeCode ID = "claude-code"
-	Codex      ID = "codex"
+	ClaudeCode    ID = "claude-code"
+	Codex         ID = "codex"
+	ClaudeDesktop ID = "claude-desktop"
 )
 
 // Default is the agent ainfra targets when no manifest layer names one.
@@ -39,6 +40,9 @@ var capabilities = map[ID]map[string]bool{
 	},
 	Codex: {
 		ChannelMCPServers: true, ChannelRules: true, ChannelCLITools: true,
+	},
+	ClaudeDesktop: {
+		ChannelMCPServers: true,
 	},
 }
 
