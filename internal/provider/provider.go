@@ -100,8 +100,8 @@ type Provider interface {
 }
 
 // ApplyError aggregates the per-resource failures of a partial apply. When it
-// is returned the applied ledger has already been written for everything that
-// succeeded.
+// is returned the applied ledger has been written for everything that
+// succeeded — unless the apply was a dry run, which writes no ledger.
 type ApplyError struct {
 	Errs []error
 }
