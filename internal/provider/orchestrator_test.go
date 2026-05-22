@@ -258,6 +258,30 @@ func TestBuildLedgerNoFailuresEqualsDesired(t *testing.T) {
 	}
 }
 
+func TestBuildLedgerFailedDeleteKeepsPriorEntry(t *testing.T) {
+	prior := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Skills: map[string]lockfile.Entry{"old": {Layer: "repo", ContentHash: "h"}},
+	}}
+	desired := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Skills: map[string]lockfile.Entry{},
+	}}
+	results := []ApplyResult{
+		{Channel: "skills", Failed: []ChangeFailure{{Change: Change{Kind: ChangeDelete, ID: "old"}}}},
+	}
+
+	ledger := buildLedger(prior, desired, results)
+
+	// "old" was deleted from desired but the delete failed -> prior entry must be
+	// retained because the resource is still present on the machine.
+	entry, ok := ledger.Entries.Skills["old"]
+	if !ok {
+		t.Fatal("skills[old] absent; want prior entry retained after failed delete")
+	}
+	if entry.ContentHash != "h" {
+		t.Errorf("skills[old].ContentHash = %q, want %q", entry.ContentHash, "h")
+	}
+}
+
 func TestOrchestratorChannelOrder(t *testing.T) {
 	root := t.TempDir()
 	applyOrder := &[]string{}
