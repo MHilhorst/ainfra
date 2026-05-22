@@ -27,7 +27,7 @@ func TestRenderChannelContract(t *testing.T) {
 	dir := t.TempDir()
 	copyTestdata(t, filepath.Join("testdata", "representative"), dir)
 
-	rendered, err := resolve.RenderResources(dir)
+	rendered, err := resolve.RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}

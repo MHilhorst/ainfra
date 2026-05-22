@@ -4,8 +4,107 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/provider"
 )
+
+func TestRenderResourcesTemplatedRule(t *testing.T) {
+	dir := t.TempDir()
+
+	ruleContent := "Hello {{NAME}}, welcome to the team."
+	if err := os.WriteFile(filepath.Join(dir, "r.md"), []byte(ruleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestYAML := `version: 1
+vars:
+  NAME: "Dev"
+rules:
+  r1:
+    source: ./r.md
+    template: true
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+	ruleResources, ok := resources["rules"]
+	if !ok || len(ruleResources) != 1 {
+		t.Fatalf("rules resources = %v", ruleResources)
+	}
+	content, _ := ruleResources[0].Payload["content"].(string)
+	if content != "Hello Dev, welcome to the team." {
+		t.Errorf("content = %q, want substituted text", content)
+	}
+	if strings.Contains(content, "{{NAME}}") {
+		t.Errorf("content still contains {{NAME}}: %q", content)
+	}
+}
+
+func TestRenderResourcesNonTemplateRuleUnchanged(t *testing.T) {
+	dir := t.TempDir()
+
+	ruleContent := "Keep {{NAME}} literal."
+	if err := os.WriteFile(filepath.Join(dir, "r2.md"), []byte(ruleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestYAML := `version: 1
+vars:
+  NAME: "Dev"
+rules:
+  r2:
+    source: ./r2.md
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+	ruleResources := resources["rules"]
+	if len(ruleResources) != 1 {
+		t.Fatalf("rules resources = %v", ruleResources)
+	}
+	content, _ := ruleResources[0].Payload["content"].(string)
+	if content != ruleContent {
+		t.Errorf("content = %q, want literal (unchanged)", content)
+	}
+}
+
+func TestRenderResourcesUndefinedVarErrors(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "r.md"), []byte("{{UNDEFINED}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestYAML := `version: 1
+rules:
+  r1:
+    source: ./r.md
+    template: true
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := RenderResources(dir, provider.ExecRunner{})
+	if err == nil {
+		t.Fatal("expected error for undefined variable, got nil")
+	}
+	if !strings.Contains(err.Error(), "UNDEFINED") {
+		t.Errorf("error = %q, want it to mention UNDEFINED", err)
+	}
+}
 
 func TestRenderResources(t *testing.T) {
 	dir := t.TempDir()
@@ -48,7 +147,7 @@ rules:
 		t.Fatal(err)
 	}
 
-	resources, err := RenderResources(dir)
+	resources, err := RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}
@@ -181,7 +280,7 @@ plugins:
 		t.Fatal(err)
 	}
 
-	resources, err := RenderResources(dir)
+	resources, err := RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}
@@ -249,7 +348,7 @@ mcpServers:
 		t.Fatal(err)
 	}
 
-	resources, err := RenderResources(dir)
+	resources, err := RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}

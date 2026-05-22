@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/provider"
 )
 
 func TestLockPipelineOnMultiDBExample(t *testing.T) {
@@ -35,7 +36,7 @@ mcpServers:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -69,7 +70,7 @@ commands:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -103,7 +104,7 @@ rules:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -141,7 +142,7 @@ marketplaces:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -182,10 +183,10 @@ marketplaces:
 	if err := os.WriteFile(filepath.Join(dir2, "ainfra.yaml"), []byte(yaml2), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir1); err != nil {
+	if err := RunLock(dir1, provider.ExecRunner{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir2); err != nil {
+	if err := RunLock(dir2, provider.ExecRunner{}); err != nil {
 		t.Fatal(err)
 	}
 	l1, _ := lockfile.Read(filepath.Join(dir1, "ainfra.lock"))
@@ -220,10 +221,10 @@ plugins:
 	if err := os.WriteFile(filepath.Join(dir2, "ainfra.yaml"), []byte(yaml2), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir1); err != nil {
+	if err := RunLock(dir1, provider.ExecRunner{}); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir2); err != nil {
+	if err := RunLock(dir2, provider.ExecRunner{}); err != nil {
 		t.Fatal(err)
 	}
 	l1, _ := lockfile.Read(filepath.Join(dir1, "ainfra.lock"))
@@ -248,7 +249,7 @@ marketplaces:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"), []byte(personalYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	committed, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -280,7 +281,7 @@ tools:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -309,7 +310,7 @@ mcpServers:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -353,7 +354,7 @@ commands:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -386,7 +387,7 @@ rules:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -410,7 +411,7 @@ rules:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(repoYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	first, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -426,7 +427,7 @@ rules:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"), []byte(personalYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock with personal layer: %v", err)
 	}
 	second, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -458,7 +459,7 @@ cliTools:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -498,7 +499,7 @@ commands:
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("clean hook+command manifest must not error: %v", err)
 	}
 }
@@ -521,7 +522,7 @@ mcpServers:
 		if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := RunLock(dir); err != nil {
+		if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 			t.Fatalf("RunLock: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))
@@ -565,7 +566,7 @@ mcpServers:
 		if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := RunLock(dir); err != nil {
+		if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 			t.Fatalf("RunLock: %v", err)
 		}
 		data, err := os.ReadFile(filepath.Join(dir, "ainfra.lock"))

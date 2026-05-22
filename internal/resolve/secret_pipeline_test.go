@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/provider"
 )
 
 const secretManifest = `version: 1
@@ -33,7 +34,7 @@ func writeSecretManifest(t *testing.T) string {
 
 func TestRunLockRecordsSecretRefs(t *testing.T) {
 	dir := writeSecretManifest(t)
-	if err := RunLock(dir); err != nil {
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
 		t.Fatalf("RunLock: %v", err)
 	}
 	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
@@ -51,7 +52,7 @@ func TestRunLockRecordsSecretRefs(t *testing.T) {
 
 func TestRenderResourcesRendersPlaceholderIntoHeaders(t *testing.T) {
 	dir := writeSecretManifest(t)
-	res, err := RenderResources(dir)
+	res, err := RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}
