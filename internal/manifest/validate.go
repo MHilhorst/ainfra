@@ -141,22 +141,63 @@ func Validate(m *Manifest) error {
 			}
 		}
 	}
-	for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
-		p := m.Plugins[id]
-		if p.Source == "" {
+	for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+		mp := m.Marketplaces[id]
+		if mp.Source == "" {
 			return &diag.Diagnostic{
-				Summary: "plugin declares no source",
-				Path:    "plugins." + id,
-				Detail:  fmt.Sprintf("Plugin %q has no source.", id),
-				Hint:    `Add a source field, e.g.  source: "npm:@acme/tvt-config-plugin@2.0.1"`,
+				Summary: "marketplace declares no source",
+				Path:    "marketplaces." + id,
+				Detail:  fmt.Sprintf("Marketplace %q has no source.", id),
+				Hint:    `Add a source field, e.g.  source: "github:owner/repo"`,
 			}
 		}
-		if isRemoteSource(p.Source) && p.Version == "" && !hasEmbeddedVersion(p.Source) {
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
+		p := m.Plugins[id]
+		if p.Marketplace == "" {
 			return &diag.Diagnostic{
-				Summary: "remote plugin must pin an exact version",
+				Summary: "plugin declares no marketplace",
 				Path:    "plugins." + id,
-				Detail:  fmt.Sprintf("Plugin %q fetches from a remote source but declares no version.", id),
-				Hint:    `Add a version field, e.g.  version: "2.0.1"`,
+				Detail:  fmt.Sprintf("Plugin %q has no marketplace.", id),
+				Hint:    `Add a marketplace field referencing a declared marketplace, e.g.  marketplace: my-org`,
+			}
+		}
+		if _, ok := m.Marketplaces[p.Marketplace]; !ok {
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("plugin %q references undeclared marketplace %q", id, p.Marketplace),
+				Path:    "plugins." + id,
+				Detail:  fmt.Sprintf("Plugin %q names marketplace %q, but no marketplace with that name is declared.", id, p.Marketplace),
+				Hint:    fmt.Sprintf("Declare the marketplace under marketplaces: %s, or correct the marketplace field.", p.Marketplace),
+			}
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Vars)) {
+		v := m.Vars[id]
+		switch v.From {
+		case "value", "env", "command":
+			// valid
+		default:
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("unknown var source %q", v.From),
+				Path:    "vars." + id,
+				Detail:  fmt.Sprintf("Var %q declares from: %q, which is not a known source.", id, v.From),
+				Hint:    "Valid sources: value, env, command.",
+			}
+		}
+		if v.From == "env" && v.Env == "" {
+			return &diag.Diagnostic{
+				Summary: "var with from: env declares no env field",
+				Path:    "vars." + id,
+				Detail:  fmt.Sprintf("Var %q uses from: env but has no env field naming the environment variable.", id),
+				Hint:    "Add an env field, e.g.  env: HOME",
+			}
+		}
+		if v.From == "command" && v.Command == "" {
+			return &diag.Diagnostic{
+				Summary: "var with from: command declares no command field",
+				Path:    "vars." + id,
+				Detail:  fmt.Sprintf("Var %q uses from: command but has no command field.", id),
+				Hint:    `Add a command field, e.g.  command: "git config user.name"`,
 			}
 		}
 	}
@@ -324,6 +365,9 @@ func collectEntries(m *Manifest) []channelEntry {
 	for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
 		out = append(out, channelEntry{agent.ChannelSkills, id, m.Skills[id].Agents})
 	}
+	for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+		out = append(out, channelEntry{agent.ChannelMarketplaces, id, nil})
+	}
 	for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
 		out = append(out, channelEntry{agent.ChannelPlugins, id, m.Plugins[id].Agents})
 	}
@@ -414,8 +458,9 @@ func validateAgentCapabilities(layers map[Layer]*Manifest) error {
 }
 
 // ValidateAll validates every present layer. It builds a cross-layer template
-// map first, so a lower layer may reference a template defined in a higher
-// one, then tags each diagnostic with the offending layer's file name.
+// and marketplace map first, so a lower layer may reference a template or
+// marketplace defined in a higher one, then tags each diagnostic with the
+// offending layer's file name.
 func ValidateAll(layers map[Layer]*Manifest) error {
 	order := []Layer{LayerTeam, LayerRepo, LayerPersonal}
 	allTemplates := map[string]Template{}
@@ -428,15 +473,27 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 			}
 		}
 	}
+	allMarketplaces := map[string]Marketplace{}
+	for _, ln := range order {
+		if m, ok := layers[ln]; ok {
+			for name, mp := range m.Marketplaces {
+				if _, exists := allMarketplaces[name]; !exists {
+					allMarketplaces[name] = mp
+				}
+			}
+		}
+	}
 	for _, ln := range order {
 		m, ok := layers[ln]
 		if !ok {
 			continue
 		}
 		toValidate := m
-		if len(m.Templates) < len(allTemplates) {
+		needsCopy := len(m.Templates) < len(allTemplates) || len(m.Marketplaces) < len(allMarketplaces)
+		if needsCopy {
 			copied := *m
 			copied.Templates = allTemplates
+			copied.Marketplaces = allMarketplaces
 			toValidate = &copied
 		}
 		if err := Validate(toValidate); err != nil {

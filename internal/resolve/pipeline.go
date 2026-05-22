@@ -3,6 +3,7 @@ package resolve
 import (
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -11,6 +12,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/graph"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/provider"
 	"gopkg.in/yaml.v3"
 )
 
@@ -20,7 +22,7 @@ const portBase = 13306
 
 // RunLock executes the full resolve pipeline for the repo at dir and writes
 // ainfra.lock (team+repo entries) and ainfra.personal.lock (personal).
-func RunLock(dir string) error {
+func RunLock(dir string, runner provider.CommandRunner) error {
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
 		return err
@@ -111,6 +113,7 @@ func RunLock(dir string) error {
 			Commands:           map[string]lockfile.Entry{},
 			CLITools:           map[string]lockfile.Entry{},
 			Skills:             map[string]lockfile.Entry{},
+			Marketplaces:       map[string]lockfile.Entry{},
 			Plugins:            map[string]lockfile.Entry{},
 			Rules:              map[string]lockfile.Entry{},
 			Tools:              map[string]lockfile.Entry{},
@@ -245,6 +248,13 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+			mp := m.Marketplaces[id]
+			lock.Entries.Marketplaces[id] = lockfile.Entry{
+				Layer:       string(layerName),
+				ContentHash: lockfile.ContentHash(map[string]any{"source": mp.Source}),
+			}
+		}
 		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
 			p := m.Plugins[id]
 			node := "plugin:" + id
@@ -255,7 +265,7 @@ func RunLock(dir string) error {
 				Version:  p.Version,
 				Requires: requireRefs(p.Requires),
 				ContentHash: lockfile.ContentHash(map[string]any{
-					"source": p.Source, "version": p.Version,
+					"marketplace": p.Marketplace, "version": p.Version,
 				}),
 			}
 		}
@@ -264,13 +274,29 @@ func RunLock(dir string) error {
 			node := "rule:" + id
 			g.AddNode(node)
 			addRequireEdges(g, node, r.Requires)
+			contentHash := lockfile.ContentHash(map[string]any{
+				"source": r.Source, "version": r.Version, "target": r.Target,
+			})
+			if r.Template && r.Source != "" && !isRemoteSource(r.Source) {
+				raw, readErr := os.ReadFile(filepath.Join(dir, r.Source))
+				if readErr == nil {
+					allVars := collectVars(layers)
+					resolved, resolveErr := resolveVars(allVars, runner)
+					if resolveErr != nil {
+						return resolveErr
+					}
+					rendered, subErr := substituteVars(string(raw), resolved)
+					if subErr != nil {
+						return fmt.Errorf("rule %q: %w", id, subErr)
+					}
+					contentHash = lockfile.ContentHash(rendered)
+				}
+			}
 			lock.Entries.Rules[id] = lockfile.Entry{
-				Layer:    string(layerName),
-				Version:  r.Version,
-				Requires: requireRefs(r.Requires),
-				ContentHash: lockfile.ContentHash(map[string]any{
-					"source": r.Source, "version": r.Version, "target": r.Target,
-				}),
+				Layer:       string(layerName),
+				Version:     r.Version,
+				Requires:    requireRefs(r.Requires),
+				ContentHash: contentHash,
 			}
 		}
 		if m.Tools != nil {
@@ -419,6 +445,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 				MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
 				Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
 				CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
+				Marketplaces: map[string]lockfile.Entry{},
 				Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
 				Tools: map[string]lockfile.Entry{}}}
 	}
@@ -438,6 +465,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Commands }, l.Entries.Commands)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.CLITools }, l.Entries.CLITools)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Skills }, l.Entries.Skills)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Marketplaces }, l.Entries.Marketplaces)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Plugins }, l.Entries.Plugins)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Rules }, l.Entries.Rules)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Tools }, l.Entries.Tools)

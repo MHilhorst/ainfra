@@ -19,14 +19,15 @@ const Default = ClaudeCode
 
 // Channel names — the wire keys ainfra.yaml uses for each configurable channel.
 const (
-	ChannelMCPServers = "mcpServers"
-	ChannelSkills     = "skills"
-	ChannelPlugins    = "plugins"
-	ChannelRules      = "rules"
-	ChannelTools      = "tools"
-	ChannelCLITools   = "cliTools"
-	ChannelHooks      = "hooks"
-	ChannelCommands   = "commands"
+	ChannelMCPServers    = "mcpServers"
+	ChannelSkills        = "skills"
+	ChannelMarketplaces  = "marketplaces"
+	ChannelPlugins       = "plugins"
+	ChannelRules         = "rules"
+	ChannelTools         = "tools"
+	ChannelCLITools      = "cliTools"
+	ChannelHooks         = "hooks"
+	ChannelCommands      = "commands"
 )
 
 // capabilities records, per agent, which channels that agent can render. An
@@ -34,9 +35,9 @@ const (
 // set is one that agent cannot render.
 var capabilities = map[ID]map[string]bool{
 	ClaudeCode: {
-		ChannelMCPServers: true, ChannelSkills: true, ChannelPlugins: true,
-		ChannelRules: true, ChannelTools: true, ChannelCLITools: true,
-		ChannelHooks: true, ChannelCommands: true,
+		ChannelMCPServers: true, ChannelSkills: true, ChannelMarketplaces: true,
+		ChannelPlugins: true, ChannelRules: true, ChannelTools: true,
+		ChannelCLITools: true, ChannelHooks: true, ChannelCommands: true,
 	},
 	Codex: {
 		ChannelMCPServers: true, ChannelRules: true, ChannelCLITools: true,

@@ -4,8 +4,107 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/provider"
 )
+
+func TestRenderResourcesTemplatedRule(t *testing.T) {
+	dir := t.TempDir()
+
+	ruleContent := "Hello {{NAME}}, welcome to the team."
+	if err := os.WriteFile(filepath.Join(dir, "r.md"), []byte(ruleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestYAML := `version: 1
+vars:
+  NAME: "Dev"
+rules:
+  r1:
+    source: ./r.md
+    template: true
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+	ruleResources, ok := resources["rules"]
+	if !ok || len(ruleResources) != 1 {
+		t.Fatalf("rules resources = %v", ruleResources)
+	}
+	content, _ := ruleResources[0].Payload["content"].(string)
+	if content != "Hello Dev, welcome to the team." {
+		t.Errorf("content = %q, want substituted text", content)
+	}
+	if strings.Contains(content, "{{NAME}}") {
+		t.Errorf("content still contains {{NAME}}: %q", content)
+	}
+}
+
+func TestRenderResourcesNonTemplateRuleUnchanged(t *testing.T) {
+	dir := t.TempDir()
+
+	ruleContent := "Keep {{NAME}} literal."
+	if err := os.WriteFile(filepath.Join(dir, "r2.md"), []byte(ruleContent), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestYAML := `version: 1
+vars:
+  NAME: "Dev"
+rules:
+  r2:
+    source: ./r2.md
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+	ruleResources := resources["rules"]
+	if len(ruleResources) != 1 {
+		t.Fatalf("rules resources = %v", ruleResources)
+	}
+	content, _ := ruleResources[0].Payload["content"].(string)
+	if content != ruleContent {
+		t.Errorf("content = %q, want literal (unchanged)", content)
+	}
+}
+
+func TestRenderResourcesUndefinedVarErrors(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "r.md"), []byte("{{UNDEFINED}}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manifestYAML := `version: 1
+rules:
+  r1:
+    source: ./r.md
+    template: true
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := RenderResources(dir, provider.ExecRunner{})
+	if err == nil {
+		t.Fatal("expected error for undefined variable, got nil")
+	}
+	if !strings.Contains(err.Error(), "UNDEFINED") {
+		t.Errorf("error = %q, want it to mention UNDEFINED", err)
+	}
+}
 
 func TestRenderResources(t *testing.T) {
 	dir := t.TempDir()
@@ -48,7 +147,7 @@ rules:
 		t.Fatal(err)
 	}
 
-	resources, err := RenderResources(dir)
+	resources, err := RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}
@@ -167,6 +266,70 @@ func TestPinPackageVersion(t *testing.T) {
 	}
 }
 
+func TestRenderResourcesMarketplacesAndPlugins(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+marketplaces:
+  my-org: { source: "github:my-org/plugins" }
+plugins:
+  my-plugin:
+    marketplace: my-org
+    version: "1.2.3"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+
+	// Check marketplaces channel.
+	mpResources, ok := resources["marketplaces"]
+	if !ok {
+		t.Fatal("missing marketplaces channel")
+	}
+	if len(mpResources) != 1 {
+		t.Fatalf("marketplaces: got %d resources, want 1", len(mpResources))
+	}
+	mpRes := mpResources[0]
+	if mpRes.ID != "my-org" {
+		t.Errorf("marketplaces[0].ID = %q, want my-org", mpRes.ID)
+	}
+	if mpRes.Channel != "marketplaces" {
+		t.Errorf("marketplaces[0].Channel = %q, want marketplaces", mpRes.Channel)
+	}
+	if mpRes.ContentHash == "" {
+		t.Error("marketplaces[0].ContentHash is empty")
+	}
+	if got, ok := mpRes.Payload["source"]; !ok || got != "github:my-org/plugins" {
+		t.Errorf("marketplaces[0].Payload[source] = %v, want github:my-org/plugins", got)
+	}
+
+	// Check plugins channel carries marketplace not source.
+	pluginResources, ok := resources["plugins"]
+	if !ok {
+		t.Fatal("missing plugins channel")
+	}
+	if len(pluginResources) != 1 {
+		t.Fatalf("plugins: got %d resources, want 1", len(pluginResources))
+	}
+	pRes := pluginResources[0]
+	if pRes.ID != "my-plugin" {
+		t.Errorf("plugins[0].ID = %q, want my-plugin", pRes.ID)
+	}
+	if got, ok := pRes.Payload["marketplace"]; !ok || got != "my-org" {
+		t.Errorf("plugins[0].Payload[marketplace] = %v, want my-org", got)
+	}
+	if got, ok := pRes.Payload["version"]; !ok || got != "1.2.3" {
+		t.Errorf("plugins[0].Payload[version] = %v, want 1.2.3", got)
+	}
+	if _, hasSource := pRes.Payload["source"]; hasSource {
+		t.Error("plugins[0].Payload should not contain 'source' key")
+	}
+}
+
 func TestRenderResources_EnabledFalse(t *testing.T) {
 	dir := t.TempDir()
 	manifestYAML := `version: 1
@@ -185,7 +348,7 @@ mcpServers:
 		t.Fatal(err)
 	}
 
-	resources, err := RenderResources(dir)
+	resources, err := RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		t.Fatalf("RenderResources: %v", err)
 	}

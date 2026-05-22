@@ -15,8 +15,8 @@ func TestProvidersForDir_DefaultsToClaudeCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if len(providers) != 9 {
-		t.Fatalf("providersForDir returned %d providers, want 9 (claude-code default)", len(providers))
+	if len(providers) != 10 {
+		t.Fatalf("providersForDir returned %d providers, want 10 (claude-code default)", len(providers))
 	}
 }
 

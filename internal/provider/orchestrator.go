@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -11,7 +12,7 @@ import (
 // required by MCP servers) come first.
 var channelOrder = []string{
 	"cliTools", "backgroundServices", "mcpServers",
-	"skills", "plugins", "rules", "tools", "hooks", "commands",
+	"skills", "marketplaces", "plugins", "rules", "tools", "hooks", "commands",
 }
 
 // Orchestrator loads locks, reads the applied ledger, and drives all registered
@@ -129,16 +130,26 @@ func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[stri
 	return result, nil
 }
 
-// ApplyAllRendered applies rendered resources (which carry Payload) and on
-// success writes the applied ledger from desired (the lockfile that produced
-// the rendered resources). This is the correct path for apply: the lockfile
-// supplies content hashes for drift detection while the rendered resources
-// supply Payload for file writes.
-func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired *lockfile.Lock) error {
+// ApplyAllRendered applies rendered resources (which carry Payload) and writes
+// the applied ledger. Unlike a fail-fast apply, it does not stop on the first
+// error: it applies every channel, skips resources whose requires: dependency
+// failed earlier in the run, and writes a partial ledger (succeeded resources
+// take their desired entry; failed or skipped ones fall back to prior). It
+// returns the per-channel results and, if anything failed, an *ApplyError.
+// When env.DryRun is set, providers still run but the ledger is not written.
+func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired *lockfile.Lock) ([]ApplyResult, error) {
 	plans, err := o.PlanAllRendered(rendered)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	prior, err := ReadApplied(o.root)
+	if err != nil {
+		return nil, err
+	}
+
+	failedRefs := map[string]bool{} // node refs that failed or were skipped
+	var results []ApplyResult
+	var errs []error
 
 	for _, ch := range o.sortedChannels() {
 		plan := plans[ch]
@@ -146,12 +157,140 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 			continue
 		}
 		p := o.providers[ch]
-		if _, err := p.Apply(o.env, plan); err != nil {
-			return err
+
+		runnable, skipped := splitBlocked(plan, failedRefs)
+
+		res := ApplyResult{Channel: ch}
+		r, applyErr := p.Apply(o.env, runnable)
+		if applyErr != nil {
+			// A catastrophic channel error fails every runnable change in it.
+			for _, c := range runnable.Changes {
+				if c.Kind != ChangeNoop {
+					res.Failed = append(res.Failed, ChangeFailure{Change: c, Err: applyErr})
+				}
+			}
+		} else {
+			res = r
+			res.Channel = ch
+		}
+		res.Skipped = append(res.Skipped, skipped...)
+
+		for _, f := range res.Failed {
+			failedRefs[nodeRef(ch, f.Change.ID)] = true
+			errs = append(errs, fmt.Errorf("%s %s: %w", ch, f.Change.ID, f.Err))
+		}
+		for _, s := range res.Skipped {
+			failedRefs[nodeRef(ch, s.Change.ID)] = true
+		}
+		results = append(results, res)
+	}
+
+	ledger := buildLedger(prior, desired, results)
+	if !o.env.DryRun {
+		if werr := WriteApplied(o.root, ledger); werr != nil {
+			errs = append(errs, fmt.Errorf("writing applied ledger: %w", werr))
 		}
 	}
 
-	return WriteApplied(o.root, desired)
+	if len(errs) > 0 {
+		return results, &ApplyError{Errs: errs}
+	}
+	return results, nil
+}
+
+// nodeRef returns the dependency-graph node ref for a resource — the same
+// "<prefix>:<id>" scheme the resolve pipeline uses (e.g. "cli:ssh", "svc:db").
+func nodeRef(channel, id string) string {
+	if p, ok := channelPrefix[channel]; ok {
+		return p + ":" + id
+	}
+	return channel + ":" + id
+}
+
+// splitBlocked partitions plan into the changes that may run and the changes
+// blocked because a resource they require is in failedRefs. A blocked non-noop
+// change becomes a ChangeSkip; noop changes always stay runnable.
+func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable ChannelPlan, skipped []ChangeSkip) {
+	runnable = ChannelPlan{Channel: plan.Channel}
+	for _, c := range plan.Changes {
+		blockedBy := ""
+		if c.Kind != ChangeNoop {
+			for _, ref := range c.Resource.Requires {
+				if failedRefs[ref] {
+					blockedBy = ref
+					break
+				}
+			}
+		}
+		if blockedBy != "" {
+			skipped = append(skipped, ChangeSkip{
+				Change: c,
+				Reason: fmt.Sprintf("requires %q, which failed earlier in this apply", blockedBy),
+			})
+			continue
+		}
+		runnable.Changes = append(runnable.Changes, c)
+	}
+	return runnable, skipped
+}
+
+// buildLedger constructs the applied-state ledger after a (possibly partial)
+// apply. A resource that failed or was skipped falls back to its prior entry
+// (or is dropped if it had none); every other resource takes its desired entry.
+// With no failures the result equals desired — today's behaviour.
+func buildLedger(prior, desired *lockfile.Lock, results []ApplyResult) *lockfile.Lock {
+	bad := map[string]bool{} // key: "<channel>/<id>"
+	for _, r := range results {
+		for _, f := range r.Failed {
+			bad[r.Channel+"/"+f.Change.ID] = true
+		}
+		for _, s := range r.Skipped {
+			bad[r.Channel+"/"+s.Change.ID] = true
+		}
+	}
+	d, p := desired.Entries, prior.Entries
+	return &lockfile.Lock{
+		Version:      desired.Version,
+		GeneratedAt:  desired.GeneratedAt,
+		ManifestHash: desired.ManifestHash,
+		Entries: lockfile.Entries{
+			MCPServers:         mergeLedgerChannel("mcpServers", d.MCPServers, p.MCPServers, bad),
+			BackgroundServices: mergeLedgerChannel("backgroundServices", d.BackgroundServices, p.BackgroundServices, bad),
+			Hooks:              mergeLedgerChannel("hooks", d.Hooks, p.Hooks, bad),
+			Commands:           mergeLedgerChannel("commands", d.Commands, p.Commands, bad),
+			CLITools:           mergeLedgerChannel("cliTools", d.CLITools, p.CLITools, bad),
+			Skills:             mergeLedgerChannel("skills", d.Skills, p.Skills, bad),
+			Plugins:            mergeLedgerChannel("plugins", d.Plugins, p.Plugins, bad),
+			Rules:              mergeLedgerChannel("rules", d.Rules, p.Rules, bad),
+			Tools:              mergeLedgerChannel("tools", d.Tools, p.Tools, bad),
+		},
+	}
+}
+
+// mergeLedgerChannel merges one channel's desired and prior entry maps: a
+// "<channel>/<id>" present in bad takes the prior entry (or is dropped if prior
+// has none); otherwise the desired entry. Prior-only ids (e.g. a failed delete)
+// are re-added when bad.
+func mergeLedgerChannel(channel string, desiredCh, priorCh map[string]lockfile.Entry, bad map[string]bool) map[string]lockfile.Entry {
+	out := make(map[string]lockfile.Entry, len(desiredCh))
+	for id, e := range desiredCh {
+		if bad[channel+"/"+id] {
+			if pe, ok := priorCh[id]; ok {
+				out[id] = pe
+			}
+			continue
+		}
+		out[id] = e
+	}
+	for id, pe := range priorCh {
+		if _, inDesired := desiredCh[id]; inDesired {
+			continue
+		}
+		if bad[channel+"/"+id] {
+			out[id] = pe
+		}
+	}
+	return out
 }
 
 // sortedChannels returns registered channel names in dependency-aware order.

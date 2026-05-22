@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -71,64 +72,29 @@ func probeCommand(id string, payload map[string]any) (string, []string) {
 	return id, []string{"--version"}
 }
 
-// Apply executes the channel plan. For Create/Update it selects a package
-// adapter from the install payload and installs if not already present. If no
-// supported adapter is declared it runs a declare-and-check probe using the
-// manifest check.command. Delete changes are a no-op — ainfra does not
-// uninstall CLI tools (see design §6). Honors env.DryRun.
+// Apply executes the channel plan. Each Create/Update entry is applied
+// independently: it selects a package adapter from the install payload and
+// installs if not already present, or runs a declare-and-check probe (using
+// the manifest check.command) when no supported adapter is declared. A failed
+// entry is recorded in ApplyResult.Failed and does not abort its siblings.
+// Delete changes are a no-op — ainfra does not uninstall CLI tools (see design
+// §6). Honors env.DryRun and env.NoInstall (both skip the install and probe).
 func (CLITools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyResult, error) {
 	var applied []provider.Change
+	var failed []provider.ChangeFailure
 
 	for _, c := range plan.Changes {
 		if c.Kind == provider.ChangeNoop {
 			continue
 		}
-
 		if c.Kind == provider.ChangeDelete {
 			// ainfra does not uninstall CLI tools; treat as a no-op.
 			applied = append(applied, c)
 			continue
 		}
-
-		// ChangeCreate or ChangeUpdate
-		id := c.ID
-		methods := installMethods(c.Resource.Payload)
-
-		handled := false
-		for _, method := range slices.Sorted(maps.Keys(methods)) {
-			adapter, ok := pkg.Select(method)
-			if !ok {
-				continue
-			}
-
-			if !env.DryRun {
-				spec := methods[method]
-				installed, err := adapter.IsInstalled(env, spec)
-				if err != nil {
-					return provider.ApplyResult{}, fmt.Errorf("cliTools: checking %q via %s: %w", id, adapter.Name(), err)
-				}
-				if !installed {
-					if err := adapter.Install(env, spec); err != nil {
-						return provider.ApplyResult{}, fmt.Errorf("cliTools: installing %q via %s: %w", id, adapter.Name(), err)
-					}
-				}
-			}
-
-			handled = true
-			break
-		}
-
-		if handled {
-			applied = append(applied, c)
+		if err := applyOne(env, c); err != nil {
+			failed = append(failed, provider.ChangeFailure{Change: c, Err: err})
 			continue
-		}
-
-		// No recognised adapter — declare-and-check fallback using check.command.
-		if !env.DryRun {
-			bin, args := probeCommand(id, c.Resource.Payload)
-			if _, err := env.Runner.Run(bin, args...); err != nil {
-				return provider.ApplyResult{}, fmt.Errorf("cliTools: %q is not installed and no supported install method is declared; install it manually", id)
-			}
 		}
 		applied = append(applied, c)
 	}
@@ -136,5 +102,45 @@ func (CLITools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.App
 	return provider.ApplyResult{
 		Channel: "cliTools",
 		Applied: applied,
+		Failed:  failed,
 	}, nil
+}
+
+// applyOne installs a single CLI tool: it selects the first install method
+// pkg.Select recognises and installs the tool if absent, or runs the
+// declare-and-check probe (the manifest check.command, or "<id> --version")
+// when no supported adapter is declared. It returns nil when the tool is
+// present (or env.DryRun/env.NoInstall suppressed the work).
+func applyOne(env provider.Env, c provider.Change) error {
+	id := c.ID
+	methods := installMethods(c.Resource.Payload)
+
+	for _, method := range slices.Sorted(maps.Keys(methods)) {
+		adapter, ok := pkg.Select(method)
+		if !ok {
+			continue
+		}
+		if !env.DryRun && !env.NoInstall {
+			spec := methods[method]
+			installed, err := adapter.IsInstalled(env, spec)
+			if err != nil {
+				return fmt.Errorf("checking install state via %s failed: %w", adapter.Name(), err)
+			}
+			if !installed {
+				if err := adapter.Install(env, spec); err != nil {
+					return fmt.Errorf("install via %s failed: %w", adapter.Name(), err)
+				}
+			}
+		}
+		return nil
+	}
+
+	// No recognised adapter — declare-and-check fallback using check.command.
+	if !env.DryRun && !env.NoInstall {
+		bin, args := probeCommand(id, c.Resource.Payload)
+		if _, err := env.Runner.Run(bin, args...); err != nil {
+			return errors.New("not installed and no supported install method is declared; install it manually")
+		}
+	}
+	return nil
 }

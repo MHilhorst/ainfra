@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"path/filepath"
 	"slices"
@@ -141,23 +142,45 @@ func runPlan(ctx cli.Context) int {
 	return 0
 }
 
+// renderApplySummary prints the one-line apply tally and, for any failed or
+// skipped resource, a reason line.
+func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
+	var applied, skipped, failed int
+	for _, r := range results {
+		applied += len(r.Applied)
+		skipped += len(r.Skipped)
+		failed += len(r.Failed)
+	}
+	fmt.Fprintf(w, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
+	for _, r := range results {
+		for _, f := range r.Failed {
+			fmt.Fprintf(w, "  failed:  %s %s — %v\n", r.Channel, f.Change.ID, f.Err)
+		}
+		for _, s := range r.Skipped {
+			fmt.Fprintf(w, "  skipped: %s %s — %s\n", r.Channel, s.Change.ID, s.Reason)
+		}
+	}
+}
+
 func newApplyCommand() *cli.Command {
-	var yes bool
+	var yes, dryRun, noInstall bool
 	var from string
 	return &cli.Command{
 		Name:      "apply",
 		Summary:   "Reconcile the environment to match the manifest or a published artifact",
-		UsageLine: "ainfra apply [--yes] [--from <url-or-dir>]",
+		UsageLine: "ainfra apply [--yes] [--dry-run] [--no-install] [--from <url-or-dir>]",
 		Example:   "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
+			fs.BoolVar(&dryRun, "dry-run", false, "preview the apply without writing anything")
+			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
 			fs.StringVar(&from, "from", "", "reconcile against a published artifact instead of a repo")
 		},
 		Run: func(ctx cli.Context) int {
 			if from != "" {
 				return runApplyFrom(ctx, from, yes)
 			}
-			return runApply(ctx, yes)
+			return runApply(ctx, yes, dryRun, noInstall)
 		},
 	}
 }
@@ -216,7 +239,9 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 		}
 	}
 
-	if err := orch.ApplyAllRendered(rendered, lock); err != nil {
+	results, err := orch.ApplyAllRendered(rendered, lock)
+	renderApplySummary(ctx.Stdout, results)
+	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
@@ -224,7 +249,7 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 	return 0
 }
 
-func runApply(ctx cli.Context, yes bool) int {
+func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 	dir := ctx.Dir
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
@@ -247,7 +272,7 @@ func runApply(ctx cli.Context, yes bool) int {
 	warnIfStale(ctx, dir, committed)
 
 	// Render resources with Payload so providers can write file content.
-	rendered, err := resolve.RenderResources(dir)
+	rendered, err := resolve.RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
@@ -258,7 +283,10 @@ func runApply(ctx cli.Context, yes bool) int {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
+	env := buildEnv(dir)
+	env.DryRun = dryRun
+	env.NoInstall = noInstall
+	orch := provider.NewOrchestrator(dir, env, providers)
 	plans, err := orch.PlanAllRendered(rendered)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -282,7 +310,7 @@ func runApply(ctx cli.Context, yes bool) int {
 	ui.RenderPlan(ctx.Stdout, c, plans)
 
 	// Check preconditions before applying.
-	if failures := checkPreconditions(dir, buildEnv(dir)); len(failures) > 0 {
+	if failures := checkPreconditions(dir, env); len(failures) > 0 {
 		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
 		for _, f := range failures {
 			fmt.Fprintf(ctx.Stderr, "  %s: %s\n", f.ID, f.Remediation)
@@ -290,8 +318,8 @@ func runApply(ctx cli.Context, yes bool) int {
 		return 1
 	}
 
-	// Confirm unless --yes.
-	if !yes {
+	// Confirm unless --yes or --dry-run (a dry run changes nothing).
+	if !yes && !dryRun {
 		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Do you want to apply these changes? (yes/no): ")
 		if err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
@@ -303,12 +331,20 @@ func runApply(ctx cli.Context, yes bool) int {
 		}
 	}
 
-	if err := orch.ApplyAllRendered(rendered, merged); err != nil {
+	results, err := orch.ApplyAllRendered(rendered, merged)
+	if !dryRun {
+		renderApplySummary(ctx.Stdout, results)
+	}
+	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
 
-	fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	if dryRun {
+		fmt.Fprintln(ctx.Stdout, "Dry run complete — no changes were applied.")
+	} else {
+		fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	}
 	return 0
 }
 

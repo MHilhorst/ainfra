@@ -10,6 +10,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/artifact"
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
@@ -59,7 +60,7 @@ func runPublish(ctx cli.Context, out string) int {
 		out = filepath.Join(dir, out)
 	}
 
-	rendered, err := resolve.RenderResources(dir)
+	rendered, err := resolve.RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1

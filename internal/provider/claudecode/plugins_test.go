@@ -1,7 +1,7 @@
 package claudecode_test
 
 import (
-	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
@@ -11,13 +11,13 @@ import (
 func TestPluginsChannel(t *testing.T) {
 	p := claudecode.Plugins{}
 	if got := p.Channel(); got != "plugins" {
-		t.Fatalf("Channel() = %q, want %q", got, "plugins")
+		t.Fatalf("Channel() = %q, want plugins", got)
 	}
 }
 
-func TestPluginsObserve_Empty(t *testing.T) {
+func TestPluginsObserve_MissingFile(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	env := provider.Env{FS: mem, Root: "/repo"}
+	env := provider.Env{FS: mem, Home: "/home/user"}
 
 	p := claudecode.Plugins{}
 	resources, err := p.Observe(env)
@@ -31,10 +31,16 @@ func TestPluginsObserve_Empty(t *testing.T) {
 
 func TestPluginsObserve_WithPlugins(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	env := provider.Env{FS: mem, Root: "/repo"}
+	env := provider.Env{FS: mem, Home: "/home/user"}
 
-	pluginsJSON := `{"plugins":{"plugin-a":{"source":"src-a","version":"v1"},"plugin-b":{"source":"src-b","version":"v2"}}}`
-	if err := mem.WriteFile("/repo/.claude/ainfra/plugins.json", []byte(pluginsJSON), 0o644); err != nil {
+	installedJSON := `{
+		"version": 2,
+		"plugins": {
+			"tvt-config@trein-vertraging": [{"scope":"user","installPath":"/tmp/tvt","version":"1.0.0","installedAt":"2026-01-01T00:00:00Z","lastUpdated":"2026-01-01T00:00:00Z"}],
+			"claude-ads@trein-vertraging": [{"scope":"user","installPath":"/tmp/ads","version":"1.0.0","installedAt":"2026-01-01T00:00:00Z","lastUpdated":"2026-01-01T00:00:00Z"}]
+		}
+	}`
+	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json", []byte(installedJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,38 +57,37 @@ func TestPluginsObserve_WithPlugins(t *testing.T) {
 	for _, r := range resources {
 		ids[r.ID] = true
 		if r.Channel != "plugins" {
-			t.Errorf("resource %q: Channel = %q, want %q", r.ID, r.Channel, "plugins")
+			t.Errorf("resource %q: Channel = %q, want plugins", r.ID, r.Channel)
+		}
+		if r.ContentHash != "" {
+			t.Errorf("resource %q: ContentHash should be empty (backfilled by orchestrator), got %q", r.ID, r.ContentHash)
 		}
 	}
-	if !ids["plugin-a"] {
-		t.Error("expected resource with id 'plugin-a'")
+	if !ids["tvt-config"] {
+		t.Error("expected resource with id 'tvt-config' (bare name without @marketplace)")
 	}
-	if !ids["plugin-b"] {
-		t.Error("expected resource with id 'plugin-b'")
+	if !ids["claude-ads"] {
+		t.Error("expected resource with id 'claude-ads' (bare name without @marketplace)")
 	}
 }
 
 func TestPluginsApply_Create(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	// pre-populate with a foreign plugin entry
-	existing := `{"plugins":{"foreign-plugin":{"source":"foreign-src","version":"v0"}}}`
-	if err := mem.WriteFile("/repo/.claude/ainfra/plugins.json", []byte(existing), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	env := provider.Env{FS: mem, Root: "/repo"}
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin install tvt-config@trein-vertraging"] = provider.FakeResult{}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
 
 	plan := provider.ChannelPlan{
 		Channel: "plugins",
 		Changes: []provider.Change{
 			{
 				Kind: provider.ChangeCreate,
-				ID:   "my-plugin",
+				ID:   "tvt-config",
 				Resource: provider.Resource{
-					ID:      "my-plugin",
+					ID:      "tvt-config",
 					Channel: "plugins",
 					Payload: map[string]any{
-						"source":  "my-src",
-						"version": "v1.0",
+						"marketplace": "trein-vertraging",
+						"version":     "",
 					},
 				},
 			},
@@ -94,148 +99,67 @@ func TestPluginsApply_Create(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
-	if result.Channel != "plugins" {
-		t.Errorf("result.Channel = %q, want %q", result.Channel, "plugins")
-	}
 	if len(result.Applied) != 1 {
 		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
 	}
-
-	raw, err := mem.ReadFile("/repo/.claude/ainfra/plugins.json")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+	if result.Channel != "plugins" {
+		t.Errorf("result.Channel = %q, want plugins", result.Channel)
 	}
-
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	plugins, ok := doc["plugins"].(map[string]any)
-	if !ok {
-		t.Fatal("plugins not a map")
-	}
-	if _, ok := plugins["foreign-plugin"]; !ok {
-		t.Error("foreign-plugin was removed, should have been preserved")
-	}
-	myPlugin, ok := plugins["my-plugin"].(map[string]any)
-	if !ok {
-		t.Fatal("my-plugin not present or not a map")
-	}
-	if myPlugin["source"] != "my-src" {
-		t.Errorf("source = %v, want %q", myPlugin["source"], "my-src")
-	}
-	if myPlugin["version"] != "v1.0" {
-		t.Errorf("version = %v, want %q", myPlugin["version"], "v1.0")
+	if len(runner.Calls) != 1 || runner.Calls[0] != "claude plugin install tvt-config@trein-vertraging" {
+		t.Errorf("runner.Calls = %v, want [claude plugin install tvt-config@trein-vertraging]", runner.Calls)
 	}
 }
 
-func TestPluginsApply_Delete(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	existing := `{"plugins":{"my-plugin":{"source":"my-src","version":"v1"},"foreign-plugin":{"source":"foreign-src","version":"v0"}}}`
-	if err := mem.WriteFile("/repo/.claude/ainfra/plugins.json", []byte(existing), 0o644); err != nil {
-		t.Fatal(err)
+func TestPluginsApply_CreateAlreadyInstalled(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin install tvt-config@trein-vertraging"] = provider.FakeResult{
+		Err: fmt.Errorf("plugin already installed: tvt-config"),
 	}
-	env := provider.Env{FS: mem, Root: "/repo"}
-
-	plan := provider.ChannelPlan{
-		Channel: "plugins",
-		Changes: []provider.Change{
-			{
-				Kind: provider.ChangeDelete,
-				ID:   "my-plugin",
-				Resource: provider.Resource{
-					ID:      "my-plugin",
-					Channel: "plugins",
-				},
-			},
-		},
-	}
-
-	p := claudecode.Plugins{}
-	_, err := p.Apply(env, plan)
-	if err != nil {
-		t.Fatalf("Apply: unexpected error: %v", err)
-	}
-
-	raw, err := mem.ReadFile("/repo/.claude/ainfra/plugins.json")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	plugins, ok := doc["plugins"].(map[string]any)
-	if !ok {
-		t.Fatal("plugins not a map")
-	}
-	if _, ok := plugins["my-plugin"]; ok {
-		t.Error("my-plugin should have been deleted")
-	}
-	if _, ok := plugins["foreign-plugin"]; !ok {
-		t.Error("foreign-plugin was removed, should have been preserved")
-	}
-}
-
-func TestPluginsApply_NoopLeavesFileIdentical(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	original := `{"plugins":{"existing-plugin":{"source":"src","version":"v1"}}}`
-	if err := mem.WriteFile("/repo/.claude/ainfra/plugins.json", []byte(original), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	env := provider.Env{FS: mem, Root: "/repo"}
-
-	plan := provider.ChannelPlan{
-		Channel: "plugins",
-		Changes: []provider.Change{
-			{
-				Kind: provider.ChangeNoop,
-				ID:   "existing-plugin",
-				Resource: provider.Resource{
-					ID:      "existing-plugin",
-					Channel: "plugins",
-					Payload: map[string]any{"source": "src", "version": "v1"},
-				},
-			},
-		},
-	}
-
-	before, _ := mem.ReadFile("/repo/.claude/ainfra/plugins.json")
-
-	p := claudecode.Plugins{}
-	result, err := p.Apply(env, plan)
-	if err != nil {
-		t.Fatalf("Apply: unexpected error: %v", err)
-	}
-	if len(result.Applied) != 0 {
-		t.Errorf("noop plan: expected 0 applied changes, got %d", len(result.Applied))
-	}
-
-	after, _ := mem.ReadFile("/repo/.claude/ainfra/plugins.json")
-	if string(before) != string(after) {
-		t.Errorf("noop plan modified the file: before=%q after=%q", before, after)
-	}
-}
-
-func TestPluginsApply_DryRun(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	original := `{"plugins":{"existing-plugin":{"source":"src","version":"v1"}}}`
-	if err := mem.WriteFile("/repo/.claude/ainfra/plugins.json", []byte(original), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	env := provider.Env{FS: mem, Root: "/repo", DryRun: true}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
 
 	plan := provider.ChannelPlan{
 		Channel: "plugins",
 		Changes: []provider.Change{
 			{
 				Kind: provider.ChangeCreate,
-				ID:   "new-plugin",
+				ID:   "tvt-config",
 				Resource: provider.Resource{
-					ID:      "new-plugin",
+					ID:      "tvt-config",
 					Channel: "plugins",
-					Payload: map[string]any{"source": "new-src", "version": "v2"},
+					Payload: map[string]any{"marketplace": "trein-vertraging"},
+				},
+			},
+		},
+	}
+
+	p := claudecode.Plugins{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: expected no error for already-installed plugin, got: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+}
+
+func TestPluginsApply_UpdateWithVersion(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin update tvt-config@trein-vertraging"] = provider.FakeResult{}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeUpdate,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID:      "tvt-config",
+					Channel: "plugins",
+					Payload: map[string]any{
+						"marketplace": "trein-vertraging",
+						"version":     "2.0.0",
+					},
 				},
 			},
 		},
@@ -247,11 +171,142 @@ func TestPluginsApply_DryRun(t *testing.T) {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 	if len(result.Applied) != 1 {
-		t.Fatalf("DryRun: expected 1 applied change described, got %d", len(result.Applied))
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "claude plugin update tvt-config@trein-vertraging" {
+		t.Errorf("runner.Calls = %v, want [claude plugin update tvt-config@trein-vertraging]", runner.Calls)
+	}
+}
+
+func TestPluginsApply_UpdateFailureDoesNotAbort(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin update tvt-config@trein-vertraging"] = provider.FakeResult{
+		Err: fmt.Errorf("update failed: network error"),
+	}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeUpdate,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID:      "tvt-config",
+					Channel: "plugins",
+					Payload: map[string]any{
+						"marketplace": "trein-vertraging",
+						"version":     "2.0.0",
+					},
+				},
+			},
+		},
 	}
 
-	raw, _ := mem.ReadFile("/repo/.claude/ainfra/plugins.json")
-	if string(raw) != original {
-		t.Error("DryRun: file was modified, should not have been")
+	p := claudecode.Plugins{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: update failure should not abort, got error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+}
+
+func TestPluginsApply_Delete(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin uninstall tvt-config"] = provider.FakeResult{}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeDelete,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID:      "tvt-config",
+					Channel: "plugins",
+				},
+			},
+		},
+	}
+
+	p := claudecode.Plugins{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "claude plugin uninstall tvt-config" {
+		t.Errorf("runner.Calls = %v, want [claude plugin uninstall tvt-config]", runner.Calls)
+	}
+}
+
+func TestPluginsApply_DryRun(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner, DryRun: true}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID:      "tvt-config",
+					Channel: "plugins",
+					Payload: map[string]any{"marketplace": "trein-vertraging"},
+				},
+			},
+		},
+	}
+
+	p := claudecode.Plugins{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("DryRun: expected 1 described change, got %d", len(result.Applied))
+	}
+	if len(runner.Calls) != 0 {
+		t.Errorf("DryRun: runner was called %d times, want 0", len(runner.Calls))
+	}
+}
+
+func TestPluginsApply_NoLegacyPluginsJSON(t *testing.T) {
+	// Verify the new provider does NOT write plugins.json.
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin install tvt-config@trein-vertraging"] = provider.FakeResult{}
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Home: "/home/user", Runner: runner, Root: "/repo"}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeCreate,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID:      "tvt-config",
+					Channel: "plugins",
+					Payload: map[string]any{"marketplace": "trein-vertraging"},
+				},
+			},
+		},
+	}
+
+	p := claudecode.Plugins{}
+	if _, err := p.Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+
+	// The legacy plugins.json must NOT exist.
+	legacyPath := "/repo/.claude/ainfra/plugins.json"
+	if _, err := mem.ReadFile(legacyPath); err == nil {
+		t.Errorf("legacy plugins.json was written at %s, expected it to not exist", legacyPath)
 	}
 }

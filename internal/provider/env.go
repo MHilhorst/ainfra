@@ -37,6 +37,10 @@ type Env struct {
 	Home   string // Claude Code config root (e.g. the user's home directory)
 	Root   string // the repo root the manifest was resolved from
 	DryRun bool
+	// NoInstall, when set, makes the cliTools provider skip package installs
+	// and the declare-and-check probe while the file-writing channels still
+	// reconcile. Unlike DryRun it does not suppress file writes.
+	NoInstall bool
 }
 
 // OSFilesystem is the real-disk Filesystem.

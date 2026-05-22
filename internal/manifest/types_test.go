@@ -47,9 +47,12 @@ skills:
   debug:
     source: "git+https://github.com/acme/skills.git@v1.4.0#debug"
     version: "1.4.0"
+marketplaces:
+  acme:
+    source: "github:acme/plugins"
 plugins:
   tvt:
-    source: "npm:@acme/tvt-plugin@2.0.1"
+    marketplace: "acme"
     version: "2.0.1"
 rules:
   team:
@@ -70,8 +73,11 @@ tools:
 	if m.Skills["debug"].Version != "1.4.0" {
 		t.Errorf("skill version = %q", m.Skills["debug"].Version)
 	}
-	if m.Plugins["tvt"].Source != "npm:@acme/tvt-plugin@2.0.1" {
-		t.Errorf("plugin source = %q", m.Plugins["tvt"].Source)
+	if m.Marketplaces["acme"].Source != "github:acme/plugins" {
+		t.Errorf("marketplace source = %q", m.Marketplaces["acme"].Source)
+	}
+	if m.Plugins["tvt"].Marketplace != "acme" {
+		t.Errorf("plugin marketplace = %q", m.Plugins["tvt"].Marketplace)
 	}
 	if m.Rules["team"].Target != "CLAUDE.md" {
 		t.Errorf("rule target = %q", m.Rules["team"].Target)
@@ -158,6 +164,92 @@ commands:
 	c := m.Commands["ship"]
 	if c.Source != "./commands/ship.md" || c.Description != "Fast-path merge." {
 		t.Errorf("command not parsed: %+v", c)
+	}
+}
+
+func TestVarUnmarshalScalar(t *testing.T) {
+	src := `TEAM: "Acme"`
+	var vars map[string]Var
+	if err := yaml.Unmarshal([]byte(src), &vars); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	v, ok := vars["TEAM"]
+	if !ok {
+		t.Fatal("TEAM key missing")
+	}
+	if v.From != "value" {
+		t.Errorf("From = %q, want value", v.From)
+	}
+	if v.Value != "Acme" {
+		t.Errorf("Value = %q, want Acme", v.Value)
+	}
+}
+
+func TestVarUnmarshalCommandMapping(t *testing.T) {
+	src := `X: { from: command, command: "git config user.name" }`
+	var vars map[string]Var
+	if err := yaml.Unmarshal([]byte(src), &vars); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	v, ok := vars["X"]
+	if !ok {
+		t.Fatal("X key missing")
+	}
+	if v.From != "command" {
+		t.Errorf("From = %q, want command", v.From)
+	}
+	if v.Command != "git config user.name" {
+		t.Errorf("Command = %q, want git config user.name", v.Command)
+	}
+}
+
+func TestVarUnmarshalEnvMapping(t *testing.T) {
+	src := `Y: { from: env, env: "USER" }`
+	var vars map[string]Var
+	if err := yaml.Unmarshal([]byte(src), &vars); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	v, ok := vars["Y"]
+	if !ok {
+		t.Fatal("Y key missing")
+	}
+	if v.From != "env" {
+		t.Errorf("From = %q, want env", v.From)
+	}
+	if v.Env != "USER" {
+		t.Errorf("Env = %q, want USER", v.Env)
+	}
+}
+
+func TestVarBlockInManifest(t *testing.T) {
+	src := `version: 1
+vars:
+  TEAM: "Acme"
+  NAME: { from: command, command: "git config user.name" }
+  USER_ENV: { from: env, env: "USER" }
+rules:
+  r1:
+    source: ./r.md
+    template: true
+`
+	var m Manifest
+	if err := yaml.Unmarshal([]byte(src), &m); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(m.Vars) != 3 {
+		t.Fatalf("Vars len = %d, want 3", len(m.Vars))
+	}
+	if m.Vars["TEAM"].From != "value" || m.Vars["TEAM"].Value != "Acme" {
+		t.Errorf("TEAM var = %+v", m.Vars["TEAM"])
+	}
+	if m.Vars["NAME"].From != "command" || m.Vars["NAME"].Command != "git config user.name" {
+		t.Errorf("NAME var = %+v", m.Vars["NAME"])
+	}
+	if m.Vars["USER_ENV"].From != "env" || m.Vars["USER_ENV"].Env != "USER" {
+		t.Errorf("USER_ENV var = %+v", m.Vars["USER_ENV"])
+	}
+	if !m.Rules["r1"].Template {
+		t.Error("r1 template should be true")
 	}
 }
 

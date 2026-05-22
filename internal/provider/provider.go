@@ -2,6 +2,8 @@
 // machinery (diff, environment, orchestration) every channel provider uses.
 package provider
 
+import "fmt"
+
 // ChangeKind classifies a single planned mutation.
 type ChangeKind int
 
@@ -65,10 +67,27 @@ func (p ChannelPlan) Empty() bool {
 	return true
 }
 
-// ApplyResult records what a provider's Apply actually did.
+// ChangeFailure is one Change whose apply was attempted and did not succeed.
+type ChangeFailure struct {
+	Change Change
+	Err    error
+}
+
+// ChangeSkip is one Change deliberately not attempted because a resource it
+// requires failed earlier in the same apply run.
+type ChangeSkip struct {
+	Change Change
+	Reason string
+}
+
+// ApplyResult records what a provider's Apply actually did. Applied holds the
+// changes that succeeded; Failed holds changes attempted that errored; Skipped
+// holds changes the orchestrator blocked before the provider saw them.
 type ApplyResult struct {
 	Channel string
 	Applied []Change
+	Failed  []ChangeFailure
+	Skipped []ChangeSkip
 }
 
 // Provider reconciles one channel. Observe reads machine state; Apply mutates
@@ -79,3 +98,24 @@ type Provider interface {
 	Observe(env Env) ([]Resource, error)
 	Apply(env Env, plan ChannelPlan) (ApplyResult, error)
 }
+
+// ApplyError aggregates the per-resource failures of a partial apply. When it
+// is returned the applied ledger has been written for everything that
+// succeeded — unless the apply was a dry run, which writes no ledger.
+type ApplyError struct {
+	Errs []error
+}
+
+// Error summarizes the failures. The full per-resource list is on Errs.
+func (e *ApplyError) Error() string {
+	if len(e.Errs) == 0 {
+		return "apply failed"
+	}
+	if len(e.Errs) == 1 {
+		return e.Errs[0].Error()
+	}
+	return fmt.Sprintf("%d resources failed to apply", len(e.Errs))
+}
+
+// Unwrap exposes the per-resource errors to errors.Is and errors.As.
+func (e *ApplyError) Unwrap() []error { return e.Errs }

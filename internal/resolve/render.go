@@ -1,6 +1,7 @@
 package resolve
 
 import (
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -17,13 +18,13 @@ import (
 // desired provider.Resource values with Payload populated so providers can
 // render artifacts.
 //
-// It calls RunLock(dir) to write current lockfiles, then reads them to obtain
-// each entry's ContentHash, Layer, and Requires. The manifest is re-read from
-// the layers to build Payload fields. The function therefore relies on a
+// It calls RunLock(dir, runner) to write current lockfiles, then reads them to
+// obtain each entry's ContentHash, Layer, and Requires. The manifest is re-read
+// from the layers to build Payload fields. The function therefore relies on a
 // writable working directory; callers should treat the resulting lockfiles as
 // the source of truth for content hashes.
-func RenderResources(dir string) (map[string][]provider.Resource, error) {
-	if err := RunLock(dir); err != nil {
+func RenderResources(dir string, runner provider.CommandRunner) (map[string][]provider.Resource, error) {
+	if err := RunLock(dir, runner); err != nil {
 		return nil, err
 	}
 
@@ -200,6 +201,18 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 		}
 
 		// rules
+		// Resolve vars once per layer pass (lazy — only when a templated rule is found).
+		var resolvedVars map[string]string
+		var resolvedVarsErr error
+		var resolvedVarsComputed bool
+		getResolvedVars := func() (map[string]string, error) {
+			if !resolvedVarsComputed {
+				resolvedVarsComputed = true
+				allVars := collectVars(layers)
+				resolvedVars, resolvedVarsErr = resolveVars(allVars, runner)
+			}
+			return resolvedVars, resolvedVarsErr
+		}
 		for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
 			if !markSeen(seen, "rules", id) {
 				continue
@@ -211,6 +224,17 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				if raw, err := os.ReadFile(filepath.Join(dir, r.Source)); err == nil {
 					content = string(raw)
 				}
+			}
+			if r.Template && content != "" {
+				rv, err := getResolvedVars()
+				if err != nil {
+					return nil, err
+				}
+				substituted, err := substituteVars(content, rv)
+				if err != nil {
+					return nil, fmt.Errorf("rule %q: %w", id, err)
+				}
+				content = substituted
 			}
 			ruleTarget := r.Target
 			if ruleTarget == "" {
@@ -249,6 +273,25 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			})
 		}
 
+		// marketplaces
+		for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+			if !markSeen(seen, "marketplaces", id) {
+				continue
+			}
+			mp := m.Marketplaces[id]
+			entry := merged.marketplaces[id]
+			result["marketplaces"] = append(result["marketplaces"], provider.Resource{
+				ID:          id,
+				Channel:     "marketplaces",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"source": mp.Source,
+				},
+			})
+		}
+
 		// plugins
 		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
 			if !markSeen(seen, "plugins", id) {
@@ -263,8 +306,8 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
 				Payload: map[string]any{
-					"source":  p.Source,
-					"version": p.Version,
+					"marketplace": p.Marketplace,
+					"version":     p.Version,
 				},
 			})
 		}
@@ -410,6 +453,7 @@ type mergedEntries struct {
 	commands           map[string]lockfile.Entry
 	cliTools           map[string]lockfile.Entry
 	skills             map[string]lockfile.Entry
+	marketplaces       map[string]lockfile.Entry
 	plugins            map[string]lockfile.Entry
 	rules              map[string]lockfile.Entry
 	tools              map[string]lockfile.Entry
@@ -433,6 +477,7 @@ func mergeLockEntries(committed, personal *lockfile.Lock) mergedEntries {
 		commands:           merge(committed.Entries.Commands, personal.Entries.Commands),
 		cliTools:           merge(committed.Entries.CLITools, personal.Entries.CLITools),
 		skills:             merge(committed.Entries.Skills, personal.Entries.Skills),
+		marketplaces:       merge(committed.Entries.Marketplaces, personal.Entries.Marketplaces),
 		plugins:            merge(committed.Entries.Plugins, personal.Entries.Plugins),
 		rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
 		tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
