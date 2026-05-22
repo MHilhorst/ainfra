@@ -8,6 +8,12 @@ import (
 	"strings"
 )
 
+// BinPathPlaceholder is the token a generated installer puts in the plist's
+// ProgramArguments in place of the ainfra binary path. The install script
+// resolves the real absolute path on the subscriber's machine and substitutes
+// it — a launchd agent runs with a minimal PATH and cannot rely on a bare name.
+const BinPathPlaceholder = "__AINFRA_BIN__"
+
 // Params drive launchd plist and install-script generation.
 type Params struct {
 	Label           string

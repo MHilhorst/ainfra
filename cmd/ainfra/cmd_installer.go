@@ -43,8 +43,11 @@ func runInstaller(ctx cli.Context, out string) int {
 	pub := repo.Publish
 
 	params := installer.Params{
-		Label:           "com.ainfra.subscriber",
-		BinPath:         "ainfra",
+		Label: "com.ainfra.subscriber",
+		// A launchd agent runs with a minimal PATH, so the plist must name an
+		// absolute binary. The install script substitutes this placeholder
+		// with the ainfra path it resolves on the subscriber's machine.
+		BinPath:         installer.BinPathPlaceholder,
 		ArtifactURL:     pub.ArtifactURL,
 		IntervalMinutes: pub.Sync.IntervalMinutes,
 		RunAtLogin:      pub.Sync.RunAtLogin,

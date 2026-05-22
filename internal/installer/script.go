@@ -31,6 +31,9 @@ func InstallScript(p Params, plist string) string {
 	b.WriteString(plist)
 	b.WriteString("AINFRA_PLIST_EOF\n\n")
 
+	b.WriteString("# Point the launchd job at the resolved absolute ainfra path.\n")
+	fmt.Fprintf(&b, "/usr/bin/sed -i '' \"s|%s|$AINFRA|\" %q\n\n", BinPathPlaceholder, plistPath)
+
 	b.WriteString("# Load the launchd agent (unload first to allow re-runs).\n")
 	fmt.Fprintf(&b, "launchctl unload %q 2>/dev/null || true\n", plistPath)
 	fmt.Fprintf(&b, "launchctl load %q\n\n", plistPath)
