@@ -25,6 +25,7 @@ type Manifest struct {
 	Hooks              map[string]Hook              `yaml:"hooks"`
 	Commands           map[string]Command           `yaml:"commands"`
 	Skills             map[string]Skill             `yaml:"skills"`
+	Marketplaces       map[string]Marketplace       `yaml:"marketplaces"`
 	Plugins            map[string]Plugin            `yaml:"plugins"`
 	Rules              map[string]Rule              `yaml:"rules"`
 	Tools              *Tools                       `yaml:"tools"`
@@ -172,9 +173,14 @@ type Skill struct {
 	Agents      []string  `yaml:"agents,omitempty"`
 }
 
+// Marketplace is a Claude Code plugin marketplace registration (spec §10).
+type Marketplace struct {
+	Source string `yaml:"source"`
+}
+
 // Plugin is an installable plugin bundle (spec §10).
 type Plugin struct {
-	Source      string    `yaml:"source"`
+	Marketplace string    `yaml:"marketplace"`
 	Version     string    `yaml:"version"`
 	Requires    []Require `yaml:"requires"`
 	Enabled     *bool     `yaml:"enabled"`

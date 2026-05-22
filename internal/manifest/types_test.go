@@ -47,9 +47,12 @@ skills:
   debug:
     source: "git+https://github.com/acme/skills.git@v1.4.0#debug"
     version: "1.4.0"
+marketplaces:
+  acme:
+    source: "github:acme/plugins"
 plugins:
   tvt:
-    source: "npm:@acme/tvt-plugin@2.0.1"
+    marketplace: "acme"
     version: "2.0.1"
 rules:
   team:
@@ -70,8 +73,11 @@ tools:
 	if m.Skills["debug"].Version != "1.4.0" {
 		t.Errorf("skill version = %q", m.Skills["debug"].Version)
 	}
-	if m.Plugins["tvt"].Source != "npm:@acme/tvt-plugin@2.0.1" {
-		t.Errorf("plugin source = %q", m.Plugins["tvt"].Source)
+	if m.Marketplaces["acme"].Source != "github:acme/plugins" {
+		t.Errorf("marketplace source = %q", m.Marketplaces["acme"].Source)
+	}
+	if m.Plugins["tvt"].Marketplace != "acme" {
+		t.Errorf("plugin marketplace = %q", m.Plugins["tvt"].Marketplace)
 	}
 	if m.Rules["team"].Target != "CLAUDE.md" {
 		t.Errorf("rule target = %q", m.Rules["team"].Target)
