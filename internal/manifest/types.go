@@ -112,6 +112,10 @@ type Secret struct {
 	// exported environment matches an MCP config that already expects a
 	// specific variable name (e.g. FLARE_API_TOKEN).
 	Env string `yaml:"env"`
+	// EnvFile, when true, marks a secret whose resolved value is a .env blob
+	// (KEY=value lines). ainfra expands every line into its own environment
+	// variable — one reference standing in for a whole environment.
+	EnvFile bool `yaml:"envFile"`
 }
 
 // Param is a typed template input (spec §4.1).

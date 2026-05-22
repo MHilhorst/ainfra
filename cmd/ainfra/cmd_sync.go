@@ -11,6 +11,7 @@ import (
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/secret"
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
@@ -47,6 +48,10 @@ func runSyncWith(ctx cli.Context, reg *secret.Registry) int {
 // writes the values into the Claude Code settings env block. It returns the
 // number written and the settings path. Shared by `ainfra sync` and the final
 // step of `ainfra apply`.
+//
+// Two secret shapes are resolved: ordinary single-value secrets (one ref ->
+// one env var) and envFile secrets (one ref -> a .env blob that expands into
+// many env vars).
 func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
 	lockPath := filepath.Join(dir, "ainfra.lock")
 	if !fileExists(lockPath) {
@@ -61,12 +66,11 @@ func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
 		personal = &lockfile.Lock{}
 	}
 
-	// The secret set is the union of both lockfiles.
+	// The single-value secret set is the union of both lockfiles.
 	refs := map[string]lockfile.SecretRef{}
 	maps.Copy(refs, committed.Secrets)
 	maps.Copy(refs, personal.Secrets)
 
-	// Resolve every ref, collecting all failures before aborting.
 	resolved := map[string]string{}
 	var failures []string
 	for _, v := range slices.Sorted(maps.Keys(refs)) {
@@ -78,6 +82,31 @@ func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
 		}
 		resolved[sr.Var] = val
 	}
+
+	// envFile secrets: a single reference whose resolved value is a .env blob.
+	// Each line expands into its own variable, so one 1Password item can stand
+	// in for a whole environment.
+	if layers, lerr := manifest.LoadLayers(dir); lerr == nil {
+		for _, ln := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+			m := layers[ln]
+			if m == nil {
+				continue
+			}
+			for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
+				sec := m.Secrets[id]
+				if !sec.EnvFile {
+					continue
+				}
+				blob, rerr := reg.Resolve(expandUser(sec.Ref))
+				if rerr != nil {
+					failures = append(failures, fmt.Sprintf("  env-file secret %q: %v", id, rerr))
+					continue
+				}
+				maps.Copy(resolved, parseEnvBlob(blob))
+			}
+		}
+	}
+
 	if len(failures) > 0 {
 		return 0, "", fmt.Errorf("could not resolve secrets:\n%s", strings.Join(failures, "\n"))
 	}
@@ -91,6 +120,36 @@ func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
 		return 0, "", err
 	}
 	return len(resolved), settingsPath, nil
+}
+
+// parseEnvBlob parses a .env-style blob (KEY=value lines) into a map. Blank
+// lines and # comments are skipped, a leading `export ` is ignored, and a
+// double-quoted value has its quotes removed and \n \t \" \\ escapes decoded —
+// so a multi-line PEM key or JSON document can be stored on a single line.
+func parseEnvBlob(s string) map[string]string {
+	out := map[string]string{}
+	for _, line := range strings.Split(s, "\n") {
+		t := strings.TrimSpace(line)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		t = strings.TrimPrefix(t, "export ")
+		eq := strings.IndexByte(t, '=')
+		if eq <= 0 {
+			continue
+		}
+		key := strings.TrimSpace(t[:eq])
+		val := strings.TrimSpace(t[eq+1:])
+		switch {
+		case len(val) >= 2 && val[0] == '"' && val[len(val)-1] == '"':
+			val = val[1 : len(val)-1]
+			val = strings.NewReplacer(`\n`, "\n", `\t`, "\t", `\"`, `"`, `\\`, `\`).Replace(val)
+		case len(val) >= 2 && val[0] == '\'' && val[len(val)-1] == '\'':
+			val = val[1 : len(val)-1]
+		}
+		out[key] = val
+	}
+	return out
 }
 
 // writeSettingsEnv merges the resolved secrets into the "env" object of the

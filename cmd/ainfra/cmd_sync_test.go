@@ -72,3 +72,34 @@ func TestWriteSettingsEnv_FilePermissions(t *testing.T) {
 		t.Errorf("file mode = %o, want 600 (it holds secrets)", perm)
 	}
 }
+
+func TestParseEnvBlob(t *testing.T) {
+	blob := `# a comment
+FLARE_API_TOKEN=tok-123
+
+export METABASE_API_KEY=mb-key
+QUOTED="line1\nline2"
+EMPTYISH=
+SINGLE='raw $value'
+`
+	got := parseEnvBlob(blob)
+	want := map[string]string{
+		"FLARE_API_TOKEN":  "tok-123",
+		"METABASE_API_KEY": "mb-key",
+		"QUOTED":           "line1\nline2",
+		"EMPTYISH":         "",
+		"SINGLE":           "raw $value",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("parseEnvBlob: got %d keys %v, want %d", len(got), got, len(want))
+	}
+	for k, v := range want {
+		if got[k] != v {
+			t.Errorf("parseEnvBlob[%q] = %q, want %q", k, got[k], v)
+		}
+	}
+	// A comment line must not become a variable.
+	if _, ok := got["# a comment"]; ok {
+		t.Error("comment line was parsed as a variable")
+	}
+}
