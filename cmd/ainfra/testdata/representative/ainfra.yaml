@@ -1,0 +1,59 @@
+version: 1
+agent: claude-code
+
+cliTools:
+  jq:
+    install:
+      brew:
+        formula: jq
+
+mcpServers:
+  linear:
+    transport: http
+    url: https://mcp.linear.app/sse
+  local-fs:
+    template: stdio-fs
+    params:
+      rootDir: /tmp
+
+templates:
+  stdio-fs:
+    params:
+      rootDir:
+        type: string
+        required: true
+    produces:
+      mcpServer:
+        transport: stdio
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-filesystem"]
+        version: "2025.1.0"
+        env:
+          FS_ROOT: "${params.rootDir}"
+
+hooks:
+  audit-tools:
+    event: PreToolUse
+    command: bash .ainfra/run/audit.sh
+    source: hooks/audit.sh
+    timeout: 5000
+    requires:
+      - cliTool: jq
+
+commands:
+  greet:
+    source: commands/greet.md
+    description: Greet the user.
+
+rules:
+  team-context:
+    target: docs/agent-context.md
+    source: rules/context.md
+
+tools:
+  builtins:
+    disabled:
+      - WebSearch
+  permissions:
+    allow:
+      - "Read(*)"

@@ -106,5 +106,8 @@ func EnsureImportLine(fs FS, claudeMdPath, importPath string) error {
 	}
 	content += line + "\n"
 
+	if err := fs.MkdirAll(filepath.Dir(claudeMdPath), 0o755); err != nil {
+		return err
+	}
 	return fs.WriteFile(claudeMdPath, []byte(content), 0o644)
 }

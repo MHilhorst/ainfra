@@ -263,6 +263,126 @@ tools:
 	}
 }
 
+// copyTestdata recursively copies a testdata fixture directory into dst so the
+// test can run lock/apply against a writable working tree.
+func copyTestdata(t *testing.T, src, dst string) {
+	t.Helper()
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		t.Fatalf("read fixture %s: %v", src, err)
+	}
+	for _, e := range entries {
+		s := filepath.Join(src, e.Name())
+		d := filepath.Join(dst, e.Name())
+		if e.IsDir() {
+			if err := os.MkdirAll(d, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			copyTestdata(t, s, d)
+			continue
+		}
+		data, err := os.ReadFile(s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(d, data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// TestE2ERepresentative drives a deliberately broad manifest — cliTools, an
+// inline MCP server, a templated MCP server, a non-default-target rule, a hook
+// with a requires: edge, and a command — through the full reconcile cycle.
+// apply runs with --no-install so the cliTool is exercised without a real
+// package manager.
+func TestE2ERepresentative(t *testing.T) {
+	dir := t.TempDir()
+	copyTestdata(t, filepath.Join("testdata", "representative"), dir)
+
+	// lock
+	{
+		var out, errOut bytes.Buffer
+		if code := run([]string{"--chdir", dir, "lock"}, &out, &errOut); code != 0 {
+			t.Fatalf("lock: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		}
+	}
+	// plan — must show pending changes
+	{
+		var out, errOut bytes.Buffer
+		if code := run([]string{"--chdir", dir, "plan"}, &out, &errOut); code != 0 {
+			t.Fatalf("plan: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		}
+		if strings.Contains(out.String()+errOut.String(), "No changes") {
+			t.Errorf("plan: expected pending changes, got 'No changes'")
+		}
+	}
+	// apply --yes --no-install
+	{
+		var out, errOut bytes.Buffer
+		if code := run([]string{"--chdir", dir, "apply", "--yes", "--no-install"}, &out, &errOut); code != 0 {
+			t.Fatalf("apply: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		}
+	}
+
+	// Command file written.
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "commands", "greet.md")); err != nil {
+		t.Errorf("command file not written: %v", err)
+	}
+	// Hook written into settings.json.
+	settings, err := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+	if err != nil {
+		t.Fatalf("settings.json not written: %v", err)
+	}
+	if !strings.Contains(string(settings), "PreToolUse") {
+		t.Errorf("settings.json missing the hook event: %s", settings)
+	}
+	// .mcp.json contains both the inline and the templated server.
+	mcpRaw, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
+	if err != nil {
+		t.Fatalf(".mcp.json not written: %v", err)
+	}
+	var mcpDoc struct {
+		MCPServers map[string]any `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(mcpRaw, &mcpDoc); err != nil {
+		t.Fatalf(".mcp.json invalid: %v", err)
+	}
+	for _, id := range []string{"linear", "local-fs"} {
+		if _, ok := mcpDoc.MCPServers[id]; !ok {
+			t.Errorf(".mcp.json missing server %q: %s", id, mcpRaw)
+		}
+	}
+	// Non-default-target rule: the target file exists and imports the fragment.
+	target, err := os.ReadFile(filepath.Join(dir, "docs", "agent-context.md"))
+	if err != nil {
+		t.Errorf("rule target docs/agent-context.md not written: %v", err)
+	} else if !strings.Contains(string(target), "team-context") {
+		t.Errorf("rule target missing the fragment import: %s", target)
+	}
+
+	// check — no drift.
+	{
+		var out, errOut bytes.Buffer
+		if code := run([]string{"--chdir", dir, "check"}, &out, &errOut); code != 0 {
+			t.Fatalf("check: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		}
+		if !strings.Contains(out.String()+errOut.String(), "No drift") {
+			t.Errorf("check: expected 'No drift'")
+		}
+	}
+	// second plan — no changes.
+	{
+		var out, errOut bytes.Buffer
+		if code := run([]string{"--chdir", dir, "plan"}, &out, &errOut); code != 0 {
+			t.Fatalf("plan 2: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		}
+		if !strings.Contains(out.String()+errOut.String(), "No changes") {
+			t.Errorf("second plan: expected 'No changes'")
+		}
+	}
+}
+
 // TestE2ECodexReconciliation exercises the full lock -> plan -> apply -> check ->
 // plan cycle for an `agent: codex` manifest, verifying the Codex provider set
 // reconciles MCP servers into ~/.codex/config.toml and rules into AGENTS.md.
