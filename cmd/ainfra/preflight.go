@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/provider/pkg"
@@ -36,11 +37,15 @@ func cliToolInstallWarnings(layers map[manifest.Layer]*manifest.Manifest) []stri
 			}
 			if !automatable {
 				declared := slices.Sorted(maps.Keys(t.Install))
+				declaredStr := strings.Join(declared, ", ")
+				if declaredStr == "" {
+					declaredStr = "(none)"
+				}
 				warnings = append(warnings, fmt.Sprintf(
 					"cliTool %q declares no install method ainfra can automate "+
-						"(declared: %v; automatable: %v) — apply will probe for it "+
+						"(declared: %s; automatable: %s) — apply will probe for it "+
 						"on PATH and fail if it is not already installed",
-					id, declared, pkg.Methods()))
+					id, declaredStr, strings.Join(pkg.Methods(), ", ")))
 			}
 		}
 	}
