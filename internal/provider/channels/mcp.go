@@ -107,6 +107,12 @@ func buildMCPServerObject(payload map[string]any) map[string]any {
 	if transport, ok := payload["transport"]; ok && transport != nil && transport != "" {
 		obj["type"] = transport
 	}
+	if url, ok := payload["url"]; ok && url != nil && url != "" {
+		obj["url"] = url
+	}
+	if headers, ok := payload["headers"]; ok && headers != nil {
+		obj["headers"] = headers
+	}
 
 	return obj
 }
