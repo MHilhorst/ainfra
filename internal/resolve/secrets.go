@@ -66,7 +66,13 @@ func collectSecretRefs(channel, owner string, layer manifest.Layer, raw map[stri
 			if scope == "" {
 				scope = "shared"
 			}
-			v := secret.PlaceholderVar(channel, owner, name)
+			// A secret may declare the env-var name it is exported under; this
+			// lets `ainfra exec` match an MCP config that already expects a
+			// specific name. Otherwise a generated AINFRA_SECRET_* name is used.
+			v := sec.Env
+			if v == "" {
+				v = secret.PlaceholderVar(channel, owner, name)
+			}
 			refs[v] = lockfile.SecretRef{Var: v, Ref: sec.Ref, Scheme: scheme, Scope: scope, Layer: string(layer)}
 			vals[name] = "${" + v + "}"
 		default: // brokered: no per-dev value exists in this increment

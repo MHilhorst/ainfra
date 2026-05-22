@@ -49,6 +49,27 @@ func TestCollectSecretRefsResolvesTopLevelByID(t *testing.T) {
 	}
 }
 
+func TestCollectSecretRefsUsesDeclaredEnvName(t *testing.T) {
+	// A secret declaring `env:` is exported under that name, not a generated one.
+	top := map[string]manifest.Secret{
+		"flare-api-token": {Mode: "direct", Ref: "op://Eng/flare/credential", Env: "FLARE_API_TOKEN"},
+	}
+	raw := map[string]any{"token": "flare-api-token"}
+	refs, vals, err := collectSecretRefs("mcpServers", "flare", manifest.LayerTeam, raw, top)
+	if err != nil {
+		t.Fatalf("collectSecretRefs: %v", err)
+	}
+	if vals["token"] != "${FLARE_API_TOKEN}" {
+		t.Errorf("vals[token] = %q, want ${FLARE_API_TOKEN}", vals["token"])
+	}
+	if _, ok := refs["FLARE_API_TOKEN"]; !ok {
+		t.Errorf("refs missing FLARE_API_TOKEN key: %+v", refs)
+	}
+	if refs["FLARE_API_TOKEN"].Var != "FLARE_API_TOKEN" {
+		t.Errorf("ref Var = %q, want FLARE_API_TOKEN", refs["FLARE_API_TOKEN"].Var)
+	}
+}
+
 func TestSubstituteSecretsReplacesTokensInHeaders(t *testing.T) {
 	srv := &manifest.MCPServer{
 		Headers: map[string]string{"Authorization": "Bearer ${secret.token}"},

@@ -106,6 +106,11 @@ type Secret struct {
 	Ref     string `yaml:"ref"`
 	Gateway string `yaml:"gateway"`
 	Scope   string `yaml:"scope"`
+	// Env is the environment-variable name `ainfra exec` exports this secret
+	// under. When set, it replaces the generated AINFRA_SECRET_* name, so the
+	// exported environment matches an MCP config that already expects a
+	// specific variable name (e.g. FLARE_API_TOKEN).
+	Env string `yaml:"env"`
 }
 
 // Param is a typed template input (spec §4.1).
