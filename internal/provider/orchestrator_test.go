@@ -192,6 +192,29 @@ func TestSplitBlocked(t *testing.T) {
 	}
 }
 
+func TestNodeRef(t *testing.T) {
+	cases := []struct {
+		channel string
+		id      string
+		want    string
+	}{
+		// channelPrefix["cliTools"] == "cli"
+		{"cliTools", "ssh", "cli:ssh"},
+		// channelPrefix["backgroundServices"] == "svc"
+		{"backgroundServices", "db", "svc:db"},
+		// channelPrefix["tools"] == "tools" (prefix equals channel name)
+		{"tools", "x", "tools:x"},
+		// unknown channel falls through to default: channel + ":" + id
+		{"custom", "x", "custom:x"},
+	}
+	for _, tc := range cases {
+		got := nodeRef(tc.channel, tc.id)
+		if got != tc.want {
+			t.Errorf("nodeRef(%q, %q) = %q, want %q", tc.channel, tc.id, got, tc.want)
+		}
+	}
+}
+
 func TestOrchestratorChannelOrder(t *testing.T) {
 	root := t.TempDir()
 	applyOrder := &[]string{}
