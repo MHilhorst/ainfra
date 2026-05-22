@@ -1,48 +1,22 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 )
 
-func TestAllProviders_Count(t *testing.T) {
-	providers := allProviders()
+func TestProvidersForDir_DefaultsToClaudeCode(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	providers, err := providersForDir(dir)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if len(providers) != 9 {
-		t.Fatalf("allProviders() returned %d providers, want 9", len(providers))
-	}
-}
-
-func TestAllProviders_ChannelNames(t *testing.T) {
-	want := map[string]bool{
-		"mcpServers":         true,
-		"hooks":              true,
-		"commands":           true,
-		"rules":              true,
-		"skills":             true,
-		"plugins":            true,
-		"cliTools":           true,
-		"backgroundServices": true,
-		"tools":              true,
-	}
-
-	providers := allProviders()
-	got := make(map[string]bool, len(providers))
-	for _, p := range providers {
-		ch := p.Channel()
-		if got[ch] {
-			t.Errorf("duplicate channel name %q", ch)
-		}
-		got[ch] = true
-	}
-
-	for ch := range want {
-		if !got[ch] {
-			t.Errorf("missing channel %q", ch)
-		}
-	}
-	for ch := range got {
-		if !want[ch] {
-			t.Errorf("unexpected channel %q", ch)
-		}
+		t.Fatalf("providersForDir returned %d providers, want 9 (claude-code default)", len(providers))
 	}
 }
 

@@ -1,4 +1,4 @@
-package channels_test
+package claudecode_test
 
 import (
 	"os"
@@ -6,11 +6,11 @@ import (
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestRulesChannel(t *testing.T) {
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	if got := p.Channel(); got != "rules" {
 		t.Fatalf("Channel() = %q, want %q", got, "rules")
 	}
@@ -20,7 +20,7 @@ func TestRulesObserve_MissingDir(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -44,7 +44,7 @@ func TestRulesObserve_WithFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -93,7 +93,7 @@ func TestRulesApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -146,7 +146,7 @@ func TestRulesApply_Create_Idempotent(t *testing.T) {
 		},
 	}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 
 	// Apply twice.
 	if _, err := p.Apply(env, plan); err != nil {
@@ -194,7 +194,7 @@ func TestRulesApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -231,7 +231,7 @@ func TestRulesApplyDefaultsEmptyTarget(t *testing.T) {
 		},
 	}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error for missing target: %v", err)
@@ -281,7 +281,7 @@ func TestRulesApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Rules{}
+	p := claudecode.Rules{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)

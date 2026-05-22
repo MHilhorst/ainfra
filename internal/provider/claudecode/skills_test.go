@@ -1,16 +1,16 @@
-package channels_test
+package claudecode_test
 
 import (
 	"errors"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 	"github.com/MHilhorst/ainfra/internal/provider/fetch"
 )
 
 func TestSkillsChannel(t *testing.T) {
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	if got := p.Channel(); got != "skills" {
 		t.Fatalf("Channel() = %q, want %q", got, "skills")
 	}
@@ -20,7 +20,7 @@ func TestSkillsObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -48,7 +48,7 @@ func TestSkillsObserve_WithSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -81,7 +81,7 @@ func TestSkillsObserve_EmptySubdirNotCounted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -96,8 +96,8 @@ func TestSkillsApply_Create(t *testing.T) {
 	fake := fetch.FakeFetcher{
 		Bundles: map[string]fetch.Bundle{
 			"my-source": {
-				"prompt.md":    []byte("# My Skill"),
-				"config.json":  []byte(`{"version":"1"}`),
+				"prompt.md":   []byte("# My Skill"),
+				"config.json": []byte(`{"version":"1"}`),
 			},
 		},
 	}
@@ -121,7 +121,7 @@ func TestSkillsApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -177,7 +177,7 @@ func TestSkillsApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -222,7 +222,7 @@ func TestSkillsApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -270,7 +270,7 @@ func TestSkillsApply_DeleteNestedBundle(t *testing.T) {
 		},
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -317,7 +317,7 @@ func TestSkillsApply_BundleKeyEscape(t *testing.T) {
 		},
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	_, err := p.Apply(env, plan)
 	if err == nil {
 		t.Fatal("Apply: expected error for bundle key escaping skill directory, got nil")
@@ -348,7 +348,7 @@ func TestSkillsApply_FetchError(t *testing.T) {
 		},
 	}
 
-	p := channels.Skills{}
+	p := claudecode.Skills{}
 	_, err := p.Apply(env, plan)
 	if err == nil {
 		t.Fatal("Apply: expected error from fetch failure, got nil")
