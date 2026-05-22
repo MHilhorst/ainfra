@@ -65,10 +65,27 @@ func (p ChannelPlan) Empty() bool {
 	return true
 }
 
-// ApplyResult records what a provider's Apply actually did.
+// ChangeFailure is one Change whose apply was attempted and did not succeed.
+type ChangeFailure struct {
+	Change Change
+	Err    error
+}
+
+// ChangeSkip is one Change deliberately not attempted because a resource it
+// requires failed earlier in the same apply run.
+type ChangeSkip struct {
+	Change Change
+	Reason string
+}
+
+// ApplyResult records what a provider's Apply actually did. Applied holds the
+// changes that succeeded; Failed holds changes attempted that errored; Skipped
+// holds changes the orchestrator blocked before the provider saw them.
 type ApplyResult struct {
 	Channel string
 	Applied []Change
+	Failed  []ChangeFailure
+	Skipped []ChangeSkip
 }
 
 // Provider reconciles one channel. Observe reads machine state; Apply mutates

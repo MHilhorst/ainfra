@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"sort"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -158,6 +159,42 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 		return nil
 	}
 	return WriteApplied(o.root, desired)
+}
+
+// nodeRef returns the dependency-graph node ref for a resource — the same
+// "<prefix>:<id>" scheme the resolve pipeline uses (e.g. "cli:ssh", "svc:db").
+func nodeRef(channel, id string) string {
+	if p, ok := channelPrefix[channel]; ok {
+		return p + ":" + id
+	}
+	return channel + ":" + id
+}
+
+// splitBlocked partitions plan into the changes that may run and the changes
+// blocked because a resource they require is in failedRefs. A blocked non-noop
+// change becomes a ChangeSkip; noop changes always stay runnable.
+func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable ChannelPlan, skipped []ChangeSkip) {
+	runnable = ChannelPlan{Channel: plan.Channel}
+	for _, c := range plan.Changes {
+		blockedBy := ""
+		if c.Kind != ChangeNoop {
+			for _, ref := range c.Resource.Requires {
+				if failedRefs[ref] {
+					blockedBy = ref
+					break
+				}
+			}
+		}
+		if blockedBy != "" {
+			skipped = append(skipped, ChangeSkip{
+				Change: c,
+				Reason: fmt.Sprintf("requires %q, which failed earlier in this apply", blockedBy),
+			})
+			continue
+		}
+		runnable.Changes = append(runnable.Changes, c)
+	}
+	return runnable, skipped
 }
 
 // sortedChannels returns registered channel names in dependency-aware order.

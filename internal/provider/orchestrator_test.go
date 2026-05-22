@@ -3,6 +3,7 @@ package provider
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -159,6 +160,35 @@ func TestApplyAllRenderedWritesLedgerWhenNotDryRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, ".ainfra", "applied.lock")); err != nil {
 		t.Errorf("non-dry-run apply did not write the applied ledger: %v", err)
+	}
+}
+
+func TestSplitBlocked(t *testing.T) {
+	plan := ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []Change{
+			{Kind: ChangeCreate, ID: "free", Resource: Resource{ID: "free"}},
+			{Kind: ChangeCreate, ID: "blocked", Resource: Resource{ID: "blocked", Requires: []string{"cli:ssh"}}},
+			{Kind: ChangeNoop, ID: "noop", Resource: Resource{ID: "noop", Requires: []string{"cli:ssh"}}},
+		},
+	}
+	failedRefs := map[string]bool{"cli:ssh": true}
+
+	runnable, skipped := splitBlocked(plan, failedRefs)
+
+	gotRunnable := []string{}
+	for _, c := range runnable.Changes {
+		gotRunnable = append(gotRunnable, c.ID)
+	}
+	// "free" runs; "blocked" is skipped; "noop" stays runnable (a noop is free).
+	if len(gotRunnable) != 2 || gotRunnable[0] != "free" || gotRunnable[1] != "noop" {
+		t.Errorf("runnable = %v, want [free noop]", gotRunnable)
+	}
+	if len(skipped) != 1 || skipped[0].Change.ID != "blocked" {
+		t.Fatalf("skipped = %+v, want one skip for 'blocked'", skipped)
+	}
+	if !strings.Contains(skipped[0].Reason, "cli:ssh") {
+		t.Errorf("skip reason should name the failed dependency, got %q", skipped[0].Reason)
 	}
 }
 
