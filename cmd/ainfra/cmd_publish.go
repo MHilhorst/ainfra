@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/artifact"
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
 
@@ -53,6 +55,17 @@ func runPublish(ctx cli.Context, out string) int {
 		out = filepath.Join(dir, out)
 	}
 
+	rendered, err := resolve.RenderResources(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	renderedBytes, err := json.MarshalIndent(rendered, "", "  ")
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+
 	desc := artifact.Descriptor{
 		SchemaVersion: 1,
 		ArtifactURL:   pub.ArtifactURL,
@@ -62,7 +75,11 @@ func runPublish(ctx cli.Context, out string) int {
 			RunAtLogin:      pub.Sync.RunAtLogin,
 		},
 	}
-	if err := artifact.Write(out, desc, map[string][]byte{"ainfra.lock": lockBytes}); err != nil {
+	files := map[string][]byte{
+		"ainfra.lock":   lockBytes,
+		"rendered.json": renderedBytes,
+	}
+	if err := artifact.Write(out, desc, files); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}

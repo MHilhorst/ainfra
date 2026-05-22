@@ -38,9 +38,9 @@ func ForAgent(id agent.ID) ([]provider.Provider, error) {
 			claudecode.Tools{},
 		}, sharedProviders()...), nil
 	case agent.ClaudeDesktop:
-		return append([]provider.Provider{
-			claudedesktop.MCP{},
-		}, sharedProviders()...), nil
+		// Subscriber machines (non-engineers) get MCP servers only — no CLI
+		// tool installs. See the subscriber-mode design.
+		return []provider.Provider{claudedesktop.MCP{}}, nil
 	case agent.Codex:
 		return append([]provider.Provider{
 			codex.MCP{},

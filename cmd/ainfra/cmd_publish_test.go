@@ -59,7 +59,7 @@ func TestPublishSuccess(t *testing.T) {
 	yaml := `version: 1
 publish:
   artifactURL: https://example.com/artifact
-  agent: claude
+  agent: claude-desktop
   sync:
     intervalMinutes: 60
     runAtLogin: true
@@ -80,7 +80,7 @@ publish:
 	}
 
 	// Check expected files exist.
-	for _, name := range []string{"ainfra.lock", artifact.DescriptorName, artifact.ManifestName} {
+	for _, name := range []string{"ainfra.lock", "rendered.json", artifact.DescriptorName, artifact.ManifestName} {
 		if _, err := os.Stat(filepath.Join(outDir, name)); err != nil {
 			t.Errorf("publish: expected %s to exist: %v", name, err)
 		}
