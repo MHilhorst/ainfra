@@ -182,6 +182,32 @@ func Validate(m *Manifest) error {
 	if err := validateTools(m.Tools); err != nil {
 		return err
 	}
+	if m.Publish != nil {
+		if m.Publish.ArtifactURL == "" {
+			return &diag.Diagnostic{
+				Summary: "publish: artifactURL is required",
+				Path:    "publish",
+				Detail:  "The publish block must include an artifactURL pointing at the artifact location.",
+				Hint:    "Add an artifactURL field, e.g.  artifactURL: https://example.com/ainfra.yaml",
+			}
+		}
+		if !agent.Known(m.Publish.Agent) {
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("publish: unknown agent %q", m.Publish.Agent),
+				Path:    "publish.agent",
+				Detail:  fmt.Sprintf("The publish block names agent %q, which ainfra does not know.", m.Publish.Agent),
+				Hint:    "Valid agents: claude-code, claude-desktop, codex.",
+			}
+		}
+		if m.Publish.Sync.IntervalMinutes < 0 {
+			return &diag.Diagnostic{
+				Summary: "publish: sync.intervalMinutes must not be negative",
+				Path:    "publish.sync.intervalMinutes",
+				Detail:  "A sync interval of zero disables scheduled sync; a negative value is not meaningful.",
+				Hint:    "Set intervalMinutes to 0 or a positive number of minutes.",
+			}
+		}
+	}
 	return nil
 }
 

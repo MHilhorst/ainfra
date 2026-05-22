@@ -421,6 +421,27 @@ func TestValidateAllRejectsUngatedChannelUnsupportedByAgent(t *testing.T) {
 	}
 }
 
+func TestPublishBlockValid(t *testing.T) {
+	m := &Manifest{Version: 1, Publish: &Publish{
+		ArtifactURL: "https://example.com/a", Agent: "claude-desktop",
+		Sync: PublishSync{IntervalMinutes: 360, RunAtLogin: true},
+	}}
+	if err := Validate(m); err != nil {
+		t.Fatalf("expected valid, got %v", err)
+	}
+}
+
+func TestPublishBlockRejectsUnknownAgentAndBadInterval(t *testing.T) {
+	bad := &Manifest{Version: 1, Publish: &Publish{ArtifactURL: "https://x", Agent: "nope"}}
+	if Validate(bad) == nil {
+		t.Error("unknown publish.agent must be rejected")
+	}
+	neg := &Manifest{Version: 1, Publish: &Publish{ArtifactURL: "https://x", Agent: "claude-desktop", Sync: PublishSync{IntervalMinutes: -1}}}
+	if Validate(neg) == nil {
+		t.Error("negative intervalMinutes must be rejected")
+	}
+}
+
 func TestValidateAllRejectsEntryGatedToAnAgentThatCannotRenderIt(t *testing.T) {
 	layers := map[Layer]*Manifest{
 		LayerRepo: {Version: 1, Agent: "codex",
