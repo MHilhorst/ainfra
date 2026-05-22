@@ -5,28 +5,30 @@ import (
 	"errors"
 	iofs "io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/fsmerge"
 )
 
-// Plugins records the desired plugin set in an ainfra-managed file under
-// <root>/.claude/ainfra/plugins.json. Actually installing plugins via the
-// Claude Code marketplace is a follow-up; this provider records the declared
-// plugin set. Resource.Payload keys: "source" (string), "version" (string).
+// Plugins installs and reconciles Claude Code plugins via the `claude` CLI.
+// Resource.Payload keys consumed: "marketplace" (string), "version" (string).
 type Plugins struct{}
 
 // Channel returns the channel name this provider manages.
 func (Plugins) Channel() string { return "plugins" }
 
-func pluginsPath(env provider.Env) string {
-	return filepath.Join(env.Root, ".claude", "ainfra", "plugins.json")
+// installedPluginsPath returns the path to Claude Code's installed_plugins.json
+// under env.Home.
+func installedPluginsPath(env provider.Env) string {
+	return filepath.Join(env.Home, ".claude", "plugins", "installed_plugins.json")
 }
 
-// Observe reads plugins.json and returns a Resource for each key under
-// "plugins". A missing file is treated as no resources.
+// Observe reads installed_plugins.json and returns a Resource per installed
+// plugin. The file keys plugins as "name@marketplace"; the resource ID is the
+// bare name so it matches the manifest plugin key. ContentHash is left empty —
+// the orchestrator backfills it from the ledger.
 func (Plugins) Observe(env provider.Env) ([]provider.Resource, error) {
-	raw, err := env.FS.ReadFile(pluginsPath(env))
+	raw, err := env.FS.ReadFile(installedPluginsPath(env))
 	if errors.Is(err, iofs.ErrNotExist) {
 		return nil, nil
 	}
@@ -34,63 +36,89 @@ func (Plugins) Observe(env provider.Env) ([]provider.Resource, error) {
 		return nil, err
 	}
 
-	var doc map[string]any
+	var doc struct {
+		Plugins map[string]json.RawMessage `json:"plugins"`
+	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return nil, err
 	}
 
-	plugins, ok := doc["plugins"].(map[string]any)
-	if !ok {
-		return nil, nil
-	}
-
-	resources := make([]provider.Resource, 0, len(plugins))
-	for key := range plugins {
+	resources := make([]provider.Resource, 0, len(doc.Plugins))
+	for key := range doc.Plugins {
+		// key is "name@marketplace"; extract the bare name.
+		name := pluginNameFromKey(key)
 		resources = append(resources, provider.Resource{
-			ID:      key,
+			ID:      name,
 			Channel: "plugins",
 		})
 	}
 	return resources, nil
 }
 
-// Apply executes the channel plan against plugins.json. When env.DryRun is
-// true, it computes the result but does not write the file.
+// pluginNameFromKey extracts the bare plugin name from a "name@marketplace" key.
+func pluginNameFromKey(key string) string {
+	if idx := strings.Index(key, "@"); idx >= 0 {
+		return key[:idx]
+	}
+	return key
+}
+
+// Apply executes the channel plan for plugins via the `claude` CLI.
+// Create: `claude plugin install <id>@<marketplace>` — "already installed" is success.
+// Update: `claude plugin update <id>@<marketplace>` — best-effort, skip on failure.
+// Delete: `claude plugin uninstall <id>`.
+// Honors env.DryRun.
 func (Plugins) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyResult, error) {
-	desired := map[string]any{}
-	ownedKeys := make([]string, 0, len(plan.Changes))
 	var applied []provider.Change
 
 	for _, c := range plan.Changes {
 		if c.Kind == provider.ChangeNoop {
 			continue
 		}
-		ownedKeys = append(ownedKeys, c.ID)
-		applied = append(applied, c)
 
-		if c.Kind == provider.ChangeCreate || c.Kind == provider.ChangeUpdate {
-			source, _ := c.Resource.Payload["source"].(string)
+		if !env.DryRun {
+			marketplace, _ := c.Resource.Payload["marketplace"].(string)
 			version, _ := c.Resource.Payload["version"].(string)
-			desired[c.ID] = map[string]any{
-				"source":  source,
-				"version": version,
+
+			switch c.Kind {
+			case provider.ChangeCreate:
+				target := c.ID + "@" + marketplace
+				_, err := env.Runner.Run("claude", "plugin", "install", target)
+				if err != nil && !isAlreadyInstalledError(err) {
+					return provider.ApplyResult{}, err
+				}
+
+			case provider.ChangeUpdate:
+				// Best-effort update: if a version is pinned, try to update.
+				// Skip on failure rather than aborting the channel.
+				if version != "" {
+					target := c.ID + "@" + marketplace
+					// Ignore the error — version reconciliation is best-effort.
+					_, _ = env.Runner.Run("claude", "plugin", "update", target)
+				}
+
+			case provider.ChangeDelete:
+				if _, err := env.Runner.Run("claude", "plugin", "uninstall", c.ID); err != nil {
+					return provider.ApplyResult{}, err
+				}
 			}
 		}
-		// ChangeDelete: contributes to ownedKeys but not desired, so the merge removes it.
-	}
 
-	if len(ownedKeys) == 0 {
-		return provider.ApplyResult{Channel: "plugins"}, nil
-	}
-
-	if !env.DryRun {
-		if err := fsmerge.MergeJSONKeys(env.FS, pluginsPath(env), "plugins", desired, ownedKeys); err != nil {
-			return provider.ApplyResult{}, err
-		}
+		applied = append(applied, c)
 	}
 
 	return provider.ApplyResult{
 		Channel: "plugins",
 		Applied: applied,
 	}, nil
+}
+
+// isAlreadyInstalledError reports whether the error from `claude plugin install`
+// indicates the plugin is already installed.
+func isAlreadyInstalledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "already installed")
 }
