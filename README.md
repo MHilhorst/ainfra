@@ -105,7 +105,9 @@ internal/
   lockfile/      ainfra.lock schema, content hashing, read/write
   manifest/      ainfra.yaml schema, strict layer loading, validation
   provider/      channel reconciliation — plan/apply/check, diff, environment
-    channels/    one provider per channel (mcp, hooks, commands, rules, skills, …)
+    agentset/    assembles the provider set for the resolved target agent
+    claudecode/  Claude Code channel providers (mcp, hooks, commands, rules, …)
+    shared/      agent-agnostic providers (the cliTools substrate)
     fetch/       retrieve channel-entry bundles from their declared sources
     fsmerge/     filesystem materialization and merge helpers
     pkg/         package-registry resolution for package-launched MCP servers
