@@ -3,6 +3,7 @@ package resolve
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
 
@@ -137,5 +138,68 @@ rules:
 	}
 	if gotRuleContent.(string) != string(ruleContent) {
 		t.Errorf("rules[0].Payload[content] = %q, want %q", gotRuleContent, ruleContent)
+	}
+}
+
+func TestPinPackageVersion(t *testing.T) {
+	cases := []struct {
+		name    string
+		command string
+		args    []string
+		version string
+		want    []string
+	}{
+		{"scoped npx", "npx", []string{"-y", "@upstash/context7-mcp"}, "2.3.0", []string{"-y", "@upstash/context7-mcp@2.3.0"}},
+		{"unscoped npx", "npx", []string{"-y", "chrome-devtools-mcp"}, "1.0.1", []string{"-y", "chrome-devtools-mcp@1.0.1"}},
+		{"uvx first arg", "uvx", []string{"meta-ads-mcp"}, "1.0.0", []string{"meta-ads-mcp@1.0.0"}},
+		{"already versioned", "npx", []string{"-y", "@scope/pkg@9.9.9"}, "1.0.0", []string{"-y", "@scope/pkg@9.9.9"}},
+		{"not a launcher", "metabase-server", []string{"x"}, "1.0.0", []string{"x"}},
+		{"no version", "npx", []string{"-y", "pkg"}, "", []string{"-y", "pkg"}},
+		{"empty args", "npx", nil, "1.0.0", nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := pinPackageVersion(c.command, c.args, c.version)
+			if !slices.Equal(got, c.want) {
+				t.Errorf("pinPackageVersion(%q, %v, %q) = %v, want %v", c.command, c.args, c.version, got, c.want)
+			}
+		})
+	}
+}
+
+func TestRenderResources_EnabledFalse(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+mcpServers:
+  active-server:
+    command: npx
+    args: ["-y", "pkg"]
+    version: "1.0.0"
+  disabled-server:
+    command: npx
+    args: ["-y", "other"]
+    version: "1.0.0"
+    enabled: false
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir)
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+
+	mcp := resources["mcpServers"]
+	if len(mcp) != 1 {
+		t.Fatalf("got %d mcpServers, want 1 (disabled one omitted)", len(mcp))
+	}
+	if mcp[0].ID != "active-server" {
+		t.Errorf("rendered server = %q, want active-server", mcp[0].ID)
+	}
+	// The pinned version must be applied to the launch args.
+	args, ok := mcp[0].Payload["args"].([]string)
+	if !ok || !slices.Equal(args, []string{"-y", "pkg@1.0.0"}) {
+		t.Errorf("active-server args = %v, want [-y pkg@1.0.0]", mcp[0].Payload["args"])
 	}
 }

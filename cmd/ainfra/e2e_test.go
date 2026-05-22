@@ -96,8 +96,8 @@ commands:
 			raw, err := os.ReadFile(settingsFile)
 			if err != nil {
 				t.Errorf("apply --yes: cannot read settings.json: %v", err)
-			} else if !strings.Contains(string(raw), "on-session-start") {
-				t.Errorf("apply --yes: settings.json does not contain hook 'on-session-start': %q", string(raw))
+			} else if !strings.Contains(string(raw), `"SessionStart"`) || !strings.Contains(string(raw), "session started") {
+				t.Errorf("apply --yes: settings.json missing the SessionStart hook in Claude Code schema: %q", string(raw))
 			}
 		}
 
