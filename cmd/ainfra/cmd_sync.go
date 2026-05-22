@@ -32,34 +32,44 @@ func newSyncCommand() *cli.Command {
 	}
 }
 
+// syncResult reports what `ainfra sync` materialized.
+type syncResult struct {
+	EnvCount     int      // environment variables written to the settings file
+	SettingsPath string   // the settings file written
+	Files        []string // credential files written, by path
+}
+
 // runSyncWith is the testable core of `ainfra sync`.
 func runSyncWith(ctx cli.Context, reg *secret.Registry) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-	count, path, err := syncSecrets(ctx.Dir, reg)
+	res, err := syncSecrets(ctx.Dir, reg)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
-	fmt.Fprintf(ctx.Stdout, "Wrote %d secrets to %s\n", count, path)
+	fmt.Fprintf(ctx.Stdout, "Wrote %d secrets to %s\n", res.EnvCount, res.SettingsPath)
+	for _, f := range res.Files {
+		fmt.Fprintf(ctx.Stdout, "Wrote credential file %s\n", f)
+	}
 	return 0
 }
 
-// syncSecrets resolves every secret referenced by the lockfiles at dir and
-// writes the values into the Claude Code settings env block. It returns the
-// number written and the settings path. Shared by `ainfra sync` and the final
-// step of `ainfra apply`.
+// syncSecrets resolves every secret referenced by the lockfiles and manifest
+// at dir and materializes it. It is shared by `ainfra sync` and the final step
+// of `ainfra apply`.
 //
-// Two secret shapes are resolved: ordinary single-value secrets (one ref ->
-// one env var) and envFile secrets (one ref -> a .env blob that expands into
-// many env vars).
-func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
+// A secret is materialized by its destination:
+//   - a single-value secret (lockfile) -> one env var in the settings file
+//   - envFile: true                    -> a .env blob expanded into many env vars
+//   - path: <file>                     -> the resolved value written to that file
+func syncSecrets(dir string, reg *secret.Registry) (syncResult, error) {
 	lockPath := filepath.Join(dir, "ainfra.lock")
 	if !fileExists(lockPath) {
-		return 0, "", fmt.Errorf("ainfra.lock not found — run `ainfra lock` first")
+		return syncResult{}, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first")
 	}
 	committed, err := lockfile.Read(lockPath)
 	if err != nil {
-		return 0, "", err
+		return syncResult{}, err
 	}
 	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
 	if err != nil {
@@ -83,9 +93,9 @@ func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
 		resolved[sr.Var] = val
 	}
 
-	// envFile secrets: a single reference whose resolved value is a .env blob.
-	// Each line expands into its own variable, so one 1Password item can stand
-	// in for a whole environment.
+	// envFile and path secrets are declared in the manifest, not the lockfile:
+	// envFile expands one ref into many env vars; path writes one ref to a file.
+	fileSet := map[string]bool{}
 	if layers, lerr := manifest.LoadLayers(dir); lerr == nil {
 		for _, ln := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
 			m := layers[ln]
@@ -94,32 +104,65 @@ func syncSecrets(dir string, reg *secret.Registry) (int, string, error) {
 			}
 			for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
 				sec := m.Secrets[id]
-				if !sec.EnvFile {
+				if !sec.EnvFile && sec.Path == "" {
 					continue
 				}
 				blob, rerr := reg.Resolve(expandUser(sec.Ref))
 				if rerr != nil {
-					failures = append(failures, fmt.Sprintf("  env-file secret %q: %v", id, rerr))
+					failures = append(failures, fmt.Sprintf("  secret %q: %v", id, rerr))
 					continue
 				}
-				maps.Copy(resolved, parseEnvBlob(blob))
+				switch {
+				case sec.EnvFile:
+					maps.Copy(resolved, parseEnvBlob(blob))
+				case sec.Path != "":
+					dest := expandTilde(sec.Path)
+					if werr := writeCredentialFile(dest, blob); werr != nil {
+						failures = append(failures, fmt.Sprintf("  secret %q: %v", id, werr))
+						continue
+					}
+					fileSet[dest] = true
+				}
 			}
 		}
 	}
 
 	if len(failures) > 0 {
-		return 0, "", fmt.Errorf("could not resolve secrets:\n%s", strings.Join(failures, "\n"))
+		return syncResult{}, fmt.Errorf("could not resolve secrets:\n%s", strings.Join(failures, "\n"))
 	}
 
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return 0, "", err
+		return syncResult{}, err
 	}
 	settingsPath := filepath.Join(home, ".claude", "settings.local.json")
 	if err := writeSettingsEnv(settingsPath, resolved); err != nil {
-		return 0, "", err
+		return syncResult{}, err
 	}
-	return len(resolved), settingsPath, nil
+	return syncResult{
+		EnvCount:     len(resolved),
+		SettingsPath: settingsPath,
+		Files:        slices.Sorted(maps.Keys(fileSet)),
+	}, nil
+}
+
+// expandTilde resolves a leading ~/ against the user's home directory.
+func expandTilde(path string) string {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(path, "~"), "/"))
+		}
+	}
+	return path
+}
+
+// writeCredentialFile writes a resolved secret value to a file: the parent
+// directory is created 0700 and the file 0600 — both hold a credential.
+func writeCredentialFile(path, content string) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(content), 0o600)
 }
 
 // parseEnvBlob parses a .env-style blob (KEY=value lines) into a map. Blank

@@ -348,12 +348,15 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 	// Final step: resolve the manifest's secrets and write them into the
 	// Claude Code settings env block, so a normally-launched Claude has them.
 	// This makes `ainfra apply` a complete setup — config and credentials.
-	count, secPath, serr := syncSecrets(dir, secret.DefaultRegistry())
+	res, serr := syncSecrets(dir, secret.DefaultRegistry())
 	if serr != nil {
 		ui.RenderError(ctx.Stderr, errColor, serr)
 		return 1
 	}
-	fmt.Fprintf(ctx.Stdout, "Synced %d secrets to %s\n", count, secPath)
+	fmt.Fprintf(ctx.Stdout, "Synced %d secrets to %s\n", res.EnvCount, res.SettingsPath)
+	for _, f := range res.Files {
+		fmt.Fprintf(ctx.Stdout, "Synced credential file %s\n", f)
+	}
 	fmt.Fprintln(ctx.Stdout, "Apply complete.")
 	return 0
 }

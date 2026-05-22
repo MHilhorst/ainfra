@@ -103,3 +103,48 @@ SINGLE='raw $value'
 		t.Error("comment line was parsed as a variable")
 	}
 }
+
+func TestWriteCredentialFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nested", "creds", "credentials.json")
+	content := `{"developer_token":"abc","refresh_token":"xyz"}`
+
+	if err := writeCredentialFile(path, content); err != nil {
+		t.Fatalf("writeCredentialFile: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(got) != content {
+		t.Errorf("content = %q, want %q", got, content)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("file mode = %o, want 600 (it holds a credential)", perm)
+	}
+	dirInfo, _ := os.Stat(filepath.Dir(path))
+	if perm := dirInfo.Mode().Perm(); perm != 0o700 {
+		t.Errorf("parent dir mode = %o, want 700", perm)
+	}
+}
+
+func TestExpandTilde(t *testing.T) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("no home dir")
+	}
+	cases := map[string]string{
+		"~/.config/x/creds.json": filepath.Join(home, ".config", "x", "creds.json"),
+		"/absolute/path":         "/absolute/path",
+		"relative/path":          "relative/path",
+	}
+	for in, want := range cases {
+		if got := expandTilde(in); got != want {
+			t.Errorf("expandTilde(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

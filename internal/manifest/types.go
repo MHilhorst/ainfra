@@ -116,6 +116,12 @@ type Secret struct {
 	// (KEY=value lines). ainfra expands every line into its own environment
 	// variable — one reference standing in for a whole environment.
 	EnvFile bool `yaml:"envFile"`
+	// Path, when set, materializes this secret as a file: `ainfra sync`
+	// resolves the ref and writes the value verbatim to this path (0600).
+	// It is the file-destination counterpart of Env, for a tool that reads a
+	// credential file rather than an environment variable. ainfra moves an
+	// opaque blob from the ref to the path — it never composes file content.
+	Path string `yaml:"path"`
 }
 
 // Param is a typed template input (spec §4.1).

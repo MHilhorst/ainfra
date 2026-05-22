@@ -113,6 +113,26 @@ developer who wants it. This boundary is documented, not worked around.
 
 ---
 
+> **Refinement (2026-05-22) — `path:` secrets.** This section's "never
+> written" position predates the `ainfra sync` command. `sync` is now the
+> single, explicit, machine-local step where references become concrete: it
+> already resolves secrets and writes their values to a file —
+> `~/.claude/settings.local.json`. Writing a credential file is the identical
+> act with a different destination. A `Secret` therefore gains an optional
+> `path:` field — the file-destination counterpart of `env:` — and `sync`
+> materializes it (parent dir `0700`, file `0600`).
+>
+> The inviolable rule still holds: the **committed manifest and lockfile never
+> contain a value** — only a `ref` and a destination. And ainfra stays
+> **content-blind**: the whole file lives in the resolver (e.g. one 1Password
+> item) as an opaque blob; ainfra moves that blob from `ref` to `path` and
+> never composes, templates, or parses credential content. The `requires`
+> check below is unchanged — a `path:` secret is still *declared* and
+> *checked*, and now also *materialized*. §3.1–§3.2 describe the check; the
+> general principle is: **a credential a tool cannot receive at runtime is
+> still a secret — model it in `secrets:` with an explicit materialization
+> target, keep the content opaque in the resolver, and let `sync` place it.**
+
 ## 3. Secret-to-file — verify-only, never written
 
 Some CLIs read a credential *file* (`~/.aws/credentials`, a service-account
