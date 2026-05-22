@@ -354,3 +354,76 @@ func TestCLIToolsApply_Delete_Noop(t *testing.T) {
 		t.Errorf("Delete: expected no runner calls (no-op), got %v", runner.Calls)
 	}
 }
+
+func TestCLIToolsApply_NoInstallSkipsAdapter(t *testing.T) {
+	runner := provider.NewFakeRunner() // every call is unscripted -> errors if reached
+	env := provider.Env{
+		FS:        provider.NewMemFilesystem(),
+		Runner:    runner,
+		Root:      "/repo",
+		NoInstall: true,
+	}
+
+	plan := provider.ChannelPlan{
+		Channel: "cliTools",
+		Changes: []provider.Change{{
+			Kind: provider.ChangeCreate,
+			ID:   "jq",
+			Resource: provider.Resource{
+				ID:      "jq",
+				Channel: "cliTools",
+				Payload: map[string]any{
+					"install": map[string]any{"brew": map[string]any{}},
+				},
+			},
+		}},
+	}
+
+	res, err := shared.CLITools{}.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply with NoInstall: unexpected error: %v", err)
+	}
+	if len(runner.Calls) != 0 {
+		t.Errorf("NoInstall: expected no commands run, got %v", runner.Calls)
+	}
+	if len(res.Applied) != 1 {
+		t.Errorf("NoInstall: expected the change still recorded as applied, got %+v", res.Applied)
+	}
+}
+
+func TestCLIToolsApply_NoInstallSkipsDeclareCheckProbe(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	env := provider.Env{
+		FS:        provider.NewMemFilesystem(),
+		Runner:    runner,
+		Root:      "/repo",
+		NoInstall: true,
+	}
+
+	// No recognised adapter — normally falls through to a `tool --version` probe.
+	plan := provider.ChannelPlan{
+		Channel: "cliTools",
+		Changes: []provider.Change{{
+			Kind: provider.ChangeCreate,
+			ID:   "some-tool",
+			Resource: provider.Resource{
+				ID:      "some-tool",
+				Channel: "cliTools",
+				Payload: map[string]any{
+					"install": map[string]any{"manual": map[string]any{}},
+				},
+			},
+		}},
+	}
+
+	res, err := shared.CLITools{}.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply with NoInstall: unexpected error: %v", err)
+	}
+	if len(runner.Calls) != 0 {
+		t.Errorf("NoInstall: expected no probe, got %v", runner.Calls)
+	}
+	if len(res.Applied) != 1 {
+		t.Errorf("NoInstall: expected the change still recorded as applied, got %+v", res.Applied)
+	}
+}

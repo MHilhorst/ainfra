@@ -28,7 +28,7 @@ func (CLITools) Observe(_ provider.Env) ([]provider.Resource, error) {
 // adapter from the install payload and installs if not already present. If no
 // supported adapter is declared it runs a declare-and-check probe. Delete
 // changes are a no-op — ainfra does not uninstall CLI tools (see design §6).
-// Honors env.DryRun.
+// Honors env.DryRun and env.NoInstall (both skip the install and probe).
 func (CLITools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyResult, error) {
 	var applied []provider.Change
 
@@ -57,7 +57,7 @@ func (CLITools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.App
 				continue
 			}
 
-			if !env.DryRun {
+			if !env.DryRun && !env.NoInstall {
 				installed, err := adapter.IsInstalled(env, id)
 				if err != nil {
 					return provider.ApplyResult{}, fmt.Errorf("cliTools: checking %q via %s: %w", id, adapter.Name(), err)
@@ -80,7 +80,7 @@ func (CLITools) Apply(env provider.Env, plan provider.ChannelPlan) (provider.App
 		}
 
 		// No recognised adapter — declare-and-check fallback.
-		if !env.DryRun {
+		if !env.DryRun && !env.NoInstall {
 			if _, err := env.Runner.Run(id, "--version"); err != nil {
 				return provider.ApplyResult{}, fmt.Errorf("cliTools: %q is not installed and no supported install method is declared; install it manually", id)
 			}
