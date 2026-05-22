@@ -98,6 +98,24 @@ func TestMergeManagedRegionRemovesEmptyRegion(t *testing.T) {
 	}
 }
 
+func TestMergeManagedRegionExactOutput(t *testing.T) {
+	fs := newMemFS()
+	fs.files["/AGENTS.md"] = []byte("# Title\n")
+	if err := MergeManagedRegion(fs, "/AGENTS.md",
+		map[string]string{"a": "Rule A"}, []string{"a"}); err != nil {
+		t.Fatal(err)
+	}
+	want := "# Title\n\n" +
+		"<!-- ainfra:begin -->\n" +
+		"<!-- ainfra:rule a -->\n" +
+		"Rule A\n" +
+		"<!-- ainfra:end -->\n"
+	got := string(fs.files["/AGENTS.md"])
+	if got != want {
+		t.Errorf("exact output mismatch:\nwant:\n%q\ngot:\n%q", want, got)
+	}
+}
+
 func TestMergeManagedRegionRejectsUnterminatedRegion(t *testing.T) {
 	fs := newMemFS()
 	fs.files["/AGENTS.md"] = []byte("<!-- ainfra:begin -->\nno end marker here\n")

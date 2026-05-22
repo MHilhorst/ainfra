@@ -104,6 +104,10 @@ func ManagedRegionIDs(fs FS, path string) ([]string, error) {
 // removes every id in ownedIDs, then sets every id->content pair in blocks.
 // Content outside the region is preserved. When the region would become empty
 // it is removed entirely, markers and all. A missing file is created.
+//
+// Limitation: a rule's content must not contain a line that is itself an
+// ainfra region marker (<!-- ainfra:begin -->, <!-- ainfra:end -->, or
+// <!-- ainfra:rule ... -->); such a line is misparsed as region structure.
 func MergeManagedRegion(fs FS, path string, blocks map[string]string, ownedIDs []string) error {
 	raw, err := fs.ReadFile(path)
 	if errors.Is(err, iofs.ErrNotExist) {
@@ -112,7 +116,7 @@ func MergeManagedRegion(fs FS, path string, blocks map[string]string, ownedIDs [
 		return err
 	}
 
-	before, rules, after, found, err := splitRegion(string(raw))
+	before, rules, after, _, err := splitRegion(string(raw))
 	if err != nil {
 		return err
 	}
@@ -139,11 +143,6 @@ func MergeManagedRegion(fs FS, path string, blocks map[string]string, ownedIDs [
 		region := renderRegion(rules)
 		head := strings.TrimRight(before, "\n")
 		tail := strings.TrimLeft(after, "\n")
-		if !found {
-			// No region yet: append after all existing content.
-			head = strings.TrimRight(string(raw), "\n")
-			tail = ""
-		}
 		out = region
 		if head != "" {
 			out = head + "\n\n" + region
