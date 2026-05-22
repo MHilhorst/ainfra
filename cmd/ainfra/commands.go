@@ -203,7 +203,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 	warnIfStale(ctx, dir, committed)
 
 	// Render resources with Payload so providers can write file content.
-	rendered, err := resolve.RenderResources(dir)
+	rendered, err := resolve.RenderResources(dir, provider.ExecRunner{})
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1

@@ -171,6 +171,36 @@ func Validate(m *Manifest) error {
 			}
 		}
 	}
+	for _, id := range slices.Sorted(maps.Keys(m.Vars)) {
+		v := m.Vars[id]
+		switch v.From {
+		case "value", "env", "command":
+			// valid
+		default:
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("unknown var source %q", v.From),
+				Path:    "vars." + id,
+				Detail:  fmt.Sprintf("Var %q declares from: %q, which is not a known source.", id, v.From),
+				Hint:    "Valid sources: value, env, command.",
+			}
+		}
+		if v.From == "env" && v.Env == "" {
+			return &diag.Diagnostic{
+				Summary: "var with from: env declares no env field",
+				Path:    "vars." + id,
+				Detail:  fmt.Sprintf("Var %q uses from: env but has no env field naming the environment variable.", id),
+				Hint:    "Add an env field, e.g.  env: HOME",
+			}
+		}
+		if v.From == "command" && v.Command == "" {
+			return &diag.Diagnostic{
+				Summary: "var with from: command declares no command field",
+				Path:    "vars." + id,
+				Detail:  fmt.Sprintf("Var %q uses from: command but has no command field.", id),
+				Hint:    `Add a command field, e.g.  command: "git config user.name"`,
+			}
+		}
+	}
 	for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
 		r := m.Rules[id]
 		if r.Source == "" {

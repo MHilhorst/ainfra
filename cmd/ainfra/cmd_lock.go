@@ -6,6 +6,7 @@ import (
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
@@ -23,7 +24,7 @@ func newLockCommand() *cli.Command {
 }
 
 func runLock(ctx cli.Context) int {
-	if err := resolve.RunLock(ctx.Dir); err != nil {
+	if err := resolve.RunLock(ctx.Dir, provider.ExecRunner{}); err != nil {
 		ui.RenderError(ctx.Stderr, ui.NewColorizer(ctx.Stderr, ctx.NoColor), err)
 		return 1
 	}
