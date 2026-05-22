@@ -121,18 +121,27 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			}
 			h := m.Hooks[id]
 			entry := merged.hooks[id]
+			payload := map[string]any{
+				"event":   h.Event,
+				"matcher": h.Matcher,
+				"command": h.Command,
+				"timeout": h.Timeout,
+			}
+			// A hook may carry a bundled source script; the channel installs
+			// it alongside the hook so `command` can reference it.
+			if h.Source != "" && !isRemoteSource(h.Source) {
+				if raw, err := os.ReadFile(filepath.Join(dir, h.Source)); err == nil {
+					payload["scriptName"] = filepath.Base(h.Source)
+					payload["scriptContent"] = string(raw)
+				}
+			}
 			result["hooks"] = append(result["hooks"], provider.Resource{
 				ID:          id,
 				Channel:     "hooks",
 				Layer:       entry.Layer,
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
-				Payload: map[string]any{
-					"event":   h.Event,
-					"matcher": h.Matcher,
-					"command": h.Command,
-					"timeout": h.Timeout,
-				},
+				Payload:     payload,
 			})
 		}
 

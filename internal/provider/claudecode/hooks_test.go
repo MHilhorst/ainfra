@@ -15,59 +15,65 @@ func TestHooksChannel(t *testing.T) {
 	}
 }
 
-func TestHooksObserve_Empty(t *testing.T) {
+// Observe always returns nil — the event-keyed settings.json schema cannot be
+// mapped back to individual managed hooks, so hooks reconcile wholesale.
+func TestHooksObserve_AlwaysNil(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
-
-	p := claudecode.Hooks{}
-	resources, err := p.Observe(env)
-	if err != nil {
-		t.Fatalf("Observe: unexpected error: %v", err)
-	}
-	if len(resources) != 0 {
-		t.Fatalf("Observe: got %d resources, want 0", len(resources))
-	}
-}
-
-func TestHooksObserve_WithHooks(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	env := provider.Env{FS: mem, Root: "/repo"}
-
-	settingsJSON := `{"hooks":{"on-save":{"event":"PostToolUse","command":"echo saved"},"on-start":{"event":"SessionStart","command":"echo start"}}}`
+	settingsJSON := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}`
 	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(settingsJSON), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	p := claudecode.Hooks{}
-	resources, err := p.Observe(env)
+	resources, err := claudecode.Hooks{}.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
 	}
-	if len(resources) != 2 {
-		t.Fatalf("Observe: got %d resources, want 2", len(resources))
+	if resources != nil {
+		t.Fatalf("Observe: got %v, want nil", resources)
 	}
+}
 
-	ids := map[string]bool{}
-	for _, r := range resources {
-		ids[r.ID] = true
-		if r.Channel != "hooks" {
-			t.Errorf("resource %q: Channel = %q, want %q", r.ID, r.Channel, "hooks")
-		}
-		if r.ContentHash != "" {
-			t.Errorf("resource %q: ContentHash should be empty, got %q", r.ID, r.ContentHash)
-		}
+// hooksDoc reads settings.json and returns the parsed "hooks" object.
+func hooksDoc(t *testing.T, mem *provider.MemFilesystem) map[string]any {
+	t.Helper()
+	raw, err := mem.ReadFile("/repo/.claude/settings.json")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
 	}
-	if !ids["on-save"] {
-		t.Error("expected resource with id 'on-save'")
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if !ids["on-start"] {
-		t.Error("expected resource with id 'on-start'")
+	hooks, ok := doc["hooks"].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks not an object: %v", doc["hooks"])
 	}
+	return hooks
+}
+
+// firstGroup returns the single matcher group for an event, asserting the
+// event holds an array with exactly one group.
+func firstGroup(t *testing.T, hooks map[string]any, event string) map[string]any {
+	t.Helper()
+	arr, ok := hooks[event].([]any)
+	if !ok {
+		t.Fatalf("hooks.%s is not an array: %v", event, hooks[event])
+	}
+	if len(arr) != 1 {
+		t.Fatalf("hooks.%s: got %d groups, want 1", event, len(arr))
+	}
+	group, ok := arr[0].(map[string]any)
+	if !ok {
+		t.Fatalf("hooks.%s[0] is not an object", event)
+	}
+	return group
 }
 
 func TestHooksApply_Create(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	existing := `{"hooks":{"foreign-hook":{"event":"SessionStart","command":"echo foreign"}}}`
+	// A non-hooks key and a foreign event must both survive.
+	existing := `{"permissions":{"allow":["X"]},"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo foreign"}]}]}}`
 	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(existing), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -86,57 +92,54 @@ func TestHooksApply_Create(t *testing.T) {
 						"event":   "PostToolUse",
 						"matcher": "Edit",
 						"command": "golangci-lint run",
-						"timeout": 30,
+						"timeout": 30000,
 					},
 				},
 			},
 		},
 	}
 
-	p := claudecode.Hooks{}
-	result, err := p.Apply(env, plan)
+	result, err := claudecode.Hooks{}.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
-	if result.Channel != "hooks" {
-		t.Errorf("result.Channel = %q, want %q", result.Channel, "hooks")
-	}
-	if len(result.Applied) != 1 {
-		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	if result.Channel != "hooks" || len(result.Applied) != 1 {
+		t.Fatalf("result = %+v, want channel hooks with 1 applied", result)
 	}
 
-	raw, err := mem.ReadFile("/repo/.claude/settings.json")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
+	hooks := hooksDoc(t, mem)
+
+	// Foreign event preserved (ainfra only owns PostToolUse here).
+	if _, ok := hooks["SessionStart"]; !ok {
+		t.Error("foreign SessionStart event was removed, should be preserved")
 	}
 
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
+	group := firstGroup(t, hooks, "PostToolUse")
+	if group["matcher"] != "Edit" {
+		t.Errorf("matcher = %v, want Edit", group["matcher"])
 	}
-	hooks, ok := doc["hooks"].(map[string]any)
-	if !ok {
-		t.Fatal("hooks not a map")
+	inner, ok := group["hooks"].([]any)
+	if !ok || len(inner) != 1 {
+		t.Fatalf("group.hooks = %v, want a 1-element array", group["hooks"])
 	}
-	if _, ok := hooks["foreign-hook"]; !ok {
-		t.Error("foreign-hook was removed, should have been preserved")
-	}
-	hook, ok := hooks["lint-hook"].(map[string]any)
-	if !ok {
-		t.Fatal("lint-hook not present or not a map")
-	}
-	if hook["event"] != "PostToolUse" {
-		t.Errorf("event = %v, want %q", hook["event"], "PostToolUse")
-	}
-	if hook["matcher"] != "Edit" {
-		t.Errorf("matcher = %v, want %q", hook["matcher"], "Edit")
+	hook := inner[0].(map[string]any)
+	if hook["type"] != "command" {
+		t.Errorf("hook.type = %v, want command", hook["type"])
 	}
 	if hook["command"] != "golangci-lint run" {
-		t.Errorf("command = %v, want %q", hook["command"], "golangci-lint run")
+		t.Errorf("hook.command = %v, want %q", hook["command"], "golangci-lint run")
 	}
-	// timeout stored as number; json.Unmarshal produces float64
-	if hook["timeout"] == nil {
-		t.Error("timeout should be present")
+	// 30000ms must be converted to 30 seconds.
+	if hook["timeout"] != float64(30) {
+		t.Errorf("hook.timeout = %v, want 30 (seconds)", hook["timeout"])
+	}
+
+	// The non-hooks key survives.
+	doc := map[string]any{}
+	raw, _ := mem.ReadFile("/repo/.claude/settings.json")
+	_ = json.Unmarshal(raw, &doc)
+	if _, ok := doc["permissions"]; !ok {
+		t.Error("permissions key was removed, should be preserved")
 	}
 }
 
@@ -162,115 +165,107 @@ func TestHooksApply_Create_EmptyMatcher(t *testing.T) {
 		},
 	}
 
-	p := claudecode.Hooks{}
-	_, err := p.Apply(env, plan)
-	if err != nil {
+	if _, err := (claudecode.Hooks{}).Apply(env, plan); err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 
-	raw, err := mem.ReadFile("/repo/.claude/settings.json")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	hooks := doc["hooks"].(map[string]any)
-	hook := hooks["session-hook"].(map[string]any)
-	if _, ok := hook["matcher"]; ok {
+	group := firstGroup(t, hooksDoc(t, mem), "SessionStart")
+	if _, ok := group["matcher"]; ok {
 		t.Error("matcher should be omitted when empty")
 	}
 }
 
-func TestHooksApply_Delete(t *testing.T) {
+func TestHooksApply_MultipleSameEvent(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	existing := `{"hooks":{"managed-hook":{"event":"PostToolUse","command":"echo managed"},"foreign-hook":{"event":"SessionStart","command":"echo foreign"}}}`
-	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(existing), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	env := provider.Env{FS: mem, Root: "/repo"}
 
+	mk := func(id, matcher string) provider.Change {
+		return provider.Change{
+			Kind: provider.ChangeCreate,
+			ID:   id,
+			Resource: provider.Resource{
+				ID:      id,
+				Channel: "hooks",
+				Payload: map[string]any{"event": "PreToolUse", "matcher": matcher, "command": "echo " + id},
+			},
+		}
+	}
 	plan := provider.ChannelPlan{
 		Channel: "hooks",
-		Changes: []provider.Change{
-			{
-				Kind: provider.ChangeDelete,
-				ID:   "managed-hook",
-				Resource: provider.Resource{
-					ID:      "managed-hook",
-					Channel: "hooks",
-				},
-			},
-		},
+		Changes: []provider.Change{mk("a-guard", "Bash"), mk("b-guard", "Edit|Write")},
 	}
 
-	p := claudecode.Hooks{}
-	_, err := p.Apply(env, plan)
-	if err != nil {
+	if _, err := (claudecode.Hooks{}).Apply(env, plan); err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 
-	raw, err := mem.ReadFile("/repo/.claude/settings.json")
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	var doc map[string]any
-	if err := json.Unmarshal(raw, &doc); err != nil {
-		t.Fatalf("json.Unmarshal: %v", err)
-	}
-	hooks, ok := doc["hooks"].(map[string]any)
-	if !ok {
-		t.Fatal("hooks not a map")
-	}
-	if _, ok := hooks["managed-hook"]; ok {
-		t.Error("managed-hook should have been deleted")
-	}
-	if _, ok := hooks["foreign-hook"]; !ok {
-		t.Error("foreign-hook was removed, should have been preserved")
+	arr, ok := hooksDoc(t, mem)["PreToolUse"].([]any)
+	if !ok || len(arr) != 2 {
+		t.Fatalf("PreToolUse: got %v, want 2 matcher groups", hooksDoc(t, mem)["PreToolUse"])
 	}
 }
 
-func TestHooksApply_NoopLeavesFileIdentical(t *testing.T) {
+func TestHooksApply_InstallsScript(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	original := `{"hooks":{"existing":{"event":"SessionStart","command":"echo hi"}}}`
-	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(original), 0o644); err != nil {
-		t.Fatal(err)
-	}
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	// All noop changes — ownedKeys will be empty after filtering.
 	plan := provider.ChannelPlan{
 		Channel: "hooks",
 		Changes: []provider.Change{
 			{
-				Kind: provider.ChangeNoop,
-				ID:   "existing",
+				Kind: provider.ChangeCreate,
+				ID:   "guard",
 				Resource: provider.Resource{
-					ID:      "existing",
+					ID:      "guard",
 					Channel: "hooks",
 					Payload: map[string]any{
-						"event":   "SessionStart",
-						"command": "echo hi",
+						"event":         "PreToolUse",
+						"matcher":       "Bash",
+						"command":       "bash .ainfra/run/guard.sh",
+						"scriptName":    "guard.sh",
+						"scriptContent": "#!/bin/sh\necho guard\n",
 					},
 				},
 			},
 		},
 	}
 
-	before, _ := mem.ReadFile("/repo/.claude/settings.json")
+	if _, err := (claudecode.Hooks{}).Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
 
-	p := claudecode.Hooks{}
-	result, err := p.Apply(env, plan)
+	raw, err := mem.ReadFile("/repo/.ainfra/run/guard.sh")
+	if err != nil {
+		t.Fatalf("hook script not installed: %v", err)
+	}
+	if string(raw) != "#!/bin/sh\necho guard\n" {
+		t.Errorf("installed script content = %q", string(raw))
+	}
+}
+
+func TestHooksApply_NoopLeavesFileIdentical(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	original := `{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}}`
+	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	plan := provider.ChannelPlan{
+		Channel: "hooks",
+		Changes: []provider.Change{
+			{Kind: provider.ChangeNoop, ID: "existing", Resource: provider.Resource{ID: "existing", Channel: "hooks"}},
+		},
+	}
+
+	before, _ := mem.ReadFile("/repo/.claude/settings.json")
+	result, err := claudecode.Hooks{}.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 	if len(result.Applied) != 0 {
 		t.Errorf("noop plan: expected 0 applied changes, got %d", len(result.Applied))
 	}
-
 	after, _ := mem.ReadFile("/repo/.claude/settings.json")
 	if string(before) != string(after) {
 		t.Errorf("noop plan modified the file: before=%q after=%q", before, after)
@@ -279,7 +274,7 @@ func TestHooksApply_NoopLeavesFileIdentical(t *testing.T) {
 
 func TestHooksApply_DryRun(t *testing.T) {
 	mem := provider.NewMemFilesystem()
-	original := `{"hooks":{"existing":{"event":"SessionStart","command":"echo hi"}}}`
+	original := `{"hooks":{}}`
 	if err := mem.WriteFile("/repo/.claude/settings.json", []byte(original), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -294,24 +289,19 @@ func TestHooksApply_DryRun(t *testing.T) {
 				Resource: provider.Resource{
 					ID:      "new-hook",
 					Channel: "hooks",
-					Payload: map[string]any{
-						"event":   "PostToolUse",
-						"command": "echo new",
-					},
+					Payload: map[string]any{"event": "PostToolUse", "command": "echo new"},
 				},
 			},
 		},
 	}
 
-	p := claudecode.Hooks{}
-	result, err := p.Apply(env, plan)
+	result, err := claudecode.Hooks{}.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
 	if len(result.Applied) != 1 {
 		t.Fatalf("DryRun: expected 1 applied change described, got %d", len(result.Applied))
 	}
-
 	raw, _ := mem.ReadFile("/repo/.claude/settings.json")
 	if string(raw) != original {
 		t.Error("DryRun: file was modified, should not have been")
