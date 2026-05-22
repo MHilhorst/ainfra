@@ -601,6 +601,8 @@ func TestValidateAcceptsWellFormedRefs(t *testing.T) {
 		Version: 1,
 		Secrets: map[string]Secret{
 			"db-password": {Mode: "reference", Ref: "op://Vault/Item/field"},
+			"db-section":  {Mode: "reference", Ref: "op://Vault/Item/Section/field"},
+			"custom":      {Mode: "reference", Ref: "custom-backend:db-password"},
 			"token":       {Mode: "reference", Ref: "env://API_TOKEN"},
 			"literal":     {Mode: "direct", Value: "inline-value"},
 		},

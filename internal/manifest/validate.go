@@ -258,7 +258,7 @@ func validateSecrets(m *Manifest) *diag.Diagnostic {
 					Summary: "malformed op:// secret reference",
 					Path:    "secrets." + id,
 					Detail:  fmt.Sprintf("Secret %q has ref %q; a 1Password reference is op://<vault>/<item>/<field>.", id, s.Ref),
-					Hint:    `Use three segments, e.g.  ref: "op://Engineering/Database/password"`,
+					Hint:    `Provide vault, item, and field segments, e.g.  ref: "op://Engineering/Database/password"`,
 				}
 			}
 		case "env":
