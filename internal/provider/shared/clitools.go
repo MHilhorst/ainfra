@@ -20,10 +20,23 @@ type CLITools struct{}
 // Channel returns the channel name this provider manages.
 func (CLITools) Channel() string { return "cliTools" }
 
-// Observe returns nil, nil. Installs are idempotent; the orchestrator will plan
-// a create, and Apply re-checks before installing.
-func (CLITools) Observe(_ provider.Env) ([]provider.Resource, error) {
-	return nil, nil
+// Observe reports the CLI tools ainfra manages, sourced from the applied
+// ledger. A tool's presence on the machine cannot be probed without the
+// manifest's check command, so the ledger is the authoritative record of what
+// was applied; returning it keeps `check` idempotent. ContentHash is left
+// empty — the orchestrator backfills it from the ledger. (A tool removed from
+// the machine by hand after an apply is not detected here.)
+func (CLITools) Observe(env provider.Env) ([]provider.Resource, error) {
+	applied, err := provider.ReadApplied(env.Root)
+	if err != nil {
+		return nil, err
+	}
+	managed := provider.ResourcesByChannel(applied)["cliTools"]
+	out := make([]provider.Resource, 0, len(managed))
+	for _, r := range managed {
+		out = append(out, provider.Resource{ID: r.ID, Channel: "cliTools"})
+	}
+	return out, nil
 }
 
 // installMethods reads the "install" payload as a method -> spec map. It

@@ -16,17 +16,17 @@ func TestCLIToolsChannel(t *testing.T) {
 	}
 }
 
-func TestCLIToolsObserve_ReturnsNil(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	env := provider.Env{FS: mem, Root: "/repo"}
+func TestCLIToolsObserve_NoLedgerEmpty(t *testing.T) {
+	// Observe sources managed tools from the applied ledger; with no ledger
+	// present it reports nothing.
+	env := provider.Env{Root: t.TempDir()}
 
-	p := shared.CLITools{}
-	resources, err := p.Observe(env)
+	resources, err := shared.CLITools{}.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
 	}
-	if resources != nil {
-		t.Fatalf("Observe: got %v, want nil", resources)
+	if len(resources) != 0 {
+		t.Fatalf("Observe: got %d resources with no ledger, want 0", len(resources))
 	}
 }
 

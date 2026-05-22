@@ -90,6 +90,25 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 					url = inst.MCPServer.URL
 					headersMap = inst.MCPServer.Headers
 				}
+				// A template may also produce a background service; emit it as
+				// a backgroundServices resource so the channel can reconcile it.
+				if err == nil && inst.Service != nil {
+					sid := inst.Service.ID
+					if markSeen(seen, "backgroundServices", sid) {
+						sEntry := merged.backgroundServices[sid]
+						result["backgroundServices"] = append(result["backgroundServices"], provider.Resource{
+							ID:          sid,
+							Channel:     "backgroundServices",
+							Layer:       sEntry.Layer,
+							ContentHash: sEntry.ContentHash,
+							Requires:    sEntry.Requires,
+							Payload: map[string]any{
+								"kind": inst.Service.Kind,
+								"spec": inst.Service.Spec,
+							},
+						})
+					}
+				}
 			} else {
 				args = srv.Args
 				envMap = srv.Env

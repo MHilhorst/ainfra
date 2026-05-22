@@ -55,28 +55,38 @@ func fragmentFor(env provider.Env, target, id string) string {
 	return filepath.Join(base, ".claude", "ainfra", id+".md")
 }
 
-// Observe lists *.md files in <root>/.claude/ainfra/ and returns a Resource
-// per file. A missing directory is treated as no resources. ContentHash is
-// left empty; the orchestrator backfills it from the ledger.
+// Observe lists *.md fragment files and returns a Resource per file. It scans
+// both fragment locations — <root>/.claude/ainfra/ (repo-level rules) and
+// <home>/.claude/ainfra/ (user-level "~"-target rules) — so a rule is observed
+// wherever Apply co-located its fragment. A missing directory is skipped.
+// ContentHash is left empty; the orchestrator backfills it from the ledger.
 func (Rules) Observe(env provider.Env) ([]provider.Resource, error) {
-	entries, err := env.FS.ReadDir(rulesDir(env))
-	if errors.Is(err, iofs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
+	dirs := []string{filepath.Join(env.Root, ".claude", "ainfra")}
+	if env.Home != "" {
+		dirs = append(dirs, filepath.Join(env.Home, ".claude", "ainfra"))
 	}
 
+	seen := map[string]bool{}
 	var resources []provider.Resource
-	for _, name := range entries {
-		if !strings.HasSuffix(name, ".md") {
+	for _, dir := range dirs {
+		entries, err := env.FS.ReadDir(dir)
+		if errors.Is(err, iofs.ErrNotExist) {
 			continue
 		}
-		id := strings.TrimSuffix(name, ".md")
-		resources = append(resources, provider.Resource{
-			ID:      id,
-			Channel: "rules",
-		})
+		if err != nil {
+			return nil, err
+		}
+		for _, name := range entries {
+			if !strings.HasSuffix(name, ".md") {
+				continue
+			}
+			id := strings.TrimSuffix(name, ".md")
+			if seen[id] {
+				continue
+			}
+			seen[id] = true
+			resources = append(resources, provider.Resource{ID: id, Channel: "rules"})
+		}
 	}
 	return resources, nil
 }
