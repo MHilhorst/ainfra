@@ -6,6 +6,7 @@ import (
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/ui"
@@ -40,6 +41,11 @@ func runLock(ctx cli.Context) int {
 	fmt.Fprintln(ctx.Stdout, "ainfra: resolved "+lockSummary(committed, personal))
 	fmt.Fprintln(ctx.Stdout, "        wrote ainfra.lock and ainfra.personal.lock")
 	ui.Next(ctx.Stdout, c, "run 'ainfra plan' to preview changes.")
+	if layers, err := manifest.LoadLayers(ctx.Dir); err == nil {
+		for _, w := range cliToolInstallWarnings(layers) {
+			fmt.Fprintln(ctx.Stderr, c.Yellow("warning: "+w))
+		}
+	}
 	return 0
 }
 

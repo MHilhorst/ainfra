@@ -3,6 +3,7 @@ package pkg
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
 )
@@ -166,6 +167,14 @@ func (ComposerAdapter) Install(env provider.Env, spec map[string]any) error {
 	}
 	_, err = env.Runner.Run("composer", "global", "require", target)
 	return err
+}
+
+// Methods returns the sorted set of install-method names Select recognises.
+// It is the single source of truth for "which methods ainfra can automate".
+func Methods() []string {
+	ms := []string{"brew", "npm", "npm-g", "composer"}
+	sort.Strings(ms)
+	return ms
 }
 
 // Select returns the Adapter for the given install method, or nil and false if

@@ -295,3 +295,24 @@ func TestSelectUnknownAdapter(t *testing.T) {
 		t.Errorf("Select(apt) = %v, want nil", a)
 	}
 }
+
+func TestMethods(t *testing.T) {
+	got := pkg.Methods()
+	for _, want := range []string{"brew", "npm", "npm-g", "composer"} {
+		found := false
+		for _, m := range got {
+			if m == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("Methods() = %v, missing %q", got, want)
+		}
+	}
+	// Every reported method must actually resolve via Select.
+	for _, m := range got {
+		if _, ok := pkg.Select(m); !ok {
+			t.Errorf("Methods() reported %q but Select(%q) does not recognise it", m, m)
+		}
+	}
+}
