@@ -184,6 +184,82 @@ func TestNpmAdapter_MissingPackage(t *testing.T) {
 	}
 }
 
+func TestComposerAdapterName(t *testing.T) {
+	var a pkg.ComposerAdapter
+	if got := a.Name(); got != "composer" {
+		t.Errorf("ComposerAdapter.Name() = %q, want composer", got)
+	}
+}
+
+func TestComposerAdapterIsInstalled_true(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["composer global show transip/tipctl"] = provider.FakeResult{Output: []byte("transip/tipctl 1.0.0\n")}
+	env := provider.Env{Runner: runner}
+
+	ok, err := pkg.ComposerAdapter{}.IsInstalled(env, map[string]any{"package": "transip/tipctl"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("IsInstalled = false, want true")
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "composer global show transip/tipctl" {
+		t.Errorf("unexpected calls: %v", runner.Calls)
+	}
+}
+
+func TestComposerAdapterIsInstalled_false(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["composer global show missing/pkg"] = provider.FakeResult{Err: errors.New("not found")}
+	env := provider.Env{Runner: runner}
+
+	ok, err := pkg.ComposerAdapter{}.IsInstalled(env, map[string]any{"package": "missing/pkg"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("IsInstalled = true, want false")
+	}
+}
+
+func TestComposerAdapterInstall_WithoutVersion(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["composer global require transip/tipctl"] = provider.FakeResult{}
+	env := provider.Env{Runner: runner}
+
+	if err := (pkg.ComposerAdapter{}).Install(env, map[string]any{"package": "transip/tipctl"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "composer global require transip/tipctl" {
+		t.Errorf("unexpected calls: %v", runner.Calls)
+	}
+}
+
+func TestComposerAdapterInstall_WithVersion(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["composer global require transip/tipctl:^1.0"] = provider.FakeResult{}
+	env := provider.Env{Runner: runner}
+
+	if err := (pkg.ComposerAdapter{}).Install(env, map[string]any{"package": "transip/tipctl", "version": "^1.0"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "composer global require transip/tipctl:^1.0" {
+		t.Errorf("unexpected calls: %v", runner.Calls)
+	}
+}
+
+func TestComposerAdapter_MissingPackage(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	env := provider.Env{Runner: runner}
+
+	if _, err := (pkg.ComposerAdapter{}).IsInstalled(env, map[string]any{}); err == nil {
+		t.Error("expected error for missing package in spec")
+	}
+	if err := (pkg.ComposerAdapter{}).Install(env, map[string]any{}); err == nil {
+		t.Error("expected error for missing package in spec")
+	}
+}
+
 func TestSelectKnownAdapters(t *testing.T) {
 	cases := []struct {
 		method string
@@ -192,6 +268,7 @@ func TestSelectKnownAdapters(t *testing.T) {
 		{"brew", "brew"},
 		{"npm", "npm"},
 		{"npm-g", "npm"},
+		{"composer", "composer"},
 	}
 	for _, c := range cases {
 		a, ok := pkg.Select(c.method)
