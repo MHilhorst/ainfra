@@ -35,9 +35,23 @@ func TestForAgentClaudeCodeReturnsEveryChannel(t *testing.T) {
 	}
 }
 
-func TestForAgentCodexNotYetAvailable(t *testing.T) {
-	if _, err := agentset.ForAgent(agent.Codex); err == nil {
-		t.Error("expected an error for the codex set (built in plan 2b), got nil")
+func TestForAgentCodexReturnsItsChannels(t *testing.T) {
+	ps, err := agentset.ForAgent(agent.Codex)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	want := map[string]bool{"mcpServers": true, "rules": true, "cliTools": true}
+	got := map[string]bool{}
+	for _, p := range ps {
+		got[p.Channel()] = true
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %d distinct channels %v, want %d %v", len(got), got, len(want), want)
+	}
+	for ch := range want {
+		if !got[ch] {
+			t.Errorf("missing channel %q", ch)
+		}
 	}
 }
 

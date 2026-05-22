@@ -9,6 +9,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/agent"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
+	"github.com/MHilhorst/ainfra/internal/provider/codex"
 	"github.com/MHilhorst/ainfra/internal/provider/shared"
 )
 
@@ -34,6 +35,11 @@ func ForAgent(id agent.ID) ([]provider.Provider, error) {
 			claudecode.Plugins{},
 			claudecode.Services{},
 			claudecode.Tools{},
+		}, sharedProviders()...), nil
+	case agent.Codex:
+		return append([]provider.Provider{
+			codex.MCP{},
+			codex.Rules{},
 		}, sharedProviders()...), nil
 	default:
 		return nil, fmt.Errorf("no provider set for agent %q", id)
