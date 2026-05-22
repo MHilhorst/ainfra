@@ -111,6 +111,7 @@ func RunLock(dir string) error {
 			Commands:           map[string]lockfile.Entry{},
 			CLITools:           map[string]lockfile.Entry{},
 			Skills:             map[string]lockfile.Entry{},
+			Marketplaces:       map[string]lockfile.Entry{},
 			Plugins:            map[string]lockfile.Entry{},
 			Rules:              map[string]lockfile.Entry{},
 			Tools:              map[string]lockfile.Entry{},
@@ -245,6 +246,13 @@ func RunLock(dir string) error {
 				}),
 			}
 		}
+		for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+			mp := m.Marketplaces[id]
+			lock.Entries.Marketplaces[id] = lockfile.Entry{
+				Layer:       string(layerName),
+				ContentHash: lockfile.ContentHash(map[string]any{"source": mp.Source}),
+			}
+		}
 		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
 			p := m.Plugins[id]
 			node := "plugin:" + id
@@ -255,7 +263,7 @@ func RunLock(dir string) error {
 				Version:  p.Version,
 				Requires: requireRefs(p.Requires),
 				ContentHash: lockfile.ContentHash(map[string]any{
-					"source": p.Source, "version": p.Version,
+					"marketplace": p.Marketplace, "version": p.Version,
 				}),
 			}
 		}
@@ -419,6 +427,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 				MCPServers: map[string]lockfile.Entry{}, BackgroundServices: map[string]lockfile.Entry{},
 				Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
 				CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
+				Marketplaces: map[string]lockfile.Entry{},
 				Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
 				Tools: map[string]lockfile.Entry{}}}
 	}
@@ -438,6 +447,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Commands }, l.Entries.Commands)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.CLITools }, l.Entries.CLITools)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Skills }, l.Entries.Skills)
+	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Marketplaces }, l.Entries.Marketplaces)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Plugins }, l.Entries.Plugins)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Rules }, l.Entries.Rules)
 	route(func(x *lockfile.Lock) map[string]lockfile.Entry { return x.Entries.Tools }, l.Entries.Tools)

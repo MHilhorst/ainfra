@@ -32,6 +32,7 @@ func ForAgent(id agent.ID) ([]provider.Provider, error) {
 			claudecode.Commands{},
 			claudecode.Rules{},
 			claudecode.Skills{},
+			claudecode.Marketplaces{},
 			claudecode.Plugins{},
 			claudecode.Services{},
 			claudecode.Tools{},

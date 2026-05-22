@@ -14,7 +14,7 @@ func TestForAgentClaudeCodeReturnsEveryChannel(t *testing.T) {
 	}
 	want := map[string]bool{
 		"mcpServers": true, "hooks": true, "commands": true, "rules": true,
-		"skills": true, "plugins": true, "backgroundServices": true,
+		"skills": true, "marketplaces": true, "plugins": true, "backgroundServices": true,
 		"tools": true, "cliTools": true,
 	}
 	got := map[string]bool{}

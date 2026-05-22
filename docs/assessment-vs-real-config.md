@@ -32,10 +32,13 @@ against this manifest — exactly what a real-config test is for:
    `~/.claude/CLAUDE.md` was joined to the repo root literally, producing
    `<root>/~/.claude/CLAUDE.md`.
 
-Both are fixed. With those fixes, `apply` completes. It does **not yet** fully
-replace `tvt setup`: the files it writes are structurally correct, but
-1Password secret values are not injected (#2) and remote plugins are recorded,
-not `git clone`d (#3). Those remain the real open work.
+Both are fixed. With those fixes, `apply` completes. Sub-project #3 then made
+the `plugins` channel real: ainfra registers the `trein-vertraging` marketplace
+and installs all 5 plugins via the `claude` CLI (`claude plugin marketplace
+add` / `claude plugin install`), rather than only recording them. The one
+remaining gap before `apply` fully replaces `tvt setup` is 1Password secret
+*injection* (#2) — `apply` writes correct `${...}` references, but the values
+reach Claude Code via `ainfra exec`, not the written files.
 
 ---
 
@@ -111,8 +114,8 @@ the apply step is stubbed · Gap = not expressible in the schema.
 |---|---|---|
 | stdio/http MCP servers | `mcpServers` | Verified-apply — all 19 written to `.mcp.json` |
 | 2 MySQL servers via SSH tunnels + VPN | `templates` + `backgroundService` + `precondition` | Verified-apply — both instances written; launcher scripts generated |
-| 38 skills | `plugins` (bundled inside `tvt-config`) | Verified-apply — `tvt-config` recorded |
-| 5 plugins (GitHub + local sources) | `plugins` | Verified-apply for *recording* — actual `git clone` is Pending-apply (#3) |
+| 38 skills | `plugins` (bundled inside `tvt-config`) | Verified-apply — installed with the `tvt-config` plugin |
+| 5 plugins from a marketplace | `marketplaces` + `plugins` | Verified-apply — marketplace registered and all 5 installed via `claude plugin install` (#3) |
 | Team `CLAUDE.md` | `rules` | Verified-apply — fragment + `~`-target import written correctly (after the rules fix) |
 | Permission `allow`/`ask`/`deny` | `tools` | Verified-apply — `tools` written |
 | CLI tools via `brew` / `npm -g` / `uv` | `cliTools` | Verified-apply — adapters resolve formula/cask/package (sub-project #4) |
@@ -157,36 +160,33 @@ against a real manifest surfaced them.
 
 ## 6. Gaps still open
 
-Each is mapped to its sub-project. **#4 is now closed** (see §5).
+**#2, #3, and #4 are now closed:** the 1Password resolver ships and `ainfra
+exec` resolves all 14 tvt-config secrets; plugins install via the `claude` CLI
+from a registered marketplace; cliTool resolution (incl. the `composer`
+adapter) is built. What remains:
 
-1. **1Password secret resolution (#2).** `apply` writes `.mcp.json` and the
-   settings env block, but `${secret.*}` values are not injected — the
-   `op://` resolver is not built. Replaces `tvt sync` / `tvt rotate`.
-2. **Remote plugin git fetch (#3).** `apply` records plugins in `plugins.json`
-   but does not `git clone` them. `expo` and `higgsfield` also need real
-   version pins (they locked at `0.0.0-main`).
-3. **`composer` cliTool adapter.** `tipctl` installs via `composer` (a
-   build-from-source flow). `ainfra` has no `composer` adapter; the tool stays
-   declare-and-check, and `apply` stops if it is absent. A `composer` adapter
-   (or accepting build-from-source tools as permanently manual) is a #4
-   follow-up.
-4. **Per-developer `rules` templating (#5).** `CLAUDE.md` is rendered per
+1. **Per-developer `rules` templating (#5).** `CLAUDE.md` is rendered per
    developer with `{{FULL_NAME}}` and similar placeholders.
-5. **Scheduled jobs (#6).** The 5 headless `claude -p` cron runs — no
+2. **Scheduled jobs (#6).** The 5 headless `claude -p` cron runs — no
    `scheduledJobs` field exists in the schema.
-6. **Credential-file writing (#7).** `preconditions` *check* credential files;
+3. **Credential-file writing (#7).** `preconditions` *check* credential files;
    writing them (what `tvt sync` does) needs a write-capable primitive.
+4. **Externally-sourced standalone skills.** Agent-agnostic skill repos —
+   e.g. `vercel-labs/skills`, installed via `npx skills` — are not Claude Code
+   marketplaces and belong to the `skills:` channel, not `plugins`. A follow-up
+   should delegate to the `skills` CLI, mirroring how #3 delegates to
+   `claude plugin`.
 
 ## 7. The honest bottom line
 
-`ainfra` now `validate`s, `lock`s, `plan`s, and `apply`s the real, full
-tvt-config. `apply` reconciles the environment end-to-end — it writes a correct
-`.mcp.json`, `CLAUDE.md`, and every channel's files. Two genuine bugs stood
-between "locks cleanly" and "applies cleanly"; both are fixed, and the cliTool
-resolver (#4) is built.
+`ainfra` now `validate`s, `lock`s, `plan`s, `apply`s, and `check`s the real,
+full tvt-config. `apply` reconciles the environment end-to-end — a correct
+`.mcp.json`, `CLAUDE.md`, every channel's files, all cliTools installed, all 5
+plugins installed from a registered marketplace — and `check` is idempotent.
+`ainfra exec` resolves all 14 secrets from 1Password.
 
-What `apply` produces is structurally complete but not yet fully *functional*:
-1Password secret values are not injected (#2) and remote plugins are recorded
-rather than installed (#3). Those two are the critical path to `ainfra apply`
-genuinely replacing `tvt setup`. Sub-projects #5–#7 (per-dev templating,
-scheduled jobs, credential-file writing) follow.
+Sub-projects #1–#4 plus the secret resolver and #3 cover the connectivity and
+installation layers; what stands between here and `ainfra exec -- claude` fully
+replacing `tvt setup` is the rendering layer — per-developer `CLAUDE.md`
+templating (#5) — and the two targeted-infrastructure channels, scheduled jobs
+(#6) and credential-file writing (#7).
