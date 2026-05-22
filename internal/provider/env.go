@@ -47,7 +47,7 @@ func (OSFilesystem) WriteFile(p string, d []byte, m os.FileMode) error { return 
 func (OSFilesystem) Remove(p string) error                             { return os.Remove(p) }
 func (OSFilesystem) Stat(p string) (os.FileInfo, error)                { return os.Stat(p) }
 func (OSFilesystem) MkdirAll(p string, m os.FileMode) error            { return os.MkdirAll(p, m) }
-func (OSFilesystem) RemoveAll(p string) error { return os.RemoveAll(p) }
+func (OSFilesystem) RemoveAll(p string) error                          { return os.RemoveAll(p) }
 func (OSFilesystem) ReadDir(p string) ([]string, error) {
 	entries, err := os.ReadDir(p)
 	if err != nil {

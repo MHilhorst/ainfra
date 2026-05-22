@@ -1,15 +1,15 @@
-package channels_test
+package claudecode_test
 
 import (
 	"encoding/json"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestMCPChannel(t *testing.T) {
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	if got := p.Channel(); got != "mcpServers" {
 		t.Fatalf("Channel() = %q, want %q", got, "mcpServers")
 	}
@@ -19,7 +19,7 @@ func TestMCPObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -38,7 +38,7 @@ func TestMCPObserve_WithServers(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -94,7 +94,7 @@ func TestMCPApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -159,7 +159,7 @@ func TestMCPApply_HTTPTransport(t *testing.T) {
 		},
 	}
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	if _, err := p.Apply(env, plan); err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
 	}
@@ -218,7 +218,7 @@ func TestMCPApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -271,7 +271,7 @@ func TestMCPApply_NoopLeavesFileIdentical(t *testing.T) {
 
 	before, _ := mem.ReadFile("/repo/.mcp.json")
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -309,7 +309,7 @@ func TestMCPApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.MCP{}
+	p := claudecode.MCP{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)

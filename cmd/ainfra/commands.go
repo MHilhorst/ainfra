@@ -124,7 +124,12 @@ func runPlan(ctx cli.Context) int {
 	merged := mergeLocks(committed, personal)
 	warnIfStale(ctx, dir, committed)
 
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), allProviders())
+	providers, err := providersForDir(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
 	plans, err := orch.PlanAll(merged)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -179,7 +184,12 @@ func runApply(ctx cli.Context, yes bool) int {
 		return 1
 	}
 
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), allProviders())
+	providers, err := providersForDir(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
 	plans, err := orch.PlanAllRendered(rendered)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -264,7 +274,12 @@ func runCheck(ctx cli.Context) int {
 	}
 	merged := mergeLocks(committed, personal)
 
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), allProviders())
+	providers, err := providersForDir(dir)
+	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
 	plans, err := orch.PlanAll(merged)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)

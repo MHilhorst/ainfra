@@ -1,15 +1,15 @@
-package channels_test
+package claudecode_test
 
 import (
 	"encoding/json"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestHooksChannel(t *testing.T) {
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	if got := p.Channel(); got != "hooks" {
 		t.Fatalf("Channel() = %q, want %q", got, "hooks")
 	}
@@ -19,7 +19,7 @@ func TestHooksObserve_Empty(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -38,7 +38,7 @@ func TestHooksObserve_WithHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -93,7 +93,7 @@ func TestHooksApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -162,7 +162,7 @@ func TestHooksApply_Create_EmptyMatcher(t *testing.T) {
 		},
 	}
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -206,7 +206,7 @@ func TestHooksApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -262,7 +262,7 @@ func TestHooksApply_NoopLeavesFileIdentical(t *testing.T) {
 
 	before, _ := mem.ReadFile("/repo/.claude/settings.json")
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -303,7 +303,7 @@ func TestHooksApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Hooks{}
+	p := claudecode.Hooks{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)

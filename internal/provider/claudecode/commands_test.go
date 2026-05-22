@@ -1,15 +1,15 @@
-package channels_test
+package claudecode_test
 
 import (
 	"os"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
-	"github.com/MHilhorst/ainfra/internal/provider/channels"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 func TestCommandsChannel(t *testing.T) {
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	if got := p.Channel(); got != "commands" {
 		t.Fatalf("Channel() = %q, want %q", got, "commands")
 	}
@@ -19,7 +19,7 @@ func TestCommandsObserve_MissingDir(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}
 
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -43,7 +43,7 @@ func TestCommandsObserve_WithFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	resources, err := p.Observe(env)
 	if err != nil {
 		t.Fatalf("Observe: unexpected error: %v", err)
@@ -91,7 +91,7 @@ func TestCommandsApply_Create(t *testing.T) {
 		},
 	}
 
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -140,7 +140,7 @@ func TestCommandsApply_Update_Overwrites(t *testing.T) {
 		},
 	}
 
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	_, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -180,7 +180,7 @@ func TestCommandsApply_Delete(t *testing.T) {
 		},
 	}
 
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
@@ -216,7 +216,7 @@ func TestCommandsApply_DryRun(t *testing.T) {
 		},
 	}
 
-	p := channels.Commands{}
+	p := claudecode.Commands{}
 	result, err := p.Apply(env, plan)
 	if err != nil {
 		t.Fatalf("Apply: unexpected error: %v", err)
