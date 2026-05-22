@@ -57,6 +57,9 @@ func ensureMaps(l *Lock) *Lock {
 	if l.Entries.Tools == nil {
 		l.Entries.Tools = map[string]Entry{}
 	}
+	if l.Secrets == nil {
+		l.Secrets = map[string]SecretRef{}
+	}
 	return l
 }
 
