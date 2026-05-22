@@ -300,14 +300,17 @@ func TestE2ERepresentative(t *testing.T) {
 	dir := t.TempDir()
 	copyTestdata(t, filepath.Join("testdata", "representative"), dir)
 
-	// lock
+	// Step 1: lock
 	{
 		var out, errOut bytes.Buffer
 		if code := run([]string{"--chdir", dir, "lock"}, &out, &errOut); code != 0 {
 			t.Fatalf("lock: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
+		if _, err := os.Stat(filepath.Join(dir, "ainfra.lock")); err != nil {
+			t.Fatalf("lock: ainfra.lock not written: %v", err)
+		}
 	}
-	// plan — must show pending changes
+	// Step 2: plan — must show pending changes
 	{
 		var out, errOut bytes.Buffer
 		if code := run([]string{"--chdir", dir, "plan"}, &out, &errOut); code != 0 {
@@ -316,12 +319,18 @@ func TestE2ERepresentative(t *testing.T) {
 		if strings.Contains(out.String()+errOut.String(), "No changes") {
 			t.Errorf("plan: expected pending changes, got 'No changes'")
 		}
+		if !strings.Contains(out.String()+errOut.String(), "to add") {
+			t.Errorf("plan: expected 'to add' in output")
+		}
 	}
-	// apply --yes --no-install
+	// Step 3: apply --yes --no-install
 	{
 		var out, errOut bytes.Buffer
 		if code := run([]string{"--chdir", dir, "apply", "--yes", "--no-install"}, &out, &errOut); code != 0 {
 			t.Fatalf("apply: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		}
+		if _, err := os.Stat(filepath.Join(dir, ".ainfra", "applied.lock")); err != nil {
+			t.Errorf("apply: applied ledger not written: %v", err)
 		}
 	}
 
@@ -336,6 +345,9 @@ func TestE2ERepresentative(t *testing.T) {
 	}
 	if !strings.Contains(string(settings), "PreToolUse") {
 		t.Errorf("settings.json missing the hook event: %s", settings)
+	}
+	if !strings.Contains(string(settings), "audit.sh") {
+		t.Errorf("settings.json missing the hook command: %s", settings)
 	}
 	// .mcp.json contains both the inline and the templated server.
 	mcpRaw, err := os.ReadFile(filepath.Join(dir, ".mcp.json"))
@@ -361,7 +373,7 @@ func TestE2ERepresentative(t *testing.T) {
 		t.Errorf("rule target missing the fragment import: %s", target)
 	}
 
-	// check — no drift.
+	// Step 4: check — no drift.
 	{
 		var out, errOut bytes.Buffer
 		if code := run([]string{"--chdir", dir, "check"}, &out, &errOut); code != 0 {
@@ -371,7 +383,7 @@ func TestE2ERepresentative(t *testing.T) {
 			t.Errorf("check: expected 'No drift'")
 		}
 	}
-	// second plan — no changes.
+	// Step 5: second plan — no changes.
 	{
 		var out, errOut bytes.Buffer
 		if code := run([]string{"--chdir", dir, "plan"}, &out, &errOut); code != 0 {
