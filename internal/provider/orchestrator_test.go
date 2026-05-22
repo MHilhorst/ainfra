@@ -259,6 +259,23 @@ func TestBuildLedgerNoFailuresEqualsDesired(t *testing.T) {
 	}
 }
 
+// TestBuildLedgerCarriesMarketplaces guards against the marketplaces channel
+// being dropped from the ledger — if it is, every apply re-detects drift.
+func TestBuildLedgerCarriesMarketplaces(t *testing.T) {
+	prior := &lockfile.Lock{Version: 1}
+	desired := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Marketplaces: map[string]lockfile.Entry{"trein-vertraging": {Layer: "repo", ContentHash: "h"}},
+	}}
+	results := []ApplyResult{
+		{Channel: "marketplaces", Applied: []Change{{Kind: ChangeCreate, ID: "trein-vertraging"}}},
+	}
+
+	ledger := buildLedger(prior, desired, results)
+	if got := ledger.Entries.Marketplaces["trein-vertraging"].ContentHash; got != "h" {
+		t.Errorf("marketplaces[trein-vertraging] hash = %q, want %q (must be recorded)", got, "h")
+	}
+}
+
 func TestBuildLedgerFailedDeleteKeepsPriorEntry(t *testing.T) {
 	prior := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
 		Skills: map[string]lockfile.Entry{"old": {Layer: "repo", ContentHash: "h"}},

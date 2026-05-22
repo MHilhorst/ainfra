@@ -260,6 +260,7 @@ func buildLedger(prior, desired *lockfile.Lock, results []ApplyResult) *lockfile
 			Commands:           mergeLedgerChannel("commands", d.Commands, p.Commands, bad),
 			CLITools:           mergeLedgerChannel("cliTools", d.CLITools, p.CLITools, bad),
 			Skills:             mergeLedgerChannel("skills", d.Skills, p.Skills, bad),
+			Marketplaces:       mergeLedgerChannel("marketplaces", d.Marketplaces, p.Marketplaces, bad),
 			Plugins:            mergeLedgerChannel("plugins", d.Plugins, p.Plugins, bad),
 			Rules:              mergeLedgerChannel("rules", d.Rules, p.Rules, bad),
 			Tools:              mergeLedgerChannel("tools", d.Tools, p.Tools, bad),
