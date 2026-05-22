@@ -596,6 +596,32 @@ func TestValidateRejectsEmptyEnvRef(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsReferenceModeWithoutRef(t *testing.T) {
+	m := &Manifest{
+		Version: 1,
+		Secrets: map[string]Secret{
+			"db-password": {Mode: "reference", Ref: ""},
+		},
+	}
+	err := Validate(m)
+	if err == nil {
+		t.Fatal("expected an error for a reference-mode secret with no ref")
+	}
+	d, ok := err.(*diag.Diagnostic)
+	if !ok {
+		t.Fatalf("error is %T, want *diag.Diagnostic: %v", err, err)
+	}
+	if d.Summary != "reference-mode secret has no ref" {
+		t.Errorf("summary = %q, want %q", d.Summary, "reference-mode secret has no ref")
+	}
+	if d.Path != "secrets.db-password" {
+		t.Errorf("path = %q, want secrets.db-password", d.Path)
+	}
+	if d.Hint == "" {
+		t.Error("expected a hint")
+	}
+}
+
 func TestValidateAcceptsWellFormedRefs(t *testing.T) {
 	m := &Manifest{
 		Version: 1,

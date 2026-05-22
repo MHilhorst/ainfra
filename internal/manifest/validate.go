@@ -236,6 +236,14 @@ func Validate(m *Manifest) error {
 func validateSecrets(m *Manifest) *diag.Diagnostic {
 	for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
 		s := m.Secrets[id]
+		if s.Mode == "reference" && s.Ref == "" {
+			return &diag.Diagnostic{
+				Summary: "reference-mode secret has no ref",
+				Path:    "secrets." + id,
+				Detail:  fmt.Sprintf("Secret %q uses mode: reference but has no ref; a reference-mode secret must point at a credential ref.", id),
+				Hint:    `Add a ref, e.g.  ref: "op://Engineering/Database/password"`,
+			}
+		}
 		if s.Ref == "" {
 			continue
 		}
