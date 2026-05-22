@@ -30,6 +30,24 @@ func TestRulesObserve_MissingDir(t *testing.T) {
 	}
 }
 
+func TestRulesObserve_ScansHomeDir(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo", Home: "/home/dev"}
+
+	// A "~"-target rule's fragment lives under Home, not Root.
+	if err := mem.WriteFile("/home/dev/.claude/ainfra/team-claude-md.md", []byte("team rules"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := claudecode.Rules{}.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: unexpected error: %v", err)
+	}
+	if len(resources) != 1 || resources[0].ID != "team-claude-md" {
+		t.Fatalf("Observe: got %v, want one resource id team-claude-md", resources)
+	}
+}
+
 func TestRulesObserve_WithFiles(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo"}

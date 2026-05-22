@@ -82,6 +82,9 @@ func RunLock(dir string) error {
 				// (non-templated) mcpServers are resolved in the second layer loop.
 				continue
 			}
+			if srv.Enabled != nil && !*srv.Enabled {
+				continue // disabled servers are not locked
+			}
 			tmpl := allTemplates[srv.Template]
 			insts = append(insts, tagged{id, layerName, srv, tmpl})
 			for field, rf := range tmpl.Resolved {
@@ -202,6 +205,9 @@ func RunLock(dir string) error {
 			srv := m.MCPServers[id]
 			if srv.Template != "" {
 				continue // templated servers are resolved in the first loop
+			}
+			if srv.Enabled != nil && !*srv.Enabled {
+				continue // disabled servers are not locked
 			}
 			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets)
 			if err != nil {
