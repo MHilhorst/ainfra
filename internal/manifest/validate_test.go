@@ -567,3 +567,45 @@ func TestValidateAllRejectsUnknownAgentInGatingList(t *testing.T) {
 		t.Errorf("path = %q, want mcpServers.github", d.Path)
 	}
 }
+
+func TestValidateRejectsMalformedOpRef(t *testing.T) {
+	m := &Manifest{
+		Version: 1,
+		Secrets: map[string]Secret{
+			"db-password": {Mode: "reference", Ref: "op://Vault/Item"}, // missing field segment
+		},
+	}
+	err := Validate(m)
+	if err == nil {
+		t.Fatal("expected an error for an op:// ref missing its field segment")
+	}
+	if !strings.Contains(err.Error(), "op://") {
+		t.Errorf("error should mention the op:// shape, got: %v", err)
+	}
+}
+
+func TestValidateRejectsEmptyEnvRef(t *testing.T) {
+	m := &Manifest{
+		Version: 1,
+		Secrets: map[string]Secret{
+			"token": {Mode: "reference", Ref: "env://"}, // no variable name
+		},
+	}
+	if err := Validate(m); err == nil {
+		t.Fatal("expected an error for an env:// ref with no variable name")
+	}
+}
+
+func TestValidateAcceptsWellFormedRefs(t *testing.T) {
+	m := &Manifest{
+		Version: 1,
+		Secrets: map[string]Secret{
+			"db-password": {Mode: "reference", Ref: "op://Vault/Item/field"},
+			"token":       {Mode: "reference", Ref: "env://API_TOKEN"},
+			"literal":     {Mode: "direct", Value: "inline-value"},
+		},
+	}
+	if err := Validate(m); err != nil {
+		t.Errorf("well-formed secrets should validate, got: %v", err)
+	}
+}

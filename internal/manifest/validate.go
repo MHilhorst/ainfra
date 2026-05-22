@@ -223,6 +223,55 @@ func Validate(m *Manifest) error {
 	if err := validateTools(m.Tools); err != nil {
 		return err
 	}
+	if d := validateSecrets(m); d != nil {
+		return d
+	}
+	return nil
+}
+
+// validateSecrets checks every secrets: entry for a structurally malformed
+// reference. It is offline-only — it does not resolve the secret, just checks
+// the shape of a ref that uses a scheme ainfra knows. Entries are checked in
+// sorted-key order so the first reported problem is deterministic.
+func validateSecrets(m *Manifest) *diag.Diagnostic {
+	for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
+		s := m.Secrets[id]
+		if s.Ref == "" {
+			continue
+		}
+		scheme, rest, ok := strings.Cut(s.Ref, "://")
+		if !ok {
+			continue // not a scheme-style ref; nothing structural to check
+		}
+		switch scheme {
+		case "op":
+			// op://<vault>/<item>/<field> — at least three non-empty segments.
+			segs := strings.Split(rest, "/")
+			nonEmpty := 0
+			for _, seg := range segs {
+				if seg != "" {
+					nonEmpty++
+				}
+			}
+			if nonEmpty < 3 {
+				return &diag.Diagnostic{
+					Summary: "malformed op:// secret reference",
+					Path:    "secrets." + id,
+					Detail:  fmt.Sprintf("Secret %q has ref %q; a 1Password reference is op://<vault>/<item>/<field>.", id, s.Ref),
+					Hint:    `Use three segments, e.g.  ref: "op://Engineering/Database/password"`,
+				}
+			}
+		case "env":
+			if strings.TrimSpace(rest) == "" {
+				return &diag.Diagnostic{
+					Summary: "malformed env:// secret reference",
+					Path:    "secrets." + id,
+					Detail:  fmt.Sprintf("Secret %q has ref %q but names no environment variable.", id, s.Ref),
+					Hint:    `Name the variable, e.g.  ref: "env://API_TOKEN"`,
+				}
+			}
+		}
+	}
 	return nil
 }
 
