@@ -249,6 +249,25 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 			})
 		}
 
+		// marketplaces
+		for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+			if !markSeen(seen, "marketplaces", id) {
+				continue
+			}
+			mp := m.Marketplaces[id]
+			entry := merged.marketplaces[id]
+			result["marketplaces"] = append(result["marketplaces"], provider.Resource{
+				ID:          id,
+				Channel:     "marketplaces",
+				Layer:       entry.Layer,
+				ContentHash: entry.ContentHash,
+				Requires:    entry.Requires,
+				Payload: map[string]any{
+					"source": mp.Source,
+				},
+			})
+		}
+
 		// plugins
 		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
 			if !markSeen(seen, "plugins", id) {
@@ -263,8 +282,8 @@ func RenderResources(dir string) (map[string][]provider.Resource, error) {
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
 				Payload: map[string]any{
-					"source":  p.Source,
-					"version": p.Version,
+					"marketplace": p.Marketplace,
+					"version":     p.Version,
 				},
 			})
 		}
@@ -410,6 +429,7 @@ type mergedEntries struct {
 	commands           map[string]lockfile.Entry
 	cliTools           map[string]lockfile.Entry
 	skills             map[string]lockfile.Entry
+	marketplaces       map[string]lockfile.Entry
 	plugins            map[string]lockfile.Entry
 	rules              map[string]lockfile.Entry
 	tools              map[string]lockfile.Entry
@@ -433,6 +453,7 @@ func mergeLockEntries(committed, personal *lockfile.Lock) mergedEntries {
 		commands:           merge(committed.Entries.Commands, personal.Entries.Commands),
 		cliTools:           merge(committed.Entries.CLITools, personal.Entries.CLITools),
 		skills:             merge(committed.Entries.Skills, personal.Entries.Skills),
+		marketplaces:       merge(committed.Entries.Marketplaces, personal.Entries.Marketplaces),
 		plugins:            merge(committed.Entries.Plugins, personal.Entries.Plugins),
 		rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
 		tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
