@@ -133,7 +133,7 @@ func TestCLIToolsApply_CreateWithBrew_AlreadyInstalled(t *testing.T) {
 	}
 }
 
-func TestCLIToolsApply_UnknownMethodToolAbsent_ReturnsError(t *testing.T) {
+func TestCLIToolsApply_UnknownMethodToolAbsent_Fails(t *testing.T) {
 	runner := provider.NewFakeRunner()
 	// --version probe fails meaning not on PATH
 	runner.Script["mytool --version"] = provider.FakeResult{Err: errors.New("exec: not found")}
@@ -164,12 +164,15 @@ func TestCLIToolsApply_UnknownMethodToolAbsent_ReturnsError(t *testing.T) {
 	}
 
 	p := shared.CLITools{}
-	_, err := p.Apply(env, plan)
-	if err == nil {
-		t.Fatal("Apply: expected error for absent tool with no supported install method, got nil")
+	res, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: per-entry failures go in ApplyResult.Failed, not the error return: %v", err)
 	}
-	if !strings.Contains(err.Error(), "install it manually") {
-		t.Errorf("error message should mention manual install, got: %v", err)
+	if len(res.Failed) != 1 || res.Failed[0].Change.ID != "mytool" {
+		t.Fatalf("Failed = %+v, want one failure for 'mytool'", res.Failed)
+	}
+	if !strings.Contains(res.Failed[0].Err.Error(), "install it manually") {
+		t.Errorf("failure message should mention manual install, got: %v", res.Failed[0].Err)
 	}
 }
 
@@ -388,6 +391,48 @@ func TestCLIToolsApply_NoInstallSkipsAdapter(t *testing.T) {
 	}
 	if len(res.Applied) != 1 {
 		t.Errorf("NoInstall: expected the change still recorded as applied, got %+v", res.Applied)
+	}
+}
+
+func TestCLIToolsApply_OneFailureDoesNotAbortSiblings(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	// "good" installs cleanly.
+	runner.Script["brew list --versions good"] = provider.FakeResult{Err: errors.New("absent")}
+	runner.Script["brew install good"] = provider.FakeResult{Output: []byte("ok")}
+	// "bad" is absent and its install fails.
+	runner.Script["brew list --versions bad"] = provider.FakeResult{Err: errors.New("absent")}
+	runner.Script["brew install bad"] = provider.FakeResult{Err: errors.New("brew install bad: network error")}
+
+	env := provider.Env{FS: provider.NewMemFilesystem(), Runner: runner, Root: "/repo"}
+
+	mkChange := func(id string) provider.Change {
+		return provider.Change{
+			Kind: provider.ChangeCreate,
+			ID:   id,
+			Resource: provider.Resource{
+				ID:      id,
+				Channel: "cliTools",
+				Payload: map[string]any{"install": map[string]any{"brew": map[string]any{}}},
+			},
+		}
+	}
+	plan := provider.ChannelPlan{
+		Channel: "cliTools",
+		Changes: []provider.Change{mkChange("good"), mkChange("bad")},
+	}
+
+	res, err := shared.CLITools{}.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply should not return a top-level error for a per-entry failure: %v", err)
+	}
+	if len(res.Applied) != 1 || res.Applied[0].ID != "good" {
+		t.Errorf("Applied = %+v, want one entry 'good'", res.Applied)
+	}
+	if len(res.Failed) != 1 || res.Failed[0].Change.ID != "bad" {
+		t.Fatalf("Failed = %+v, want one failure 'bad'", res.Failed)
+	}
+	if res.Failed[0].Err == nil {
+		t.Error("Failed[0].Err is nil; want the underlying install error")
 	}
 }
 
