@@ -191,3 +191,58 @@ func TestApplyNoLockFile(t *testing.T) {
 		t.Errorf("apply without lock: expected 'ainfra lock' hint, got: %q", combined)
 	}
 }
+
+func TestApplyPrintsSummary(t *testing.T) {
+	dir := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(dir, "hello.md"), []byte("# hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yaml := "version: 1\ncommands:\n  hello:\n    source: hello.md\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("apply --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
+	}
+	if !strings.Contains(out.String(), "applied 1, skipped 0, failed 0") {
+		t.Errorf("expected an apply summary line, got: %q", out.String())
+	}
+}
+
+func TestApplyFailureListsFailedResource(t *testing.T) {
+	dir := t.TempDir()
+
+	// A CLI tool whose binary is absent and whose only install method is
+	// unrecognised — its cliTools entry fails the declare-and-check probe.
+	yaml := "version: 1\n" +
+		"cliTools:\n" +
+		"  ainfra-absent-tool-xyz:\n" +
+		"    install:\n" +
+		"      manual: {}\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	if code == 0 {
+		t.Fatalf("apply of an absent tool: expected non-zero exit, got 0; out=%q", out.String())
+	}
+	combined := out.String() + errOut.String()
+	if !strings.Contains(combined, "failed 1") {
+		t.Errorf("expected 'failed 1' in the summary, got: %q", combined)
+	}
+	if !strings.Contains(combined, "ainfra-absent-tool-xyz") {
+		t.Errorf("expected the failed resource id in the output, got: %q", combined)
+	}
+}

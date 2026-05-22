@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -138,6 +139,26 @@ func runPlan(ctx cli.Context) int {
 	return 0
 }
 
+// renderApplySummary prints the one-line apply tally and, for any failed or
+// skipped resource, a reason line.
+func renderApplySummary(stdout, stderr io.Writer, results []provider.ApplyResult) {
+	var applied, skipped, failed int
+	for _, r := range results {
+		applied += len(r.Applied)
+		skipped += len(r.Skipped)
+		failed += len(r.Failed)
+	}
+	fmt.Fprintf(stdout, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
+	for _, r := range results {
+		for _, f := range r.Failed {
+			fmt.Fprintf(stderr, "  failed:  %s %s — %v\n", r.Channel, f.Change.ID, f.Err)
+		}
+		for _, s := range r.Skipped {
+			fmt.Fprintf(stderr, "  skipped: %s %s — %s\n", r.Channel, s.Change.ID, s.Reason)
+		}
+	}
+}
+
 func newApplyCommand() *cli.Command {
 	var yes, dryRun, noInstall bool
 	return &cli.Command{
@@ -238,7 +259,9 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 		}
 	}
 
-	if _, err := orch.ApplyAllRendered(rendered, merged); err != nil {
+	results, err := orch.ApplyAllRendered(rendered, merged)
+	renderApplySummary(ctx.Stdout, ctx.Stderr, results)
+	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
