@@ -2,54 +2,131 @@
 
 **Keep your whole dev team's AI tooling in sync.**
 
-Your teammates' AI development setup drifts from yours the moment they install
-it. Different MCP servers, different skills, different hooks, different rules
-files — and no way to see the gap. ainfra makes a team's AI tooling
-config-as-code: define it once in your repo, and every developer reproduces it
-identically with one command.
+Think Terraform — a declarative manifest, `plan` before `apply`, a lockfile — but for your team's AI development setup.
 
-Because ainfra pins and hashes every resolved version into a lockfile, "we're
-in sync" is something you can *verify* — not hope for: a skill or server that
-drifts on a teammate's machine, or changes silently upstream, gets caught.
+Claude Code today · Codex next
+
+**[Quick start](docs/quickstart.md)** · **[Design](docs/design.md)** · **[Manifest schema](spec/manifest-schema.md)** · **[Worked example](examples/multi-database/)**
+
+---
+
+> **Defined once. Reproduced everywhere. Verified in sync.**
+> One manifest describes every developer's AI tooling; one command reproduces it on any machine; a lockfile proves it stayed that way.
+
+## Why ainfra
+
+AI coding agents need configuration to be useful — MCP servers, skills, hooks, rules files — but today every developer sets this up by hand. The moment a teammate installs your setup, theirs starts to drift from yours, and nobody can see the gap.
+
+**ainfra fixes this.** Describe your team's AI tooling once in `ainfra.yaml`, commit it, and every developer who clones the repo reproduces the exact same setup with one command — versions pinned, content hashed, drift caught.
+
+```yaml
+# ainfra.yaml — committed to your repo
+version: 1
+
+secrets:
+  github-token:
+    mode: direct
+    ref: "op://Private/github/token"    # a reference, never a stored value
+
+mcpServers:
+  github:
+    transport: stdio
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-github"]
+    version: "0.6.2"                     # package-launched servers pin a version
+    secret:
+      token: github-token
+
+hooks:
+  gofmt-after-edit:
+    event: PostToolUse
+    matcher: "Edit|Write"
+    command: "gofmt -w ."
+```
+
+```bash
+git clone <org/repo> && cd <repo>
+ainfra plan     # preview what would change on your machine
+ainfra apply    # reconcile your machine to the manifest
+```
+
+ainfra writes the native config your AI tools already read — `.mcp.json`, the bundles under `.claude/`, `CLAUDE.md`. There is nothing to lock into: stop using ainfra tomorrow and every file it wrote still works.
+
+## The three promises
+
+### 1. Defined once — config-as-code
+
+One `ainfra.yaml` describes every channel your agents need, in a file you commit instead of steps you run by hand. It is layered and templated, so an org defines a shape once and every repo reuses it.
+
+- **[Eight channels, one file](spec/manifest-schema.md)** — MCP servers, skills, plugins, rules, tool permissions, CLI tools, hooks, and slash commands
+- **[Layered](docs/design.md#2-locked-architectural-decisions)** — org/team, repo, and personal layers merge under one explicit precedence rule
+- **[Templates](docs/design.md#8-modularity--templates)** — define an MCP-server shape once, instantiate it many times; the multi-database example does exactly this
+- **[Secrets are references](docs/design.md#5-the-environment-primitive--three-credential-modes)** — the manifest holds a pointer (`op://`, Vault, Doppler, …), never a credential value
+
+### 2. Reproduced everywhere — one command
+
+`ainfra apply` reconciles a machine to the manifest: it installs what is missing, writes each channel's config, and works through the dependency graph in order. `plan` previews every change first — `apply` is the only command that writes.
+
+- **[plan before apply](docs/quickstart.md)** — every change is previewed; nothing is reconciled unseen
+- **[Dependency-aware](docs/design.md#7-the-dependency-graph--the-connective-layer)** — installs CLI tools, verifies preconditions (VPN, SSH keys), and starts background services in the right order
+- **[No runtime lock-in](docs/design.md#0-what-this-is)** — writes the native files your tools already read; remove ainfra and they keep working
+- **[Agent-aware](docs/design.md#14-target-agent--a-chooseable-axis)** — Claude Code today; the engine is agent-agnostic, with a Codex renderer as a follow-up
+
+### 3. Verified in sync — the lockfile
+
+`ainfra.lock` pins every resolved version and records a content hash of each one. That turns "we're in sync" into something you can verify, not just hope for. `ainfra check` recomputes the hashes against the live environment and reports any drift.
+
+- **[Drift detection](spec/lockfile-schema.md)** — `ainfra check` flags anything that changed, with a clean exit code for CI
+- **[Catches silent upstream changes](docs/validation.md#scenario-3--an-mcp-server-schema-silently-changes)** — a package or advertised toolset that changes underneath you fails loudly
+- **[Reproducible ports](spec/lockfile-schema.md#4-allocated-ports-are-sticky)** — allocated once, recorded, and reused, so every teammate's tunnels land on the same ports
+- **[Personal config stays private](spec/lockfile-schema.md#7-the-lockfile-is-layered)** — the lockfile is layered; personal entries never land in a committed file
 
 ## What this is — and is not
 
-ainfra is declarative config-as-code for a team's AI tooling — a Terraform-style
-CLI: a declarative manifest, `plan` before `apply`, a lockfile separating
-desired from observed state. It is *not* a runtime MCP gateway — that category
-is saturated and on the official MCP roadmap. ainfra *consumes* gateways,
-secrets managers, and package managers as pluggable backends; it owns none of
-their runtimes.
+ainfra is declarative config-as-code for a team's AI tooling — a Terraform-style CLI with a declarative manifest, `plan` before `apply`, and a lockfile that separates what you want from what is actually on the machine.
 
-There is nothing to lock into. ainfra reconciles a machine by writing the
-native config your AI tools already read — `.mcp.json`, the bundles under
-`.claude/`, `CLAUDE.md`. It is what puts those files in place and keeps them
-verified, not a runtime they depend on. Stop using ainfra tomorrow and every
-file it wrote still works, untouched.
+It is *not* a runtime MCP gateway — that category is crowded and already on the official MCP roadmap. ainfra *consumes* gateways, secrets managers, and package managers as pluggable backends; it runs none of their runtimes itself.
 
 See [docs/design.md](docs/design.md) for the full, decided design.
 
-## Quick start
+## Get Started
+
+Install with Go:
 
 ```sh
 go install github.com/MHilhorst/ainfra/cmd/ainfra@latest
-# or, from a checkout of this repo:
-go build -o ainfra ./cmd/ainfra
-
 ainfra version
 ```
 
-A developer joining a team runs `ainfra plan` then `ainfra apply`. Someone
-authoring a setup runs `ainfra init`, edits `ainfra.yaml`, then `ainfra lock`.
+<details>
+<summary>Build from a checkout</summary>
 
-The [`ainfra.yaml`](ainfra.yaml) at the repository root is a worked showcase —
-a small team setup (MCP servers, a CLI tool, a hook) you can read in 30 seconds
-and try with `ainfra validate`. See [docs/quickstart.md](docs/quickstart.md)
-for the full walkthrough and [`examples/multi-database/`](examples/multi-database/)
-for the hardest case.
+```sh
+git clone https://github.com/MHilhorst/ainfra.git && cd ainfra
+go build -o ainfra ./cmd/ainfra   # then move ./ainfra onto your PATH
+```
 
-Run `ainfra --help` for the command list, or `ainfra <command> --help` for
-per-command detail.
+</details>
+
+**Joining a team** whose repo already has an `ainfra.yaml`:
+
+```sh
+ainfra plan     # preview what would change on your machine
+ainfra apply    # reconcile your machine to the manifest
+ainfra check    # verify nothing has drifted (safe to run anytime, incl. CI)
+```
+
+**Authoring a setup** from scratch:
+
+```sh
+ainfra init        # scaffold an ainfra.yaml
+ainfra validate    # static-check the manifest
+ainfra lock        # resolve it and write ainfra.lock
+```
+
+The [`ainfra.yaml`](ainfra.yaml) at the repository root is a worked example — a small team setup you can read in 30 seconds and try with `ainfra validate`. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough and [`examples/multi-database/`](examples/multi-database/) for the hardest case.
+
+Run `ainfra --help` for the command list, or `ainfra <command> --help` for per-command detail.
 
 ## Commands
 
@@ -64,35 +141,25 @@ per-command detail.
 | `check` | Verify the environment matches the lockfile; report drift |
 | `version` | Print the ainfra version |
 
-Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color`
-disables colored output.
+Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output.
 
 ## Status
 
-The manifest and lockfile schemas, the resolution engine, the channel provider
-layer, and the full CLI surface are built. `init`, `validate`, `schema`, `lock`,
-`version`, `plan`, `apply`, and `check` all work end to end.
+ainfra reconciles a Claude Code environment today. `init`, `validate`, `schema`, `lock`, `plan`, `apply`, `check`, and `version` all work end to end. The manifest and lockfile schemas, the resolution engine, the channel provider layer, and the full CLI are built and tested across five completed build phases (see [docs/design.md §10](docs/design.md#10-build-phases)).
 
-ainfra reconciles a Claude Code environment today. The manifest also carries an
-`agent:` field (`claude-code` or `codex`) and capability-gates each channel per
-agent — so the schema is already agent-agnostic. Remote (git/npm) source
-fetching, the pluggable secret resolver, gateway adapters, and the Codex
-renderer are follow-up phases.
+The schemas were validated *on paper* against five scenarios — see [docs/validation.md](docs/validation.md) — before any implementation code was written.
 
-| Phase | Deliverable | State |
-|-------|-------------|-------|
-| 0 | Repo, design doc, validation gate | done |
-| 1 | Manifest schema (`ainfra.yaml`) — [spec](spec/manifest-schema.md) | done |
-| 2 | Lockfile schema (`ainfra.lock`) — [spec](spec/lockfile-schema.md) | done |
-| 3 | Channel provider interface — powers `plan` / `apply` / `check` | done |
-| 4 | Resolution & precedence engine | done |
-| 5 | CLI surface — all eight commands | done |
+Local source files and inline or templated MCP servers work today. Follow-up phases: remote (git/npm) source fetching, the pluggable secret resolver, gateway adapters, and the Codex renderer. The manifest already carries an `agent:` field and capability-gates each channel per agent, so the schema is agent-agnostic ahead of the Codex renderer.
 
-The schema is the product hypothesis; code is the proof. Phases 1 and 2 were
-validated *on paper* against five scenarios — see
-[docs/validation.md](docs/validation.md) — before implementation began.
+## Build
 
-## Repository layout
+```sh
+go build ./...
+go test ./...
+```
+
+<details>
+<summary>Repository layout</summary>
 
 ```
 ainfra.yaml      Showcase manifest — a small team setup, the read-in-30s example
@@ -107,7 +174,7 @@ internal/
   provider/      channel reconciliation — plan/apply/check, diff, environment
     agentset/    assembles the provider set for the resolved target agent
     claudecode/  Claude Code channel providers (mcp, hooks, commands, rules, …)
-    shared/      agent-agnostic providers (the cliTools substrate)
+    shared/      agent-agnostic providers (the cliTools layer)
     fetch/       retrieve channel-entry bundles from their declared sources
     fsmerge/     filesystem materialization and merge helpers
     pkg/         package-registry resolution for package-launched MCP servers
@@ -121,9 +188,4 @@ examples/        Worked manifests — multi-database is the hardest case
 docs/            Design, validation gate, quick start, specs and plans
 ```
 
-## Build
-
-```sh
-go build ./...
-go test ./...
-```
+</details>

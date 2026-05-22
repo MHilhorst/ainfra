@@ -1,19 +1,22 @@
 # Phase 1 — Manifest Schema (`ainfra.yaml`)
 
-Status: **implemented.** This spec was proven on paper against
-[docs/validation.md](../docs/validation.md) — where a scenario bent the schema,
-the schema was iterated rather than worked around in code — and is now enforced
-by the loader, `ainfra validate`, and the reflected JSON Schema (`ainfra
-schema`).
+Status: **implemented.** This spec was checked on paper against
+[docs/validation.md](../docs/validation.md). Whenever a test scenario exposed a
+gap, the schema itself was changed rather than patched around in code. It is now
+enforced by the loader, `ainfra validate`, and the reflected JSON Schema
+(`ainfra schema`).
 
-The manifest is YAML. `version: 1` is the stable wire promise; schema iterations
-are recorded inline below and in the validation gate.
+The manifest — `ainfra.yaml`, the file describing the team's setup — is written
+in YAML. `version: 1` is the stable wire promise: a fixed format other tools can
+rely on. Later schema changes are recorded inline below and in the validation
+gate.
 
 ---
 
 ## 1. Layers and files
 
-Three layers merge into one resolved state:
+Three layers (separate sources of config, stacked by authority) merge into one
+resolved state:
 
 | Layer | File | Committed? | Authority |
 |-------|------|-----------|-----------|
@@ -29,58 +32,64 @@ extends:
   - source: git+https://github.com/acme/ainfra-team.git@v3.1.0
 ```
 
-`source` schemes: a local path (`./team/ainfra.team.yaml`), `git+https://…@<ref>`,
-or `npm:<pkg>@<version>`. A team layer may itself `extends:` an org layer; the
-chain is resolved depth-first, org-most first.
+A `source` can take three forms: a local path (`./team/ainfra.team.yaml`), a Git
+reference (`git+https://…@<ref>`), or an npm package (`npm:<pkg>@<version>`). A
+team layer may itself `extends:` an org layer. The chain is resolved depth-first,
+with the org-most layer applied first.
 
 ### Precedence (Option C)
 
-Entries are keyed by `channel + id`. When the same key appears in multiple
-layers:
+Each entry belongs to a channel (one category of AI-tooling config — MCP
+servers, hooks, and so on) and has an id. Entries are keyed by `channel + id`.
+When the same key appears in more than one layer:
 
 - The **higher-authority layer wins** (team > repo > personal).
-- A winning entry may set `overridable: true` to *sanction* a lower layer
-  overriding it. Default is `overridable: false`.
+- A winning entry may set `overridable: true` to *sanction* — explicitly permit
+  — a lower layer overriding it. The default is `overridable: false`.
 - Personal entries cannot be overridden (nothing sits below them).
-- An id present in only one layer is used as-is — any layer may *add* entries.
+- An id that appears in only one layer is used as-is — any layer may *add*
+  entries.
 
 This is Anthropic's enterprise > personal > project ordering as the default,
-plus a deliberate opt-in departure. The precedence engine (Phase 4) is the
-mechanical expression of this table.
+plus a deliberate opt-in departure from it. The precedence engine (Phase 4) is
+the code that carries out this table.
 
 ### 1.1 Singleton channels — union merge
 
-The table above resolves id-keyed channels entry by entry. The `tools` channel
-(§10) is different: it is a *singleton* whose fields are lists
-(`permissions.allow` / `ask` / `deny`, `builtins.disabled`). An id-keyed
-last-writer rule fits it badly — a personal layer that adds one `allow`
-pattern would replace the team's entire list.
+The table above resolves id-keyed channels one entry at a time. The `tools`
+channel (§10) works differently. It is a *singleton* — a single entry, not a map
+of ids — and its fields are lists (`permissions.allow` / `ask` / `deny`,
+`builtins.disabled`). A last-writer rule fits it badly: a personal layer that
+adds one `allow` pattern would replace the team's entire list.
 
-`tools` therefore **union-merges** across layers:
+`tools` therefore **union-merges** across layers (combines the lists rather than
+replacing them):
 
 - Each list is the union of that list across the team, repo, and personal
-  layers. The merge is order-independent and the result is sorted.
+  layers. The merge does not depend on order, and the result is sorted.
 - A lower-authority layer can only *extend* a list, never shrink it. A
-  developer may add permissions for their own tooling; they cannot delete a
-  team `deny` or re-enable a team-disabled built-in.
-- When a pattern lands in more than one permission tier after the union, the
+  developer may add permissions for their own tooling, but cannot delete a
+  team `deny` or re-enable a built-in the team disabled.
+- When a pattern ends up in more than one permission tier after the union, the
   strictest tier wins: **`deny` beats `ask` beats `allow`**.
 
-This is the Option-C freedom/guardrail balance expressed for a list-valued
+This is the Option-C freedom/guardrail balance applied to a list-valued
 channel: additive by default, with team guardrails a lower layer cannot lift.
 
 ### 1.2 The target agent
 
 `agent` names the AI coding agent ainfra renders for: `claude-code` (the
-default) or `codex`. It is a scalar, so the `overridable` mechanism — which
-arbitrates id-keyed entries — does not apply. The highest-authority layer that
-declares a non-empty `agent` wins (team, then repo, then personal): a repo that
-sets `agent` standardizes the team on it; a repo that omits it leaves the
-choice to each developer's personal layer.
+default) or `codex`. It is a scalar (a single value, not a list or map), so the
+`overridable` mechanism — which settles conflicts between id-keyed entries —
+does not apply. Instead, the highest-authority layer that declares a non-empty
+`agent` wins (team, then repo, then personal). A repo that sets `agent`
+standardizes the team on it; a repo that omits it leaves the choice to each
+developer's personal layer.
 
 Not every channel exists for every agent — Codex has no skills, plugins,
 hooks, built-in toggles, or slash commands. Any channel entry may carry an
-`agents:` list to scope it:
+`agents:` list to scope it (this is capability-gating — marking which entries
+apply to which AI agent):
 
 ```yaml
 hooks:
@@ -90,9 +99,10 @@ hooks:
     agents: [claude-code]   # this hook applies only when agent is claude-code
 ```
 
-Under a resolved `agent`, an entry in a channel that agent cannot render is a
-hard validation error — unless its `agents:` list omits that agent, which
-cleanly scopes the entry away. An ungated entry never silently disappears.
+Once `agent` is resolved, an entry in a channel that agent cannot render is a
+hard validation error — unless its `agents:` list leaves out that agent, which
+cleanly scopes the entry away. An entry with no `agents:` list (ungated) never
+silently disappears.
 
 ---
 
@@ -117,7 +127,7 @@ commands:           {}      # channel 8 — slash commands (§12)
 ```
 
 (Channel 6, CLI tooling, has no manifest key of its own — it is the `cliTools`
-substrate of §7.)
+block of §7, the underlying command-line tools the other channels rest on.)
 
 Every channel entry (`mcpServers`, `skills`, `plugins`, `rules`, `hooks`,
 `commands`) accepts these common fields:
@@ -132,7 +142,8 @@ Every channel entry (`mcpServers`, `skills`, `plugins`, `rules`, `hooks`,
 
 ## 3. The environment primitive — secrets
 
-A secret is a *reference*, never a value the tool stores. Three modes:
+A secret is a *reference* — a pointer to a credential — never a value the tool
+stores. There are three modes:
 
 ```yaml
 # mode: direct + literal — the always-works baseline
@@ -148,15 +159,17 @@ mode: brokered
 gateway: corp-mcp-gateway
 ```
 
-`ref` scheme selects the resolver adapter: `op://` (1Password), `doppler://`,
-`vault://`, `sops://<file>#<key>`, `env://<VARNAME>` (read an already-set env
-var). `mode` defaults to `direct`.
+The scheme in `ref` picks which resolver adapter fetches the credential:
+`op://` (1Password), `doppler://`, `vault://`, `sops://<file>#<key>`, or
+`env://<VARNAME>` (read an already-set environment variable). `mode` defaults to
+`direct`.
 
-`scope:` declares intent and controls interpolation:
+`scope:` states intent and controls interpolation (substituting values into
+`${...}` placeholders):
 
 - `scope: shared` (default) — one vault item the whole team reads.
-- `scope: personal` — each dev's own item at the same logical path; `ref` may
-  contain `${user}`, resolved per-developer.
+- `scope: personal` — each developer has their own item at the same logical
+  path; `ref` may contain `${user}`, resolved separately per developer.
 
 Named, reusable secrets live at the top level and are referenced by id:
 
@@ -173,7 +186,9 @@ An instance references one with `secret:` (see §4) or declares an inline secret
 
 ## 4. Templates, instances, and resolved fields
 
-The three things the manifest keeps strictly separate (design §8).
+The manifest keeps these three things strictly separate (design §8). A
+*template* is a reusable shape; an *instance* is one concrete use of a template;
+a *resolved field* is a value the tool computes itself.
 
 ### 4.1 Template — the shared shape
 
@@ -196,9 +211,9 @@ templates:
       backgroundService:{ ... }   # an auxiliary node
 ```
 
-`produces` may emit a channel entry of exactly one channel type plus any number
-of auxiliary `backgroundService` nodes. Auxiliary nodes are namespaced by the
-instance id so two instances never collide.
+`produces` may emit a channel entry of exactly one channel type, plus any number
+of supporting `backgroundService` nodes. Those supporting nodes are namespaced
+by the instance id, so two instances never collide.
 
 ### 4.2 Instance — the per-use differences
 
@@ -213,30 +228,31 @@ mcpServers:
 ```
 
 `secret:` maps each secret name the template declares to a top-level secret id,
-or to an inline secret object. The instance supplies *only* what differs:
-params and secret bindings. Nothing else.
+or to an inline secret object. The instance supplies *only* what differs from
+the template: params and secret bindings. Nothing else.
 
 ### 4.3 Resolved fields — tool-owned
 
-Fields declared by no human and computed by the tool. This boundary is what
-makes port collision structurally impossible: no human types a port.
+Fields no human declares — the tool computes them. This boundary is what makes
+port collisions structurally impossible: no human ever types a port number.
 
 | `kind` | Tool behaviour |
 |--------|----------------|
-| `allocated-port` | Allocates a free local port, **stable across runs** — the chosen value is recorded in `ainfra.lock` and reused. |
+| `allocated-port` | Allocates a free local port, **stable across runs** — the chosen value is recorded in the lockfile (`ainfra.lock`, the auto-generated file that pins exact versions) and reused. |
 | `generated-script-path` | Computes the path of a script the tool writes (e.g. a tunnel launcher). |
 | `rendered-hook` | Computes the Claude Code hook block the tool injects. |
 
 ### 4.4 Interpolation
 
-Inside a template body, `${...}` expressions resolve against four namespaces:
+Interpolation replaces `${...}` placeholders with real values. Inside a template
+body, those expressions resolve against four namespaces:
 
-- `${params.<name>}` — instance-supplied param
+- `${params.<name>}` — a param the instance supplied
 - `${instance.id}` — the instance's own id
 - `${secret.<name>}` — a secret the instance bound (resolved at apply/session time)
 - `${resolved.<name>}` — a tool-owned field (§4.3)
 
-Outside templates (a direct, non-templated entry) only `${secrets.<id>}`,
+Outside templates (in a direct, non-templated entry) only `${secrets.<id>}`,
 `${secret.<name>}`, and `${resolved.<name>}` are available.
 
 ---
@@ -262,8 +278,9 @@ mcpServers:
 ```
 
 A templated MCP server is an instance (§4.2). When a gateway is configured, an
-MCP entry may set `via: <gateway-id>` to route through it; absent that, the
-entry lands directly in the dev's `.mcp.json` (direct mode is the baseline).
+MCP entry may set `via: <gateway-id>` to route through it. Without that, the
+entry lands directly in the developer's `.mcp.json` — direct mode is the
+baseline.
 
 ### 5.1 Pinned versions are mandatory for package-launched servers
 
@@ -271,8 +288,9 @@ entry lands directly in the dev's `.mcp.json` (direct mode is the baseline).
 
 If an MCP server's `command`/`args` launch it from a package registry (`npx`,
 `uvx`, `pipx`, …), the entry **must** pin an exact `version:`. A floating range
-or `@latest` is a validation error — it would let the server's code change with
-no change to the launch config, defeating drift detection.
+or `@latest` is a validation error: it would let the server's code change while
+the launch config stays the same, defeating drift detection (drift is config
+quietly falling out of sync with what was declared).
 
 ```yaml
 mcpServers:
@@ -282,10 +300,11 @@ mcpServers:
     version: "2025.4.0"           # required — exact, no range, no @latest
 ```
 
-The lockfile records an `integrity` hash of the resolved package content (and,
-when the server is reachable at `lock` time, a `toolsetHash` of its advertised
-tool list) so that a tampered package or a changed toolset fails `check` loudly.
-See [lockfile-schema.md §3](lockfile-schema.md#3-entry-shape).
+The lockfile records an `integrity` hash of the resolved package content. When
+the server is reachable at `lock` time, it also records a `toolsetHash` of the
+server's advertised tool list. Together these make a tampered package or a
+changed toolset fail `check` loudly. See
+[lockfile-schema.md §3](lockfile-schema.md#3-entry-shape).
 
 ### 5.2 HTTP transport — `url` and `headers`
 
@@ -305,21 +324,23 @@ mcpServers:
       token: { mode: direct, ref: "op://Engineering/linear/mcp" }
 ```
 
-The two transports use disjoint field sets, enforced at validation:
+The two transports use separate, non-overlapping field sets, enforced at
+validation:
 
 - `transport: http` requires `url`; `command` / `args` / `version` are rejected.
-- `transport: stdio` (the default) requires neither; `url` / `headers` are
-  rejected.
+- `transport: stdio` (the default) requires none of those; `url` / `headers`
+  are rejected.
 
-Header values interpolate exactly like `env` (§4.4). A header that resolves
-from a secret follows the same rule as a secret-bearing `env` value — it may be
-written only to gitignored client config, never a committed file (the design doc's failure-modes table).
+Header values interpolate exactly like `env` (§4.4). A header whose value comes
+from a secret follows the same rule as a secret-bearing `env` value: it may be
+written only to gitignored client config, never a committed file (see the
+design doc's failure-modes table).
 
 ---
 
 ## 6. Preconditions — verify-only
 
-Something the tool can only verify, never provision.
+A precondition is something the tool can only check, never set up itself.
 
 ```yaml
 preconditions:
@@ -331,14 +352,14 @@ preconditions:
     remediation: "Connect the team VPN, then re-run ainfra check."
 ```
 
-`check` fails loudly with `remediation` text. The tool never tries to satisfy a
-precondition.
+When `check` fails, it fails loudly and prints the `remediation` text. The tool
+never tries to satisfy a precondition itself.
 
 The `file-exists` check takes a `path` and an optional `mode` (an octal string
 such as `"0600"`). When `mode` is set, the check also verifies the file's
-permission bits, flagging an over-permissive credential file. This is how a
-CLI tool's dependency on a credential file is expressed — ainfra checks the
-file, and deliberately never writes it (the environment primitive stays
+permission bits, flagging a credential file that is readable too widely. This is
+how a CLI tool expresses its dependency on a credential file: ainfra checks the
+file but deliberately never writes it (the environment primitive stays
 reference-only, §3). A `cliTool` points at such a precondition with `requires`
 (§7).
 
@@ -376,20 +397,20 @@ cliTools:
 ```
 
 A `cliTool`'s `env` is delivered through a Claude Code `settings.json` env
-block, so it reaches every Bash tool call in a session — where the
+block, so it reaches every Bash tool call in a session — which is where the
 credential-needing CLIs run. `secret` declares inline secret bindings,
 referenced from `env` as `${secret.<name>}`. `requires` declares dependency
 edges (§9), typically a `file-exists` precondition for a credential file.
 
-> CLI tool and non-templated MCP server *resolution* at lock time (env/headers
+> Resolving CLI tools and non-templated MCP servers at lock time (env/headers
 > interpolation, graph edges, lock entries) is owned by the follow-up plan for
-> non-templated entries; Iteration 5 adds and validates the fields.
+> non-templated entries. Iteration 5 only adds and validates the fields.
 
 If no `install` adapter matches the host OS, the tool falls back to
-declare-and-check: it verifies presence and version and, on failure, prints an
-actionable error naming the tool and constraint. CLI reproducibility is
-best-effort (design §6): the lock records the resolved version but cannot
-guarantee a byte-identical binary.
+declare-and-check: it verifies the tool is present and the right version, and on
+failure prints a clear error naming the tool and the constraint. CLI
+reproducibility is best-effort (design §6): the lock records the resolved
+version but cannot guarantee a byte-identical binary.
 
 ---
 
@@ -418,15 +439,16 @@ backgroundServices:
       port: "${resolved.localPort}"
 ```
 
-The tool **generates** the start/stop scripts and the hook wiring, and **checks**
-the service is up. It does **not** supervise, restart, or own the daemon — that
-is the OS / Claude Code hooks (design §7, §12.1).
+The tool **generates** the start/stop scripts and the hook wiring, and
+**checks** that the service is up. It does **not** supervise, restart, or own
+the daemon — that is left to the OS and Claude Code hooks (design §7, §12.1).
 
 ---
 
 ## 9. The dependency graph — `requires`
 
-Any channel entry, template body, or background service may declare edges:
+Any channel entry, template body, or background service may declare dependency
+edges — links saying it needs another node ready first:
 
 ```yaml
 requires:
@@ -435,9 +457,10 @@ requires:
   - precondition: <precondition-id>
 ```
 
-The tool builds one graph across all layers, topologically orders it, and
-`apply` walks it leaves-first: install CLI tools, verify preconditions, start
-background services, then write channel config. A cycle is a hard error.
+The tool builds one graph across all layers and sorts it topologically (so each
+node comes after everything it depends on). `apply` then walks it leaves-first:
+install CLI tools, verify preconditions, start background services, then write
+channel config. A cycle in the graph is a hard error.
 
 ---
 
@@ -469,14 +492,14 @@ tools:
     deny:  ["Bash(rm -rf:*)"]
 ```
 
-`skills`, `plugins`, and `rules` pin an exact version; the lockfile adds a
+`skills`, `plugins`, and `rules` each pin an exact version; the lockfile adds a
 content hash for strong reproducibility and drift detection (Phase 2). Version
-values are strings — quote them, so `version: "1"` is never misread as a
+values are strings — always quote them, so `version: "1"` is never misread as a
 number.
 
-`tools` is a singleton, not an id-keyed map. Its `permissions` channel is the
+`tools` is a singleton, not an id-keyed map. Its `permissions` block is the
 three-tier Claude Code policy (`allow` / `ask` / `deny`). Across layers it
-union-merges under the rule in §1.1: lists are additive, and `deny` beats
+union-merges under the rule in §1.1: the lists are additive, and `deny` beats
 `ask` beats `allow` for any pattern that appears in more than one tier.
 
 ---
@@ -487,8 +510,9 @@ union-merges under the rule in §1.1: lists are additive, and `deny` beats
 > real team config repo showed the original six channels could not express
 > standalone hooks as managed config (see `docs/assessment-vs-real-config.md`).
 
-A hook binds automation to a Claude Code lifecycle event. It is a first-class,
-layerable, lockable channel — not merely a side-effect of a background service.
+A hook attaches automation to a Claude Code lifecycle event. It is a
+first-class channel in its own right — one that layers and locks like the
+others — not just a side-effect of a background service.
 
 ```yaml
 hooks:
@@ -510,26 +534,26 @@ hooks:
 `SessionEnd`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Notification`,
 `Stop`, `SubagentStop`, `PreCompact`. An unknown event is a validation error.
 
-`matcher` is meaningful for `PreToolUse` / `PostToolUse` (it scopes the hook to
-matching tool names); it is ignored for other events.
+`matcher` only matters for `PreToolUse` / `PostToolUse`, where it scopes the
+hook to matching tool names. For other events it is ignored.
 
-A hook with a `source` script is installed by the tool; `command` references
-the installed path. The lockfile records a content hash of the hook's *declared
-config* (event, matcher, command, source path, timeout), so an edit to that
-config is caught by `check`. Hashing the bundled `source` script's *contents*
-is a fast-follow — the same drift-coverage gap the lockfile spec notes for
-`skills` and `plugins`.
+If a hook has a `source` script, the tool installs it, and `command` then
+references the installed path. The lockfile records a content hash of the hook's
+*declared config* (event, matcher, command, source path, timeout), so an edit to
+that config is caught by `check`. Hashing the bundled `source` script's
+*contents* is a fast-follow — the same drift-coverage gap the lockfile spec
+notes for `skills` and `plugins`.
 
-This channel is distinct from the `generateHook` lifecycle field a background
-service uses (§8) — that field generates *one specific* SessionStart hook to
-launch a service. The `hooks` channel manages *arbitrary, standalone* hooks.
+This channel is separate from the `generateHook` lifecycle field a background
+service uses (§8). That field generates *one specific* SessionStart hook to
+launch a service; the `hooks` channel manages *arbitrary, standalone* hooks.
 
 ---
 
 ## 12. Channel 8 — Commands
 
-A command is a Claude Code slash command — a sourced markdown file. It is
-modelled like `skills`: a `source` plus optional `version`.
+A command is a Claude Code slash command, supplied as a markdown file. It is
+modelled like `skills`: a `source` plus an optional `version`.
 
 ```yaml
 commands:
@@ -543,9 +567,9 @@ commands:
     overridable: false
 ```
 
-`source` accepts the same schemes as `extends` (§1): a local path,
+`source` accepts the same forms as `extends` (§1): a local path,
 `git+https://…@<ref>`, or `npm:<pkg>@<version>`. The lockfile records a content
-hash; for git/npm sources the pinned `version` is recorded too.
+hash; for git and npm sources it also records the pinned `version`.
 
 ---
 
@@ -553,6 +577,6 @@ hash; for git/npm sources the pinned `version` is recorded too.
 
 A *scheduled jobs* channel (cron-style headless `claude -p` runs) was designed
 and briefly implemented as Iteration 4, then reverted from `main`. The full
-design is retained at
+design is kept at
 `docs/superpowers/specs/2026-05-21-scheduled-jobs-design.md` for when the
 channel is revisited. It is **not** part of the current schema.
