@@ -246,6 +246,7 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
+	appendApplyHistory(home, "apply --from", "", lock.ManifestHash, results, ctx.Stderr)
 	fmt.Fprintln(ctx.Stdout, "Apply complete.")
 	return 0
 }
@@ -273,7 +274,8 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 	warnIfStale(ctx, dir, committed)
 
 	// Render resources with Payload so providers can write file content.
-	rendered, err := resolve.RenderResources(dir, provider.ExecRunner{})
+	rctx := resolve.NewContextFromEnv(ctx.Identity, dir, dir)
+	rendered, err := resolve.RenderResourcesFor(dir, provider.ExecRunner{}, rctx)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
@@ -345,6 +347,15 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 		fmt.Fprintln(ctx.Stdout, "Dry run complete — no changes were applied.")
 		return 0
 	}
+
+	// Record apply history for Govern groundwork. Failures here are reported
+	// but never fail the apply — history is observational.
+	layers, lerr := manifest.LoadLayers(dir)
+	agentID := ""
+	if lerr == nil {
+		agentID, _, _ = manifest.ResolveAgent(layers)
+	}
+	appendApplyHistory(dir, "apply", agentID, merged.ManifestHash, results, ctx.Stderr)
 
 	// Final step: resolve the manifest's secrets and write them into the
 	// Claude Code settings env block, so a normally-launched Claude has them.
