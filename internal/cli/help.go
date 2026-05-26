@@ -22,8 +22,9 @@ func (r *Registry) printOverview() {
 	}
 	fmt.Fprintln(r.stdout)
 	fmt.Fprintln(r.stdout, c.Bold("Global flags:"))
-	fmt.Fprintln(r.stdout, "  --chdir <dir>   Run as if started in <dir>")
-	fmt.Fprintln(r.stdout, "  --no-color      Disable colored output")
+	fmt.Fprintln(r.stdout, "  --chdir <dir>     Run as if started in <dir>")
+	fmt.Fprintln(r.stdout, "  --identity <id>   Caller identity for scope filtering (or AINFRA_IDENTITY)")
+	fmt.Fprintln(r.stdout, "  --no-color        Disable colored output")
 	fmt.Fprintln(r.stdout)
 	fmt.Fprintln(r.stdout, `Run "ainfra <command> --help" for command-specific detail.`)
 }

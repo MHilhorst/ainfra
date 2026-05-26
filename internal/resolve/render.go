@@ -18,12 +18,25 @@ import (
 // desired provider.Resource values with Payload populated so providers can
 // render artifacts.
 //
+// It is the back-compatible entry point: a resolution context with the
+// default identity ("human") and invocation path (".") is used. Callers that
+// need to filter by caller identity or invocation path should call
+// RenderResourcesFor.
+func RenderResources(dir string, runner provider.CommandRunner) (map[string][]provider.Resource, error) {
+	return RenderResourcesFor(dir, runner, DefaultContext())
+}
+
+// RenderResourcesFor is the context-aware form of RenderResources. Each entry's
+// scope selector is evaluated against ctx; entries whose selector does not
+// match are filtered out of the rendered set (they are still in the lockfile,
+// but this invocation neither plans nor applies them).
+//
 // It calls RunLock(dir, runner) to write current lockfiles, then reads them to
 // obtain each entry's ContentHash, Layer, and Requires. The manifest is re-read
 // from the layers to build Payload fields. The function therefore relies on a
 // writable working directory; callers should treat the resulting lockfiles as
 // the source of truth for content hashes.
-func RenderResources(dir string, runner provider.CommandRunner) (map[string][]provider.Resource, error) {
+func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx ResolutionContext) (map[string][]provider.Resource, error) {
 	if err := RunLock(dir, runner); err != nil {
 		return nil, err
 	}
@@ -63,6 +76,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 			srv := m.MCPServers[id]
 			// A server with enabled: false is omitted from .mcp.json.
 			if srv.Enabled != nil && !*srv.Enabled {
+				continue
+			}
+			if !SelectorMatches(srv.Scope, ctx) {
 				continue
 			}
 			entry := merged.mcpServers[id]
@@ -150,6 +166,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 				continue
 			}
 			h := m.Hooks[id]
+			if !SelectorMatches(h.Scope, ctx) {
+				continue
+			}
 			entry := merged.hooks[id]
 			payload := map[string]any{
 				"event":   h.Event,
@@ -181,6 +200,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 				continue
 			}
 			c := m.Commands[id]
+			if !SelectorMatches(c.Scope, ctx) {
+				continue
+			}
 			entry := merged.commands[id]
 			var content string
 			if c.Source != "" && !isRemoteSource(c.Source) {
@@ -218,6 +240,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 				continue
 			}
 			r := m.Rules[id]
+			if !SelectorMatches(r.Scope, ctx) {
+				continue
+			}
 			entry := merged.rules[id]
 			var content string
 			if r.Source != "" && !isRemoteSource(r.Source) {
@@ -259,6 +284,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 				continue
 			}
 			s := m.Skills[id]
+			if !SelectorMatches(s.Scope, ctx) {
+				continue
+			}
 			entry := merged.skills[id]
 			result["skills"] = append(result["skills"], provider.Resource{
 				ID:          id,
@@ -298,6 +326,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 				continue
 			}
 			p := m.Plugins[id]
+			if !SelectorMatches(p.Scope, ctx) {
+				continue
+			}
 			entry := merged.plugins[id]
 			result["plugins"] = append(result["plugins"], provider.Resource{
 				ID:          id,
@@ -343,6 +374,9 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 				continue
 			}
 			t := m.CLITools[id]
+			if !SelectorMatches(t.Scope, ctx) {
+				continue
+			}
 			entry := merged.cliTools[id]
 			result["cliTools"] = append(result["cliTools"], provider.Resource{
 				ID:          id,
