@@ -263,3 +263,31 @@ locked state.
 validation are implemented, and both the Claude Code and Codex provider sets
 are built. The full design is
 [multi-agent-renderers-design.md](superpowers/specs/2026-05-21-multi-agent-renderers-design.md).
+
+## 15. Selectors, identity, and global personal layer
+
+Three additions extend §3 layering without changing it. Their rationale and
+the broader review of sx's package-manager model are in
+[sx-comparison.md](sx-comparison.md).
+
+- **Entry selectors** — every channel entry may carry `scope:` with
+  `identities:` and/or `paths:`. A selector filters an entry out of the
+  rendered set when the current invocation does not match. The lockfile is
+  identity-neutral; selectors apply at render time only.
+- **Caller identity** — the global `--identity` flag (or `AINFRA_IDENTITY`)
+  selects a caller name; default `human`. CI runners set it to `ci` (or any
+  team-chosen name) so a single manifest can serve both interactive and
+  unattended applies.
+- **Global personal layer** — `$XDG_CONFIG_HOME/ainfra/personal.yaml` (or
+  `~/.config/ainfra/personal.yaml`) provides cross-repo personal tooling.
+  A repo's `ainfra.personal.yaml` still wins per key; the global file simply
+  fills in entries the repo file does not declare. Both are part of the same
+  personal layer and stay lowest authority vs team/repo.
+- **Apply history** — every non-dry-run `ainfra apply` appends one line per
+  non-noop change to `.ainfra/history.jsonl`. `ainfra history` queries it.
+  Purely observational; it is the cheap substrate for product #2 (§2).
+
+**Path scope is filter-only in v1.** `scope.paths:` controls *whether* an
+entry resolves for this invocation, not *where* it renders to — render targets
+remain the repo-root agent files. Per-entry render targets are a separate,
+larger effort; nested `ainfra.yaml` files cover most monorepo cases today.

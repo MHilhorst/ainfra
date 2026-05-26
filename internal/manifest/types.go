@@ -75,6 +75,16 @@ type Precondition struct {
 	Remediation string         `yaml:"remediation"`
 }
 
+// Selector gates an entry's resolution to a subset of invocations. It is the
+// general form of the existing agents: gate: identities: filters by the
+// caller (`--identity` / AINFRA_IDENTITY); paths: filters by where ainfra was
+// invoked from inside the repo. A nil or fully-empty Selector matches every
+// invocation (the historical default). Glob syntax follows path.Match.
+type Selector struct {
+	Identities []string `yaml:"identities,omitempty"`
+	Paths      []string `yaml:"paths,omitempty"`
+}
+
 // CLITool is an installable substrate binary (spec §7). Env, Secret, and
 // Requires let a tool carry credentials and declare precondition dependencies.
 type CLITool struct {
@@ -86,6 +96,7 @@ type CLITool struct {
 	Requires          []Require                 `yaml:"requires"`
 	Overridable       bool                      `yaml:"overridable"`
 	Agents            []string                  `yaml:"agents,omitempty"`
+	Scope             *Selector                 `yaml:"scope,omitempty"`
 }
 
 // BackgroundService is a persistent process (spec §8).
@@ -174,6 +185,7 @@ type MCPServer struct {
 	Enabled      *bool             `yaml:"enabled"`
 	Overridable  bool              `yaml:"overridable"`
 	Agents       []string          `yaml:"agents,omitempty"`
+	Scope        *Selector         `yaml:"scope,omitempty"`
 }
 
 // Hook is a Claude Code hook — automation bound to a lifecycle event (spec §11).
@@ -187,6 +199,7 @@ type Hook struct {
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
 	Agents      []string  `yaml:"agents,omitempty"`
+	Scope       *Selector `yaml:"scope,omitempty"`
 }
 
 // Command is a Claude Code slash command — a sourced markdown file (spec §12).
@@ -198,6 +211,7 @@ type Command struct {
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
 	Agents      []string  `yaml:"agents,omitempty"`
+	Scope       *Selector `yaml:"scope,omitempty"`
 }
 
 // Require is one dependency-graph edge (spec §9).
@@ -217,6 +231,7 @@ type Skill struct {
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
 	Agents      []string  `yaml:"agents,omitempty"`
+	Scope       *Selector `yaml:"scope,omitempty"`
 }
 
 // Marketplace is a Claude Code plugin marketplace registration (spec §10).
@@ -232,6 +247,7 @@ type Plugin struct {
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
 	Agents      []string  `yaml:"agents,omitempty"`
+	Scope       *Selector `yaml:"scope,omitempty"`
 }
 
 // Rule is a static context file — CLAUDE.md or similar (spec §10).
@@ -244,6 +260,7 @@ type Rule struct {
 	Enabled     *bool     `yaml:"enabled"`
 	Overridable bool      `yaml:"overridable"`
 	Agents      []string  `yaml:"agents,omitempty"`
+	Scope       *Selector `yaml:"scope,omitempty"`
 }
 
 // Tools is the built-in tooling channel — a singleton, not an id-keyed map

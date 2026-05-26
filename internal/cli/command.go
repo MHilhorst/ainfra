@@ -15,12 +15,13 @@ import (
 
 // Context is what a command's Run receives.
 type Context struct {
-	Args    []string  // positional args left after the command's flags
-	Stdin   io.Reader // where confirmation prompts and interactive input come from
-	Stdout  io.Writer // where normal output goes
-	Stderr  io.Writer // where errors go
-	NoColor bool      // resolved --no-color (from either flag position)
-	Dir     string    // working directory, with --chdir applied
+	Args     []string  // positional args left after the command's flags
+	Stdin    io.Reader // where confirmation prompts and interactive input come from
+	Stdout   io.Writer // where normal output goes
+	Stderr   io.Writer // where errors go
+	NoColor  bool      // resolved --no-color (from either flag position)
+	Dir      string    // working directory, with --chdir applied
+	Identity string    // resolved --identity (or AINFRA_IDENTITY); empty means "default"
 }
 
 // Command is one ainfra subcommand.
@@ -76,6 +77,7 @@ func (r *Registry) Dispatch(args []string) int {
 	global.SetOutput(io.Discard)
 	noColor := global.Bool("no-color", false, "disable colored output")
 	chdir := global.String("chdir", "", "run as if started in this directory")
+	identity := global.String("identity", "", "caller identity for scope filtering (overrides AINFRA_IDENTITY)")
 	showVersion := global.Bool("version", false, "print the ainfra version")
 	showV := global.Bool("v", false, "print the ainfra version")
 	if err := global.Parse(args); err != nil {
@@ -136,11 +138,12 @@ func (r *Registry) Dispatch(args []string) int {
 	}
 
 	return cmd.Run(Context{
-		Args:    fs.Args(),
-		Stdin:   r.stdin,
-		Stdout:  r.stdout,
-		Stderr:  r.stderr,
-		NoColor: *noColor || *localNoColor,
-		Dir:     dir,
+		Args:     fs.Args(),
+		Stdin:    r.stdin,
+		Stdout:   r.stdout,
+		Stderr:   r.stderr,
+		NoColor:  *noColor || *localNoColor,
+		Dir:      dir,
+		Identity: *identity,
 	})
 }
