@@ -125,9 +125,9 @@ func newFakeProcess(r *FakeRunner) *FakeProcess {
 	}
 }
 
-func (p *FakeProcess) Stdin() io.WriteCloser  { return p.stdinW }
-func (p *FakeProcess) Stdout() io.ReadCloser  { return p.stdoutR }
-func (p *FakeProcess) Stderr() io.ReadCloser  { return p.stderrR }
+func (p *FakeProcess) Stdin() io.WriteCloser { return p.stdinW }
+func (p *FakeProcess) Stdout() io.ReadCloser { return p.stdoutR }
+func (p *FakeProcess) Stderr() io.ReadCloser { return p.stderrR }
 
 // Kill marks the process killed and tears down its pipes.
 func (p *FakeProcess) Kill() error {
@@ -223,4 +223,3 @@ func (p *FakeProcess) run() {
 		}
 	}
 }
-

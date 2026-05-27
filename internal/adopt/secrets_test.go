@@ -4,9 +4,9 @@ import "testing"
 
 func TestInspectValue(t *testing.T) {
 	cases := []struct {
-		name        string
-		key         string
-		value       string
+		name         string
+		key          string
+		value        string
 		wantStripped bool
 	}{
 		{"ghp prefix", "FOO", "ghp_abcdefghijklmnop", true},

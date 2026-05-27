@@ -114,7 +114,6 @@ mcpServers:
 	}
 }
 
-
 func TestCheckNoDrift(t *testing.T) {
 	dir := t.TempDir()
 

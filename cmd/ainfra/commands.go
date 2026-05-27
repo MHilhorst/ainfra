@@ -742,7 +742,6 @@ func renderToolsetDrift(w io.Writer, report check.Report) {
 	}
 }
 
-
 // checkSecrets verifies every secret reference in both lockfiles is resolvable.
 // It returns one message per unresolvable ref; the messages never contain a
 // secret value.
