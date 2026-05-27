@@ -29,10 +29,11 @@ func providersForDir(dir string) ([]provider.Provider, error) {
 // buildEnv constructs the provider.Env for a given repo root directory.
 func buildEnv(dir string) provider.Env {
 	home, _ := os.UserHomeDir()
+	cache, _ := fetch.NewCache()
 	return provider.Env{
 		FS:     provider.OSFilesystem{},
 		Runner: provider.ExecRunner{},
-		Fetch:  fetch.LocalFetcher{Root: dir},
+		Fetch:  fetch.NewMultiSchemeFetcher(dir, cache),
 		Root:   dir,
 		Home:   home,
 	}
@@ -106,10 +107,11 @@ func subscriberEnv() (provider.Env, string, error) {
 	if err != nil {
 		return provider.Env{}, "", err
 	}
+	cache, _ := fetch.NewCache()
 	return provider.Env{
 		FS:     provider.OSFilesystem{},
 		Runner: provider.ExecRunner{},
-		Fetch:  fetch.LocalFetcher{Root: home},
+		Fetch:  fetch.NewMultiSchemeFetcher(home, cache),
 		Root:   home,
 		Home:   home,
 	}, home, nil
