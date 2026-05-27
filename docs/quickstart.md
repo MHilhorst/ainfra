@@ -29,7 +29,9 @@ ainfra check    # verify nothing has drifted (safe to run anytime, incl. CI)
 ## Authoring a setup
 
 ```sh
-ainfra init        # scaffold an ainfra.yaml
+ainfra init                # scaffold an ainfra.yaml
+ainfra init --with-skill   # …or include the using-ainfra skill so AI agents
+                           #    in this repo learn ainfra's workflow
 # edit ainfra.yaml — add cliTools, mcpServers, hooks, commands
 ainfra validate    # static-check the manifest
 ainfra lock        # resolve it and write ainfra.lock
@@ -37,6 +39,12 @@ git add ainfra.yaml ainfra.lock && git commit
 ```
 
 `ainfra.lock` is the auto-generated lockfile that pins exact versions and content hashes. You commit it. Every teammate then resolves the manifest the same way.
+
+`--with-skill` adds a `skills:` block sourcing
+[`using-ainfra`](../skills/using-ainfra/SKILL.md) from this repo. Once the
+skills channel resolver lands, every teammate's `ainfra apply` materializes
+the skill into `.claude/skills/using-ainfra/`, and any AI agent working in the
+repo sees ainfra's plan/apply/lock/check workflow up front.
 
 ### Editor autocomplete
 

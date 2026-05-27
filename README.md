@@ -82,6 +82,19 @@ ainfra fixes this with three promises:
 
 ainfra is *not* a runtime MCP gateway — it consumes gateways, secrets managers, and package managers as pluggable backends.
 
+## Teach your AI agents how to use ainfra
+
+This repo ships a Claude Code skill at [`skills/using-ainfra/`](skills/using-ainfra/SKILL.md). Reference it from any project's `ainfra.yaml` and every agent that lands in the repo learns the plan/apply/lock/check workflow, the eight channels, and the hard rules (never edit the lockfile, never commit personal config, secrets are references).
+
+```yaml
+skills:
+  using-ainfra:
+    source: "github:MHilhorst/ainfra/skills/using-ainfra"
+    version: "0.1.0"
+```
+
+Or scaffold it at `init` time with `ainfra init --with-skill`.
+
 ## Status
 
 Reconciles a Claude Code or Codex environment today. `init`, `validate`, `schema`, `lock`, `plan`, `apply`, `check`, `publish`, `installer`, and `version` all work end to end across five completed build phases (see [design §10](docs/reference/design.md#10-build-phases)). Schemas were validated on paper against [five scenarios](docs/reference/validation.md) before any code was written.

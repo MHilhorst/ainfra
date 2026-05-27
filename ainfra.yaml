@@ -66,6 +66,11 @@ hooks:
 # or ~/.claude/skills/. The resolver does not process this block yet; it shows
 # the intended shape (see docs/reference/design.md §1).
 skills:
+  # Ships in this repo — teaches any AI agent how to use ainfra in projects
+  # that adopt it. Source it from your own ainfra.yaml the same way.
+  using-ainfra:
+    source: "github:MHilhorst/ainfra/skills/using-ainfra"
+    version: "0.1.0"
   pdf-processing:
     source: "github:anthropics/skills/document-skills/pdf"
     version: "1.4.0"
