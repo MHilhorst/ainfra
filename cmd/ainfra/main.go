@@ -20,6 +20,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newInitCommand())
 	reg.Add(newInstallCommand())
 	reg.Add(newAddCommand())
+	reg.Add(newRemoveCommand())
 	reg.Add(newListCommand())
 	reg.Add(newOutdatedCommand())
 	reg.Add(newVersionCommand())
