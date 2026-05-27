@@ -32,10 +32,12 @@ extends:
   - source: git+https://github.com/acme/ainfra-team.git@v3.1.0
 ```
 
-A `source` can take three forms: a local path (`./team/ainfra.team.yaml`), a Git
-reference (`git+https://…@<ref>`), or an npm package (`npm:<pkg>@<version>`). A
-team layer may itself `extends:` an org layer. The chain is resolved depth-first,
-with the org-most layer applied first.
+A `source` can take four forms: a local path (`./team/ainfra.team.yaml`), a
+GitHub reference (`github:<org>/<repo>[/<sub/path>]@<ref>`, or the equivalent
+`git+https://github.com/<org>/<repo>[…]@<ref>`), an npm package
+(`npm:<pkg>@<version>`), or a plain `https://` URL pointing at a tarball, zip,
+or single file. A team layer may itself `extends:` an org layer. The chain is
+resolved depth-first, with the org-most layer applied first.
 
 ### Precedence (Option C)
 
@@ -568,8 +570,9 @@ commands:
 ```
 
 `source` accepts the same forms as `extends` (§1): a local path,
-`git+https://…@<ref>`, or `npm:<pkg>@<version>`. The lockfile records a content
-hash; for git and npm sources it also records the pinned `version`.
+`github:<org>/<repo>[…]@<ref>` (or the equivalent `git+https://github.com/…`),
+`npm:<pkg>@<version>`, or a plain `https://` URL. The lockfile records a content
+hash; for github, npm, and https sources it also records the pinned `version`.
 
 ---
 

@@ -184,7 +184,7 @@ what a normal package install needs.
 
 ## 10. Build phases
 
-All five phases are implemented — see the
+All six phases are implemented — see the
 [README Status section](../../README.md#status).
 
 - **Phase 0 — Foundation.** This repo and design.
@@ -196,6 +196,12 @@ All five phases are implemented — see the
 - **Phase 4 — Resolution & precedence engine.** Merges the three layers under
   the Option-C rule.
 - **Phase 5 — CLI surface.** `init`, `plan`, `apply`, `check`, `lock`.
+- **Phase 6 — Ship sharpener.** `ainfra adopt` (brownfield import from
+  `.mcp.json` / `.claude/` / `CLAUDE.md`); `toolsetHash` populated at lock time
+  via an MCP stdio client; per-tool drift detection at `ainfra check`
+  (description-hash + input-schema-hash per tool, reporting the changed tool by
+  name); remote-source resolver for `github:`, `npm:`, and `https:` writing
+  through a content-addressed cache at `$XDG_CACHE_HOME/ainfra/sources/`.
 
 ## 11. The validation gate
 
@@ -228,6 +234,7 @@ not aspirations — they are enforced by code and tests.
 | **Undetected post-apply drift** — config is applied once, then the environment changes unnoticed | Any apply-once tool without a verify step | `install --dry-run --strict` recomputes content hashes against the lockfile and reports drift; its exit code is clean for CI use. |
 | **Apply without preview** — a change is reconciled before anyone sees its effect | The mistake Terraform's `plan` exists to prevent | `install --dry-run` is a side-effect-free preview before the writing `install`. |
 | **Schema too rigid** — teams cannot express their case, so they fork or copy-paste | Brittle, hardcoded config tools | Templates and layers (§8), plus generic capability toggles (§8 — no hardcoded server knowledge), keep the schema extensible without forking. |
+| **MCP tool description drift** — a same-version server with silently changed (or poisoned) tool descriptions hijacks agent behaviour without changing the launch config | Documented MCP attack class; systemic STDIO-transport CVEs disclosed by OX Security | `ainfra lock` records a `toolsetHash` of `tools/list` per MCP server (plus per-tool description and input-schema hashes); `ainfra check` re-fetches and exits non-zero on drift, with a per-tool diff naming the changed tool. |
 
 ## 14. Target agent — a chooseable axis
 

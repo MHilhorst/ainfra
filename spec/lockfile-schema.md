@@ -78,7 +78,18 @@ mcpServers:
       tunnelPort: 13306                       # allocated once, reused forever
     version: "0.6.2"                          # pinned package version (manifest §5.1)
     integrity: sha256:5e4d…                   # hash of resolved package content
-    toolsetHash: sha256:c2b1…                 # hash of advertised tool list, if reachable at lock time
+    toolsetHash: sha256:c2b1…                 # hash of advertised tool list, if reachable at lock time (populated since v1)
+    command: npx                              # resolved launch command, replayed at check time
+    args: ["-y", "@vendor/server", "--flag"]  # resolved launch args, replayed at check time
+    env:                                      # resolved env (secret values excluded)
+      LOG_LEVEL: info
+    lockedTools:                              # per-tool fingerprint, populated since v1
+      - name: query
+        descriptionHash: sha256:aa11…
+        inputSchemaHash: sha256:bb22…
+      - name: list_tables
+        descriptionHash: sha256:cc33…
+        inputSchemaHash: sha256:dd44…
     contentHash: sha256:1a2b…
 
 # skills / plugins / rules — pinned to exact version + hash (strong)
@@ -114,7 +125,21 @@ underneath it (validation Iteration 1). Three more fields close that gap:
 - `toolsetHash` — `sha256:` of the server's advertised tool list, captured when
   the server was reachable at `lock` time. It catches a behavioural change even
   within one version. It is omitted (and `check` skips it) when the server
-  could not be reached at lock time.
+  could not be reached at lock time. Populated since v1 by the MCP stdio
+  introspection client; older lockfiles read with it empty fall back to a
+  "re-run `ainfra lock`" nudge.
+- `lockedTools` — additive since v1, populated alongside `toolsetHash`. Each
+  entry has a `name` plus a `descriptionHash` and `inputSchemaHash`. The list
+  is what lets `ainfra check` identify *which* tool changed by name when the
+  toolset hash drifts, rather than only reporting that the aggregate hash
+  moved. Optional: lockfiles written before v1 read with the field empty, and
+  `check` falls back to a single-line aggregate-drift report in that case.
+- `command`, `args`, `env` — additive since v1. They record the resolved
+  launch invocation so `ainfra check` can replay the same subprocess at
+  drift-detection time without re-resolving the manifest. Secret *values* are
+  excluded from `env` for the same reason `contentHash` excludes them. These
+  fields are optional; older lockfiles read with them empty and skip toolset
+  drift detection.
 
 ---
 
