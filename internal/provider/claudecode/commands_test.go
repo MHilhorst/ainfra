@@ -58,8 +58,8 @@ func TestCommandsObserve_WithFiles(t *testing.T) {
 		if r.Channel != "commands" {
 			t.Errorf("resource %q: Channel = %q, want %q", r.ID, r.Channel, "commands")
 		}
-		if r.ContentHash != "" {
-			t.Errorf("resource %q: ContentHash should be empty, got %q", r.ID, r.ContentHash)
+		if r.ContentHash == "" {
+			t.Errorf("resource %q: ContentHash should be populated (drift detection)", r.ID)
 		}
 	}
 	if !ids["greet"] {

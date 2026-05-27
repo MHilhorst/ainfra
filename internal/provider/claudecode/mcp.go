@@ -8,6 +8,7 @@ import (
 	iofs "io/fs"
 	"path/filepath"
 
+	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/fsmerge"
 )
@@ -23,8 +24,10 @@ func mcpPath(env provider.Env) string {
 }
 
 // Observe reads .mcp.json and returns a Resource for each key under mcpServers.
-// A missing file is treated as no resources. ContentHash is left empty; the
-// orchestrator backfills it from the ledger.
+// A missing file is treated as no resources. ContentHash is computed from the
+// on-disk entry using MCPServerCanonicalMap so a hand-edit to any field of a
+// server (version pin in args, env value, command path) surfaces as drift on
+// the next plan or check.
 func (MCP) Observe(env provider.Env) ([]provider.Resource, error) {
 	raw, err := env.FS.ReadFile(mcpPath(env))
 	if errors.Is(err, iofs.ErrNotExist) {
@@ -45,10 +48,12 @@ func (MCP) Observe(env provider.Env) ([]provider.Resource, error) {
 	}
 
 	resources := make([]provider.Resource, 0, len(servers))
-	for key := range servers {
+	for key, entry := range servers {
+		obj, _ := entry.(map[string]any)
 		resources = append(resources, provider.Resource{
-			ID:      key,
-			Channel: "mcpServers",
+			ID:          key,
+			Channel:     "mcpServers",
+			ContentHash: lockfile.ContentHash(MCPServerCanonicalMap(obj)),
 		})
 	}
 	return resources, nil
@@ -91,7 +96,8 @@ func (MCP) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyRes
 }
 
 // buildMCPServerObject constructs the server entry map from a resource payload.
-// Nil or missing optional fields are omitted.
+// Nil or missing optional fields are omitted. This is what gets written to
+// .mcp.json. MCPServerCanonicalMap consumes the same shape from disk.
 func buildMCPServerObject(payload map[string]any) map[string]any {
 	obj := map[string]any{}
 
@@ -115,4 +121,61 @@ func buildMCPServerObject(payload map[string]any) map[string]any {
 	}
 
 	return obj
+}
+
+// MCPServerCanonicalMap returns the canonical on-disk representation of one
+// MCP server entry. It accepts either the on-disk shape (keys "command", "args",
+// "env", "type", "url", "headers") or the resolver's intermediate shape (where
+// "transport" is used in place of "type") and normalizes to the on-disk shape.
+// Empty/nil values are dropped so json.Marshal output is stable.
+//
+// Both the resolver (when computing the lockfile's desired ContentHash) and the
+// Observe path (when hashing what is actually on disk) must agree on this
+// shape; that is the entire point of putting it here.
+func MCPServerCanonicalMap(entry map[string]any) map[string]any {
+	if entry == nil {
+		return map[string]any{}
+	}
+	obj := map[string]any{}
+	if v, ok := entry["command"].(string); ok && v != "" {
+		obj["command"] = v
+	}
+	if v, ok := entry["args"]; ok && !isEmpty(v) {
+		obj["args"] = v
+	}
+	if v, ok := entry["env"]; ok && !isEmpty(v) {
+		obj["env"] = v
+	}
+	// Resolver-side passes "transport"; the on-disk file uses "type".
+	if v, ok := entry["type"].(string); ok && v != "" {
+		obj["type"] = v
+	} else if v, ok := entry["transport"].(string); ok && v != "" {
+		obj["type"] = v
+	}
+	if v, ok := entry["url"].(string); ok && v != "" {
+		obj["url"] = v
+	}
+	if v, ok := entry["headers"]; ok && !isEmpty(v) {
+		obj["headers"] = v
+	}
+	return obj
+}
+
+func isEmpty(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch x := v.(type) {
+	case string:
+		return x == ""
+	case []any:
+		return len(x) == 0
+	case []string:
+		return len(x) == 0
+	case map[string]any:
+		return len(x) == 0
+	case map[string]string:
+		return len(x) == 0
+	}
+	return false
 }
