@@ -1,0 +1,57 @@
+version: 2
+
+project_name: ainfra
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: ainfra
+    main: ./cmd/ainfra
+    binary: ainfra
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X github.com/MHilhorst/ainfra/internal/version.Version={{.Version}}
+
+archives:
+  - id: ainfra
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    formats: [tar.gz]
+    files:
+      - README.md
+      - LICENSE
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"
+
+homebrew_casks:
+  - name: ainfra
+    binaries:
+      - ainfra
+    repository:
+      owner: MHilhorst
+      name: homebrew-ainfra
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
+    homepage: "https://github.com/MHilhorst/ainfra"
+    description: "Declarative infrastructure ownership manifests"
+    commit_author:
+      name: goreleaserbot
+      email: bot@goreleaser.com
+    hooks:
+      post:
+        install: |
+          if OS.mac?
+            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/ainfra"]
+          end
