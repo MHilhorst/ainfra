@@ -176,11 +176,12 @@ func runPlan(ctx cli.Context) int {
 // renderApplySummary prints the one-line apply tally and, for any failed or
 // skipped resource, a reason line.
 func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
-	var applied, skipped, failed int
+	var applied, skipped, failed, warned int
 	for _, r := range results {
 		applied += len(r.Applied)
 		skipped += len(r.Skipped)
 		failed += len(r.Failed)
+		warned += len(r.Warnings)
 	}
 	fmt.Fprintf(w, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
 	for _, r := range results {
@@ -189,6 +190,9 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 		}
 		for _, s := range r.Skipped {
 			fmt.Fprintf(w, "  skipped: %s %s — %s\n", r.Channel, s.Change.ID, s.Reason)
+		}
+		for _, wn := range r.Warnings {
+			fmt.Fprintf(w, "  warning: %s %s — %s\n", r.Channel, wn.Change.ID, wn.Reason)
 		}
 	}
 }
