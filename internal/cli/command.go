@@ -32,6 +32,11 @@ type Command struct {
 	Example   string                 // optional, shown in per-command help
 	SetFlags  func(fs *flag.FlagSet) // registers command-specific flags (optional)
 	Run       func(ctx Context) int  // returns the process exit code
+
+	// Hidden commands work normally but are omitted from `ainfra --help`.
+	// Use for niche / advanced verbs that we keep working but don't want to
+	// front-page (subscriber-mode helpers, secret-resolution sidecars, etc.).
+	Hidden bool
 }
 
 // Registry holds the registered commands and dispatches to them.

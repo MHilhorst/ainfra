@@ -23,6 +23,7 @@ func newPublishCommand() *cli.Command {
 		Summary:   "Package the resolved lockfile into a subscriber artifact",
 		UsageLine: "ainfra publish [--out <dir>]",
 		Example:   "ainfra publish --out ./dist",
+		Hidden:    true,
 		SetFlags:  func(fs *flag.FlagSet) { fs.StringVar(&out, "out", "ainfra-artifact", "artifact output directory") },
 		Run:       func(ctx cli.Context) int { return runPublish(ctx, out) },
 	}

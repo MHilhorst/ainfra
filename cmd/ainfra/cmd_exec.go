@@ -30,6 +30,7 @@ func newExecCommand() *cli.Command {
 		Summary:   "Resolve secrets and run a command with them in its environment",
 		UsageLine: "ainfra exec [-- <command> [args...]]",
 		Example:   "ainfra exec -- claude",
+		Hidden:    true,
 		Run: func(ctx cli.Context) int {
 			return runExecWith(ctx, secret.DefaultRegistry(), syscall.Exec)
 		},

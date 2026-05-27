@@ -26,6 +26,7 @@ func newSyncCommand() *cli.Command {
 		Summary:   "Resolve secrets and write them to the Claude Code settings env block",
 		UsageLine: "ainfra sync",
 		Example:   "ainfra sync",
+		Hidden:    true,
 		Run: func(ctx cli.Context) int {
 			return runSyncWith(ctx, secret.DefaultRegistry())
 		},

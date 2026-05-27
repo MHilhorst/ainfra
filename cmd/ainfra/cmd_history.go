@@ -22,6 +22,7 @@ func newHistoryCommand() *cli.Command {
 		Summary:   "Show recent apply events (who/what/when)",
 		UsageLine: "ainfra history [--since 7d] [--actor <email>] [--channel <name>] [--json]",
 		Example:   "ainfra history --since 24h --channel mcpServers",
+		Hidden:    true,
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.StringVar(&since, "since", "7d", "only events newer than this (e.g. 24h, 7d, 2026-05-20)")
 			fs.StringVar(&actor, "actor", "", "only events by this actor (git user.email)")

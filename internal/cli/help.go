@@ -18,6 +18,9 @@ func (r *Registry) printOverview() {
 	fmt.Fprintln(r.stdout)
 	fmt.Fprintln(r.stdout, c.Bold("Commands:"))
 	for _, cmd := range r.commands {
+		if cmd.Hidden {
+			continue
+		}
 		fmt.Fprintf(r.stdout, "  %-10s %s\n", cmd.Name, cmd.Summary)
 	}
 	fmt.Fprintln(r.stdout)

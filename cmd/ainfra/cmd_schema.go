@@ -18,6 +18,7 @@ func newSchemaCommand() *cli.Command {
 		Summary:   "Print the JSON Schema for ainfra.yaml",
 		UsageLine: "ainfra schema",
 		Example:   "ainfra schema > ainfra.schema.json",
+		Hidden:    true,
 		Run: func(ctx cli.Context) int {
 			out, err := json.MarshalIndent(schema.Generate(), "", "  ")
 			if err != nil {
