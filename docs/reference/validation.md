@@ -6,8 +6,8 @@ a gap in the schema, the schema is changed to fix it — and this document
 records each change.
 
 **Result: the gate passed after 2 schema iterations** (two rounds of changes).
-Both are applied to [spec/manifest-schema.md](../spec/manifest-schema.md) and
-[spec/lockfile-schema.md](../spec/lockfile-schema.md), and described below.
+Both are applied to [spec/manifest-schema.md](../../spec/manifest-schema.md) and
+[spec/lockfile-schema.md](../../spec/lockfile-schema.md), and described below.
 
 ---
 
@@ -69,13 +69,13 @@ and the first-draft schema missed it.
 1. *Manifest schema.* An MCP server (or a template-produced `mcpServer`) whose
    `command`/`args` launch from a package registry **must** pin an exact
    `version`. `@latest` and floating ranges are a validation error. Added to
-   [manifest-schema.md §5](../spec/manifest-schema.md#5-channel-1--mcp-servers).
+   [manifest-schema.md §5](../../spec/manifest-schema.md#5-channel-1--mcp-servers).
 2. *Lockfile schema.* Each MCP entry records two things. First, `integrity:` —
    a hash of the *resolved package content*, not of the launch string. Second,
    when the server was reachable at `lock` time, `toolsetHash:` — a hash of the
    server's advertised tool list. `check` recomputes both, so a changed package
    or a changed advertised toolset now fails loudly. Added to
-   [lockfile-schema.md §3](../spec/lockfile-schema.md#3-entry-shape).
+   [lockfile-schema.md §3](../../spec/lockfile-schema.md#3-entry-shape).
 
 After the iteration: a pinned version makes the registry content immutable, the
 `integrity` hash catches a tampered package, and `toolsetHash` catches a
@@ -103,7 +103,7 @@ gitignored `ainfra.personal.lock` carries `personal` entries (and gives them
 sticky ports too). Promotion then does the right thing automatically: on the
 next `lock`, the entry moves from the personal lockfile to the committed
 lockfile. Added to
-[lockfile-schema.md §7](../spec/lockfile-schema.md#7-the-lockfile-is-layered).
+[lockfile-schema.md §7](../../spec/lockfile-schema.md#7-the-lockfile-is-layered).
 
 After the iteration: personal config never touches a committed file, and
 promotion is a clean move with no content-hash change. **Holds.**
@@ -112,7 +112,7 @@ promotion is a clean move with no content-hash change. **Holds.**
 
 ## Scenario 5 — The multi-database scenario
 
-**Walk.** See [examples/multi-database/](../examples/multi-database/). There is
+**Walk.** See [examples/multi-database/](../../examples/multi-database/). There is
 one `mysql-over-ssh-tunnel` template (a reusable config blueprint) and four
 instances of it (`analytics-db`, `billing-db`, `catalog-db`, `reporting-db`) —
 an instance is one concrete use of a template. The four instances differ only
@@ -149,4 +149,4 @@ The gate is passed. Both iterations were found cheaply, on paper, exactly as
 §11 intends — and both are reflected in the specs. Implementation then
 proceeded against the iterated schema; all five build phases (design §10) are
 now complete. The plan that drove it is
-[docs/superpowers/plans/2026-05-21-ainfra-cli.md](superpowers/plans/2026-05-21-ainfra-cli.md).
+[docs/superpowers/plans/2026-05-21-ainfra-cli.md](../superpowers/plans/2026-05-21-ainfra-cli.md).
