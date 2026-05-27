@@ -12,17 +12,18 @@ import (
 )
 
 // newValidateCommand runs the manifest's static checks without resolving it
-// or writing a lockfile. With --print-schema it prints the JSON Schema for
-// ainfra.yaml instead — folds the (hidden) `ainfra schema` verb into a flag
-// on a top-level verb so editors can be pointed at `ainfra validate
-// --print-schema` once.
+// or writing a lockfile. Deprecated in favor of `install --dry-run`, which
+// performs validation as a side effect of resolving; kept as a hidden alias
+// because it has the unique property of running without a lockfile.
 func newValidateCommand() *cli.Command {
 	var printSchema bool
 	return &cli.Command{
-		Name:      "validate",
-		Summary:   "Check the manifest for errors without resolving it",
-		UsageLine: "ainfra validate [--print-schema]",
-		Example:   "ainfra validate",
+		Name:          "validate",
+		Summary:       "Check the manifest for errors without resolving it",
+		UsageLine:     "ainfra validate [--print-schema]",
+		Example:       "ainfra validate",
+		Hidden:        true,
+		DeprecatedFor: "install --dry-run",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&printSchema, "print-schema", false, "print the JSON Schema for ainfra.yaml and exit")
 		},

@@ -96,11 +96,13 @@ func warnIfStale(ctx cli.Context, dir string, committed *lockfile.Lock) {
 
 func newPlanCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "plan",
-		Summary:   "Show the diff between desired and observed state",
-		UsageLine: "ainfra plan",
-		Example:   "ainfra plan",
-		Run:       runPlan,
+		Name:          "plan",
+		Summary:       "Show the diff between desired and observed state",
+		UsageLine:     "ainfra plan",
+		Example:       "ainfra plan",
+		Hidden:        true,
+		DeprecatedFor: "install --dry-run",
+		Run:           runPlan,
 	}
 }
 
@@ -164,16 +166,19 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 }
 
 func newApplyCommand() *cli.Command {
-	var yes, dryRun, noInstall bool
+	var yes, dryRun, noInstall, strict bool
 	var from string
 	return &cli.Command{
 		Name:      "apply",
 		Summary:   "Reconcile the environment to match the manifest or a published artifact",
-		UsageLine: "ainfra apply [--yes] [--dry-run] [--no-install] [--from <url-or-dir>]",
+		UsageLine: "ainfra apply [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>]",
 		Example:   "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
+		Hidden:    true,
+		DeprecatedFor: "install",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
 			fs.BoolVar(&dryRun, "dry-run", false, "preview the apply without writing anything")
+			fs.BoolVar(&strict, "strict", false, "exit non-zero when --dry-run finds drift (CI shape)")
 			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
 			fs.StringVar(&from, "from", "", "reconcile against a published artifact instead of a repo")
 		},
@@ -181,7 +186,38 @@ func newApplyCommand() *cli.Command {
 			if from != "" {
 				return runApplyFrom(ctx, from, yes)
 			}
-			return runApply(ctx, yes, dryRun, noInstall)
+			return runApply(ctx, yes, dryRun, noInstall, strict)
+		},
+	}
+}
+
+// newInstallCommand is the renamed front-page reconcile verb. Same body as
+// apply, plus the --strict flag that makes --dry-run exit non-zero on any drift
+// (CI shape, replacing the standalone `check` verb).
+func newInstallCommand() *cli.Command {
+	var yes, dryRun, noInstall, strict, printSchema bool
+	var from string
+	return &cli.Command{
+		Name:      "install",
+		Summary:   "Reconcile the environment to match the manifest (install/update everything)",
+		UsageLine: "ainfra install [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>] [--print-schema]",
+		Example:   "ainfra install --yes",
+		SetFlags: func(fs *flag.FlagSet) {
+			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
+			fs.BoolVar(&dryRun, "dry-run", false, "preview without writing (replaces 'ainfra plan')")
+			fs.BoolVar(&strict, "strict", false, "with --dry-run, exit non-zero on any drift (CI shape; replaces 'ainfra check')")
+			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
+			fs.StringVar(&from, "from", "", "reconcile against a published artifact instead of a repo")
+			fs.BoolVar(&printSchema, "print-schema", false, "print the JSON Schema for ainfra.yaml and exit (replaces 'ainfra schema')")
+		},
+		Run: func(ctx cli.Context) int {
+			if printSchema {
+				return runPrintSchema(ctx)
+			}
+			if from != "" {
+				return runApplyFrom(ctx, from, yes)
+			}
+			return runApply(ctx, yes, dryRun, noInstall, strict)
 		},
 	}
 }
@@ -251,7 +287,7 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 	return 0
 }
 
-func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
+func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	dir := ctx.Dir
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
@@ -345,6 +381,9 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 
 	if dryRun {
 		fmt.Fprintln(ctx.Stdout, "Dry run complete — no changes were applied.")
+		if strict {
+			return 1
+		}
 		return 0
 	}
 
@@ -376,10 +415,12 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall bool) int {
 func newCheckCommand() *cli.Command {
 	var from string
 	return &cli.Command{
-		Name:      "check",
-		Summary:   "Verify the environment matches the lockfile or a published artifact; report drift",
-		UsageLine: "ainfra check [--from <url-or-dir>]",
-		Example:   "ainfra check --from https://downloads.example.com/ainfra/sales",
+		Name:          "check",
+		Summary:       "Verify the environment matches the lockfile or a published artifact; report drift",
+		UsageLine:     "ainfra check [--from <url-or-dir>]",
+		Example:       "ainfra check --from https://downloads.example.com/ainfra/sales",
+		Hidden:        true,
+		DeprecatedFor: "install --dry-run --strict",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.StringVar(&from, "from", "", "check against a published artifact instead of a repo")
 		},
