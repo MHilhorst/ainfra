@@ -68,6 +68,17 @@ mcpServers:
 	if !strings.HasPrefix(e.ToolsetHash, "sha256:") {
 		t.Errorf("ToolsetHash missing sha256 prefix: %q", e.ToolsetHash)
 	}
+	// U3: LockedTools and Command/Args/Env are populated alongside ToolsetHash
+	// so `ainfra check` can re-introspect and identify the changed tool by name.
+	if len(e.LockedTools) != 2 {
+		t.Errorf("expected 2 LockedTools; got %d: %+v", len(e.LockedTools), e.LockedTools)
+	}
+	if e.Command != "fake-mcp" {
+		t.Errorf("expected Command=fake-mcp; got %q", e.Command)
+	}
+	if len(e.Args) != 2 || e.Args[0] != "--root" {
+		t.Errorf("expected Args=[--root .]; got %+v", e.Args)
+	}
 }
 
 func TestLockPipelineDistinctToolsetsHashDifferently(t *testing.T) {
