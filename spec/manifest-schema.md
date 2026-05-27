@@ -1,7 +1,7 @@
 # Phase 1 — Manifest Schema (`ainfra.yaml`)
 
 Status: **implemented.** This spec was checked on paper against
-[docs/validation.md](../docs/validation.md). Whenever a test scenario exposed a
+[docs/reference/validation.md](../docs/reference/validation.md). Whenever a test scenario exposed a
 gap, the schema itself was changed rather than patched around in code. It is now
 enforced by the loader, `ainfra install --dry-run`, and the reflected JSON
 Schema (`ainfra install --print-schema`).
@@ -284,7 +284,7 @@ baseline.
 
 ### 5.1 Pinned versions are mandatory for package-launched servers
 
-> Added by Iteration 1 of the [validation gate](../docs/validation.md#scenario-3--an-mcp-server-schema-silently-changes).
+> Added by Iteration 1 of the [validation gate](../docs/reference/validation.md#scenario-3--an-mcp-server-schema-silently-changes).
 
 If an MCP server's `command`/`args` launch it from a package registry (`npx`,
 `uvx`, `pipx`, …), the entry **must** pin an exact `version:`. A floating range
@@ -508,7 +508,7 @@ union-merges under the rule in §1.1: the lists are additive, and `deny` beats
 
 > Added by Iteration 3 of the validation work — assessing the schema against a
 > real team config repo showed the original six channels could not express
-> standalone hooks as managed config (see `docs/assessment-vs-real-config.md`).
+> standalone hooks as managed config (see `docs/reference/assessment-vs-real-config.md`).
 
 A hook attaches automation to a Claude Code lifecycle event. It is a
 first-class channel in its own right — one that layers and locks like the

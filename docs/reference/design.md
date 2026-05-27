@@ -185,11 +185,11 @@ what a normal package install needs.
 ## 10. Build phases
 
 All five phases are implemented — see the
-[README Status section](../README.md#status).
+[README Status section](../../README.md#status).
 
 - **Phase 0 — Foundation.** This repo and design.
-- **Phase 1 — Manifest schema (`ainfra.yaml`).** See [spec](../spec/manifest-schema.md).
-- **Phase 2 — Lockfile schema (`ainfra.lock`).** See [spec](../spec/lockfile-schema.md).
+- **Phase 1 — Manifest schema (`ainfra.yaml`).** See [spec](../../spec/manifest-schema.md).
+- **Phase 2 — Lockfile schema (`ainfra.lock`).** See [spec](../../spec/lockfile-schema.md).
 - **Phase 3 — Channel provider interface.** One contract that every channel
   implements: `resolve() → plan() → apply() → check()`. The agent-targeting
   axis (§14) landed within this phase.
@@ -262,7 +262,7 @@ locked state.
 **Current state.** The `agent` field, capability registry, and gating
 validation are implemented, and both the Claude Code and Codex provider sets
 are built. The full design is
-[multi-agent-renderers-design.md](superpowers/specs/2026-05-21-multi-agent-renderers-design.md).
+[multi-agent-renderers-design.md](../superpowers/specs/2026-05-21-multi-agent-renderers-design.md).
 
 ## 15. Selectors, identity, and global personal layer
 

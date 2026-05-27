@@ -72,6 +72,45 @@ func TestInitGitignoreIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestInitWithSkillIncludesUsingAinfra(t *testing.T) {
+	dir := t.TempDir()
+	var out bytes.Buffer
+	code := run([]string{"--chdir", dir, "init", "--with-skill"}, &out, &bytes.Buffer{})
+	if code != 0 {
+		t.Fatalf("init --with-skill: code=%d", code)
+	}
+	data, err := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
+	if err != nil {
+		t.Fatalf("ainfra.yaml not written: %v", err)
+	}
+	for _, want := range []string{"skills:", "using-ainfra:", "github:MHilhorst/ainfra/skills/using-ainfra"} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("manifest missing %q\n---\n%s", want, data)
+		}
+	}
+	if !strings.Contains(out.String(), "using-ainfra skill") {
+		t.Errorf("expected stdout to mention the skill, got %q", out.String())
+	}
+}
+
+func TestInitWithoutFlagOmitsSkill(t *testing.T) {
+	dir := t.TempDir()
+	run([]string{"--chdir", dir, "init"}, &bytes.Buffer{}, &bytes.Buffer{})
+	data, _ := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
+	if strings.Contains(string(data), "using-ainfra") {
+		t.Errorf("bare init should not include the skill, got:\n%s", data)
+	}
+}
+
+func TestInitPersonalIgnoresWithSkill(t *testing.T) {
+	dir := t.TempDir()
+	run([]string{"--chdir", dir, "init", "--personal", "--with-skill"}, &bytes.Buffer{}, &bytes.Buffer{})
+	data, _ := os.ReadFile(filepath.Join(dir, "ainfra.personal.yaml"))
+	if strings.Contains(string(data), "using-ainfra") {
+		t.Errorf("personal scaffold should never include the skill, got:\n%s", data)
+	}
+}
+
 func TestInitScaffoldsAgentField(t *testing.T) {
 	dir := t.TempDir()
 	code := run([]string{"--chdir", dir, "init"}, &bytes.Buffer{}, &bytes.Buffer{})

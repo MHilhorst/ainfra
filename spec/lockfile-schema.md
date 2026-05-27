@@ -166,7 +166,7 @@ format.
 
 ## 7. The lockfile is layered
 
-> Added by Iteration 2 of the [validation gate](../docs/validation.md#scenario-4--a-personal-skill-then-promoted-to-the-team).
+> Added by Iteration 2 of the [validation gate](../docs/reference/validation.md#scenario-4--a-personal-skill-then-promoted-to-the-team).
 
 The lockfile is split to mirror the manifest's layers, so personal config never
 lands in a committed file:

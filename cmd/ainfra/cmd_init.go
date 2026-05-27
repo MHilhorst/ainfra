@@ -41,26 +41,42 @@ const starterPersonal = `version: 1
 mcpServers: {}
 `
 
+// usingAinfraSkillBlock is appended to the starter manifest when
+// `ainfra init --with-skill` is passed. It pulls in the using-ainfra skill
+// shipped from this repo so any AI agent that lands in the consumer's project
+// learns the plan/apply/lock/check workflow.
+const usingAinfraSkillBlock = `
+# Teach AI agents how to use ainfra in this repo.
+# Source: https://github.com/MHilhorst/ainfra/tree/main/skills/using-ainfra
+skills:
+  using-ainfra:
+    source: "github:MHilhorst/ainfra/skills/using-ainfra"
+    version: "0.1.0"
+`
+
 // newInitCommand scaffolds an ainfra.yaml (or ainfra.personal.yaml).
 func newInitCommand() *cli.Command {
-	var personal, force bool
+	var personal, force, withSkill bool
 	return &cli.Command{
 		Name:      "init",
 		Summary:   "Scaffold an ainfra.yaml in the current repo",
-		UsageLine: "ainfra init [--personal] [--force]",
-		Example:   "ainfra init",
+		UsageLine: "ainfra init [--personal] [--with-skill] [--force]",
+		Example:   "ainfra init --with-skill",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&personal, "personal", false, "scaffold ainfra.personal.yaml instead")
+			fs.BoolVar(&withSkill, "with-skill", false, "include the using-ainfra skill so AI agents know how to use ainfra")
 			fs.BoolVar(&force, "force", false, "overwrite an existing file")
 		},
-		Run: func(ctx cli.Context) int { return runInit(ctx, personal, force) },
+		Run: func(ctx cli.Context) int { return runInit(ctx, personal, withSkill, force) },
 	}
 }
 
-func runInit(ctx cli.Context, personal, force bool) int {
+func runInit(ctx cli.Context, personal, withSkill, force bool) int {
 	name, content := "ainfra.yaml", starterManifest
 	if personal {
 		name, content = "ainfra.personal.yaml", starterPersonal
+	} else if withSkill {
+		content = starterManifest + usingAinfraSkillBlock
 	}
 	path := filepath.Join(ctx.Dir, name)
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
@@ -85,6 +101,9 @@ func runInit(ctx cli.Context, personal, force bool) int {
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	fmt.Fprintln(ctx.Stdout, "ainfra: created "+name)
+	if withSkill && !personal {
+		fmt.Fprintln(ctx.Stdout, "ainfra: included the using-ainfra skill — AI agents in this repo will learn the plan/apply/lock/check workflow.")
+	}
 	ui.Next(ctx.Stdout, c, "edit "+name+", then run 'ainfra lock'.")
 	return 0
 }

@@ -11,7 +11,7 @@ version: 1
 #
 # What resolves today: hooks and commands, plus templated MCP servers. Inline
 # MCP servers and cliTools are validated now and fully resolved once the
-# channel provider layer lands (see docs/design.md, "Status" in README).
+# channel provider layer lands (see docs/reference/design.md, "Status" in README).
 # ---------------------------------------------------------------------------
 
 # --- Installable substrate: binaries the channels below rest on --------------
@@ -80,8 +80,13 @@ hooks:
 # those. ainfra's job is the layer git can't reach: skills sourced from
 # elsewhere, materialized — pinned and content-hashed — into .claude/skills/
 # or ~/.claude/skills/. The resolver does not process this block yet; it shows
-# the intended shape (see docs/design.md §1).
+# the intended shape (see docs/reference/design.md §1).
 skills:
+  # Ships in this repo — teaches any AI agent how to use ainfra in projects
+  # that adopt it. Source it from your own ainfra.yaml the same way.
+  using-ainfra:
+    source: "github:MHilhorst/ainfra/skills/using-ainfra"
+    version: "0.1.0"
   pdf-processing:
     source: "github:anthropics/skills/document-skills/pdf"
     version: "1.4.0"

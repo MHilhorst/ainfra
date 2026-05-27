@@ -1,7 +1,7 @@
 # Example — multi-database
 
 This is **scenario 5**, the hardest modularity test in the design (§8) and the
-primary [validation gate](../../docs/validation.md#scenario-5--the-multi-database-scenario).
+primary [validation gate](../../docs/reference/validation.md#scenario-5--the-multi-database-scenario).
 
 ## What it demonstrates
 
