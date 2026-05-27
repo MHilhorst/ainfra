@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/check"
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
@@ -682,8 +683,12 @@ func runCheck(ctx cli.Context) int {
 
 	secretFailures := checkSecrets(committed, personal, secret.DefaultRegistry())
 	precondFailures := checkPreconditions(dir, buildEnv(dir))
+	toolsetReport := check.CheckToolsetDrift(committed, personal)
 
-	if allEmpty && len(secretFailures) == 0 && len(precondFailures) == 0 {
+	if allEmpty && len(secretFailures) == 0 && len(precondFailures) == 0 && !toolsetReport.HasDrift() {
+		if toolsetReport.UnverifiedCount > 0 {
+			fmt.Fprintf(ctx.Stdout, "note: %d MCP server(s) skipped — unverified at lock time\n", toolsetReport.UnverifiedCount)
+		}
 		fmt.Fprintln(ctx.Stdout, "No drift.")
 		return 0
 	}
@@ -691,6 +696,12 @@ func runCheck(ctx cli.Context) int {
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	if !allEmpty {
 		ui.RenderPlan(ctx.Stdout, c, plans)
+	}
+	if toolsetReport.HasDrift() {
+		renderToolsetDrift(ctx.Stderr, toolsetReport)
+	}
+	if toolsetReport.UnverifiedCount > 0 {
+		fmt.Fprintf(ctx.Stderr, "note: %d MCP server(s) skipped — unverified at lock time\n", toolsetReport.UnverifiedCount)
 	}
 	if len(precondFailures) > 0 {
 		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
@@ -706,6 +717,27 @@ func runCheck(ctx cli.Context) int {
 	}
 	return 1
 }
+
+// renderToolsetDrift prints a human-readable per-tool diff for every MCP
+// server whose live toolset no longer matches its locked fingerprint, or
+// which could not be re-introspected.
+func renderToolsetDrift(w io.Writer, report check.Report) {
+	fmt.Fprintln(w, "Toolset drift:")
+	for _, d := range report.Drifts {
+		if d.IntrospectErr != "" {
+			fmt.Fprintf(w, "  %s: could not re-introspect server: %s\n", d.ServerID, d.IntrospectErr)
+			continue
+		}
+		fmt.Fprintf(w, "  %s: toolset changed (locked %s, live %s)\n", d.ServerID, shortHash(d.LockedHash), shortHash(d.LiveHash))
+		if len(d.Diff) == 0 {
+			continue
+		}
+		for _, td := range d.Diff {
+			fmt.Fprintf(w, "    tool %q: %s\n", td.Name, td.Kind.String())
+		}
+	}
+}
+
 
 // checkSecrets verifies every secret reference in both lockfiles is resolvable.
 // It returns one message per unresolvable ref; the messages never contain a

@@ -66,6 +66,54 @@ func TestList_JSON(t *testing.T) {
 	}
 }
 
+func TestList_JSONIncludesToolsetHash(t *testing.T) {
+	dir := newDemoRepo(t)
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	var out bytes.Buffer
+	if code := run([]string{"--chdir", dir, "list", "--json"}, &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("list --json: code=%d", code)
+	}
+	dec := json.NewDecoder(strings.NewReader(out.String()))
+	sawMCP := false
+	for dec.More() {
+		var e listEntry
+		if err := dec.Decode(&e); err != nil {
+			t.Fatal(err)
+		}
+		if e.Channel == "mcpServers" {
+			sawMCP = true
+			// TestMain disables introspection so the toolset is empty in
+			// this run; we just confirm the field is part of the JSON
+			// surface.
+			if e.ToolsetHash != "" {
+				t.Errorf("expected empty toolsetHash with introspection disabled, got %q", e.ToolsetHash)
+			}
+		}
+	}
+	if !sawMCP {
+		t.Fatalf("no mcpServers row in --json output: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "toolsetHash") {
+		t.Errorf("expected toolsetHash field in JSON output: %q", out.String())
+	}
+}
+
+func TestList_HumanShowsUnverifiedForMCP(t *testing.T) {
+	dir := newDemoRepo(t)
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	var out bytes.Buffer
+	if code := run([]string{"--chdir", dir, "list"}, &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("list: code=%d", code)
+	}
+	if !strings.Contains(out.String(), "unverified") {
+		t.Errorf("expected 'unverified' in list output, got: %q", out.String())
+	}
+}
+
 func TestList_NoLockfile(t *testing.T) {
 	dir := t.TempDir()
 	var errOut bytes.Buffer

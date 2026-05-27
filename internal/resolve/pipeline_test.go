@@ -1,14 +1,308 @@
 package resolve
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/mcpclient"
 	"github.com/MHilhorst/ainfra/internal/provider"
 )
+
+// withIntrospectRunner swaps IntrospectRunner for the duration of a test and
+// restores it (which is DisableIntrospection in TestMain) afterward.
+func withIntrospectRunner(t *testing.T, r mcpclient.Runner) {
+	t.Helper()
+	prev := IntrospectRunner
+	IntrospectRunner = r
+	t.Cleanup(func() { IntrospectRunner = prev })
+}
+
+func newOkIntrospectRunner() *mcpclient.FakeRunner {
+	tools := []map[string]any{
+		{"name": "alpha", "description": "a", "inputSchema": map[string]any{"type": "object"}},
+		{"name": "beta", "description": "b", "inputSchema": map[string]any{"type": "object"}},
+	}
+	body, _ := json.Marshal(map[string]any{"tools": tools})
+	return &mcpclient.FakeRunner{
+		Responses: map[string]json.RawMessage{
+			"initialize": json.RawMessage(`{"protocolVersion":"2024-11-05","capabilities":{}}`),
+			"tools/list": body,
+		},
+	}
+}
+
+func TestLockPipelinePopulatesToolsetHash(t *testing.T) {
+	withIntrospectRunner(t, newOkIntrospectRunner())
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  fs:
+    command: fake-mcp
+    args: ["--root", "."]
+    transport: stdio
+    version: "1.0.0"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunLockWithResult(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RunLockWithResult: %v", err)
+	}
+	if len(res.ToolsetWarnings) != 0 {
+		t.Errorf("unexpected warnings: %+v", res.ToolsetWarnings)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := lock.Entries.MCPServers["fs"]
+	if e.ToolsetHash == "" {
+		t.Fatalf("ToolsetHash empty; entry=%+v", e)
+	}
+	if !strings.HasPrefix(e.ToolsetHash, "sha256:") {
+		t.Errorf("ToolsetHash missing sha256 prefix: %q", e.ToolsetHash)
+	}
+	// U3: LockedTools and Command/Args/Env are populated alongside ToolsetHash
+	// so `ainfra check` can re-introspect and identify the changed tool by name.
+	if len(e.LockedTools) != 2 {
+		t.Errorf("expected 2 LockedTools; got %d: %+v", len(e.LockedTools), e.LockedTools)
+	}
+	if e.Command != "fake-mcp" {
+		t.Errorf("expected Command=fake-mcp; got %q", e.Command)
+	}
+	if len(e.Args) != 2 || e.Args[0] != "--root" {
+		t.Errorf("expected Args=[--root .]; got %+v", e.Args)
+	}
+}
+
+func TestLockPipelineDistinctToolsetsHashDifferently(t *testing.T) {
+	// Two servers with the same command path but different scripted tool
+	// lists must end up with different ToolsetHashes. FakeRunner shares
+	// scripted responses across calls, so we run two locks back-to-back with
+	// different scripted runners.
+	hashFor := func(toolName string) string {
+		body, _ := json.Marshal(map[string]any{"tools": []map[string]any{
+			{"name": toolName, "description": "x", "inputSchema": map[string]any{"type": "object"}},
+		}})
+		withIntrospectRunner(t, &mcpclient.FakeRunner{
+			Responses: map[string]json.RawMessage{
+				"initialize": json.RawMessage(`{"protocolVersion":"2024-11-05","capabilities":{}}`),
+				"tools/list": body,
+			},
+		})
+		dir := t.TempDir()
+		yaml := `version: 1
+mcpServers:
+  one: { command: fake, transport: stdio, version: "1.0.0" }
+`
+		if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := RunLockWithResult(dir, provider.ExecRunner{}); err != nil {
+			t.Fatal(err)
+		}
+		l, _ := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+		return l.Entries.MCPServers["one"].ToolsetHash
+	}
+	a := hashFor("toolA")
+	b := hashFor("toolB")
+	if a == "" || b == "" {
+		t.Fatalf("expected non-empty hashes, got a=%q b=%q", a, b)
+	}
+	if a == b {
+		t.Errorf("distinct toolsets produced the same hash: %q", a)
+	}
+}
+
+func TestLockPipelineTemplatedServerHashesPerInstance(t *testing.T) {
+	withIntrospectRunner(t, newOkIntrospectRunner())
+	dir := t.TempDir()
+	yaml := `version: 1
+templates:
+  fs:
+    params: { root: { type: string, required: true } }
+    produces:
+      mcpServer:
+        transport: stdio
+        command: fake-mcp
+        args: ["${params.root}"]
+        version: "1.0.0"
+mcpServers:
+  a: { template: fs, params: { root: "/a" } }
+  b: { template: fs, params: { root: "/b" } }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunLockWithResult(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("RunLockWithResult: %v", err)
+	}
+	lock, _ := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	for _, id := range []string{"a", "b"} {
+		if lock.Entries.MCPServers[id].ToolsetHash == "" {
+			t.Errorf("server %q: ToolsetHash empty", id)
+		}
+	}
+	// Both instances point at the same scripted runner so their toolset
+	// hashes match; what we care about is that both were populated.
+}
+
+func TestLockPipelineSubprocessFailureRecordsWarning(t *testing.T) {
+	withIntrospectRunner(t, &mcpclient.FakeRunner{StartErr: errSentinel("boom")})
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  fs: { command: fake, transport: stdio, version: "1.0.0" }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunLockWithResult(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RunLockWithResult: %v", err)
+	}
+	lock, _ := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if h := lock.Entries.MCPServers["fs"].ToolsetHash; h != "" {
+		t.Errorf("expected empty ToolsetHash on subprocess failure, got %q", h)
+	}
+	if len(res.ToolsetWarnings) != 1 || res.ToolsetWarnings[0].ServerID != "fs" || res.ToolsetWarnings[0].Reason != "subprocess-failed" {
+		t.Errorf("warnings = %+v, want one subprocess-failed for fs", res.ToolsetWarnings)
+	}
+}
+
+func TestLockPipelineTimeoutRecordsWarning(t *testing.T) {
+	// ResponseDelay greater than the runner's timeout would block forever;
+	// instead we craft a runner whose Start returns a process that never
+	// answers. The simplest way is a FakeRunner with ResponseDelay set high
+	// and a very low introspection budget — but mcpclient.Introspect uses
+	// req.Timeout (defaults 15s). Use a custom runner that returns a never-
+	// answering process and tighten the timeout via the override below.
+	withIntrospectRunner(t, &mcpclient.FakeRunner{
+		Responses: map[string]json.RawMessage{
+			"initialize": json.RawMessage(`{"protocolVersion":"2024-11-05","capabilities":{}}`),
+			"tools/list": json.RawMessage(`{"tools":[]}`),
+		},
+		ResponseDelay: 2 * time.Second,
+	})
+	// Temporarily reduce the budget by swapping IntrospectTimeout if exposed.
+	// If not, use a manually-short timeout via a wrapper. For this test we
+	// simply expect timeout classification when the deadline trips. We get
+	// there by injecting a short ctx in introspectMCPServer; lacking that
+	// hook, we rely on FakeRunner's ResponseDelay being longer than the
+	// per-call timeout below.
+	prev := introspectTimeoutForTests
+	introspectTimeoutForTests = 50 * time.Millisecond
+	t.Cleanup(func() { introspectTimeoutForTests = prev })
+
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  fs: { command: fake, transport: stdio, version: "1.0.0" }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunLockWithResult(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RunLockWithResult: %v", err)
+	}
+	lock, _ := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if h := lock.Entries.MCPServers["fs"].ToolsetHash; h != "" {
+		t.Errorf("expected empty ToolsetHash on timeout, got %q", h)
+	}
+	if len(res.ToolsetWarnings) != 1 || res.ToolsetWarnings[0].Reason != "timeout" {
+		t.Errorf("warnings = %+v, want one timeout for fs", res.ToolsetWarnings)
+	}
+}
+
+func TestLockPipelineNonStdioTransportSkipsIntrospect(t *testing.T) {
+	runner := &mcpclient.FakeRunner{StartErr: errSentinel("should not start")}
+	withIntrospectRunner(t, runner)
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  api:
+    transport: http
+    url: "https://mcp.example.com"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunLockWithResult(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RunLockWithResult: %v", err)
+	}
+	if runner.LastCmd() != "" {
+		t.Errorf("Introspect ran for a non-stdio server (cmd=%q)", runner.LastCmd())
+	}
+	if len(res.ToolsetWarnings) != 1 || res.ToolsetWarnings[0].Reason != "unsupported-transport" {
+		t.Errorf("warnings = %+v, want unsupported-transport", res.ToolsetWarnings)
+	}
+}
+
+func TestLockPipelineToolsetHashStableAcrossRuns(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  fs: { command: fake, transport: stdio, version: "1.0.0" }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hashOf := func() string {
+		withIntrospectRunner(t, newOkIntrospectRunner())
+		if _, err := RunLockWithResult(dir, provider.ExecRunner{}); err != nil {
+			t.Fatal(err)
+		}
+		l, _ := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+		return l.Entries.MCPServers["fs"].ToolsetHash
+	}
+	a := hashOf()
+	b := hashOf()
+	if a == "" {
+		t.Fatal("hash empty on first run")
+	}
+	if a != b {
+		t.Errorf("hash unstable across runs: %q vs %q", a, b)
+	}
+}
+
+func TestLockPipelineWarningsSortedByServerID(t *testing.T) {
+	withIntrospectRunner(t, &mcpclient.FakeRunner{StartErr: errSentinel("nope")})
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  zeta: { command: fake, transport: stdio, version: "1.0.0" }
+  alpha: { command: fake, transport: stdio, version: "1.0.0" }
+  middle: { command: fake, transport: stdio, version: "1.0.0" }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	res, err := RunLockWithResult(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, w := range res.ToolsetWarnings {
+		got = append(got, w.ServerID)
+	}
+	want := []string{"alpha", "middle", "zeta"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Errorf("warnings not sorted: got %v, want %v", got, want)
+	}
+}
+
+// errSentinel is a tiny error type for tests.
+type errSentinel string
+
+func (e errSentinel) Error() string { return string(e) }
 
 func TestLockPipelineOnMultiDBExample(t *testing.T) {
 	dir := t.TempDir()

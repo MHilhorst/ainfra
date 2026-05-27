@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -14,10 +15,11 @@ import (
 
 // listEntry is one row of `ainfra list` output, JSON-stable.
 type listEntry struct {
-	Channel string `json:"channel"`
-	ID      string `json:"id"`
-	Version string `json:"version,omitempty"`
-	Layer   string `json:"layer"`
+	Channel     string `json:"channel"`
+	ID          string `json:"id"`
+	Version     string `json:"version,omitempty"`
+	Layer       string `json:"layer"`
+	ToolsetHash string `json:"toolsetHash"`
 }
 
 // newListCommand reads the merged lockfile and prints one row per installed
@@ -80,9 +82,29 @@ func runList(ctx cli.Context, channelFilter string, asJSON bool) int {
 		if v == "" {
 			v = "—"
 		}
-		fmt.Fprintf(ctx.Stdout, "  %-20s %-30s %-10s %s\n", e.Channel, e.ID, v, e.Layer)
+		toolset := ""
+		if e.Channel == "mcpServers" {
+			if e.ToolsetHash != "" {
+				toolset = shortToolsetHash(e.ToolsetHash)
+			} else {
+				toolset = "unverified"
+			}
+		}
+		fmt.Fprintf(ctx.Stdout, "  %-20s %-30s %-10s %-10s %s\n", e.Channel, e.ID, v, e.Layer, toolset)
 	}
 	return 0
+}
+
+// shortToolsetHash trims "sha256:" and truncates to 12 hex characters, suffixed
+// with "..." for display in the list output.
+func shortToolsetHash(h string) string {
+	if i := strings.IndexByte(h, ':'); i >= 0 {
+		h = h[i+1:]
+	}
+	if len(h) > 12 {
+		return h[:12] + "..."
+	}
+	return h
 }
 
 // collectListEntries walks both lockfiles, applies the channel filter, and
@@ -111,7 +133,7 @@ func collectListEntries(committed, personal *lockfile.Lock, channelFilter string
 				if layerOverride != "" {
 					layer = layerOverride
 				}
-				out = append(out, listEntry{Channel: ch, ID: id, Version: entry.Version, Layer: layer})
+				out = append(out, listEntry{Channel: ch, ID: id, Version: entry.Version, Layer: layer, ToolsetHash: entry.ToolsetHash})
 			}
 		}
 	}

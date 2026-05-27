@@ -135,6 +135,45 @@ weight.
 
 ---
 
+## Scenario 6 — MCP toolset description drift
+
+**Walk.** A team locks an MCP server at a pinned `version`; the lockfile records
+`integrity:` (the package content hash) and `toolsetHash:` (a hash of the live
+`tools/list` description blob captured at lock time). Days later, the upstream
+server ships a new build of the *same* version with one tool's `description`
+field rewritten to push the agent toward a different code path — a classic tool
+description rug-pull. The launch config in `ainfra.yaml` is unchanged, the
+package version is unchanged, and on a server that re-pins its own SHA the
+package `integrity` may also stay the same. Without a toolset signal, `check`
+would stay green while the agent's behaviour shifted underneath it.
+
+**The schema already bent for this in Iteration 1.** `ainfra.lock` records
+`toolsetHash` precisely for this attack class. v1 then populates and verifies it:
+
+- *At lock time.* `ainfra install` (which re-locks when the manifest is newer)
+  starts each MCP server through the stdio transport, calls `tools/list`, and
+  records the aggregate `toolsetHash` plus a `lockedTools` list of per-tool
+  `name` / `descriptionHash` / `inputSchemaHash` fingerprints. The resolved
+  launch invocation (`command`, `args`, `env`, secret values excluded) is also
+  written so `check` can replay it.
+- *At check time.* `ainfra check` re-runs the same `tools/list` against every
+  MCP entry whose lockfile entry has a populated `toolsetHash`. A mismatch
+  fails loudly. Because each tool was hashed individually, the report names
+  the tool: `mcp.github.tool create_pull_request: description changed`. Tools
+  added or removed since lock are reported by name too. Exit is non-zero on
+  any drift or introspection failure.
+
+A lockfile written before v1 — where `toolsetHash` and `lockedTools` are
+empty — falls back to a "re-run `ainfra lock`" nudge instead of crying drift,
+so the additive schema is backward-compatible.
+
+**Holds, no further schema change.** The `toolsetHash`, `lockedTools`,
+`command`, `args`, and `env` fields cover the case end to end. The walk
+exercises both the integrity primitive added in Iteration 1 (now populated)
+and the per-tool diagnostic added with it.
+
+---
+
 ## Outcome
 
 | Scenario | Result |
@@ -144,6 +183,7 @@ weight.
 | 3 — Silent MCP change | Holds **after Iteration 1** |
 | 4 — Personal → team | Holds **after Iteration 2** |
 | 5 — Multi-database | Holds |
+| 6 — Toolset description drift | Holds |
 
 The gate is passed. Both iterations were found cheaply, on paper, exactly as
 §11 intends — and both are reflected in the specs. Implementation then
