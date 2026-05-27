@@ -10,7 +10,7 @@ adapted, and rejected survives the conversation that produced it.
 
 | | ainfra | sx |
 |---|---|---|
-| Shape | Terraform — `plan`/`apply`/`check`, desired vs observed state, drift | Package manager — `sx add` / `sx install`, manifest + lock (npm/cargo/uv lineage) |
+| Shape | Package manager — `install`/`add`/`remove`/`update`/`list`/`outdated` over a content-hashed lockfile. The Terraform-shaped verbs (`plan`/`apply`/`check`) are retained as hidden aliases through 0.x. (see `docs/plans/2026-05-27-002-feat-package-manager-cli-plan.md`) | Package manager — `sx add` / `sx install`, manifest + lock (npm/cargo/uv lineage) |
 | Where config lives | **In the repo it configures** — `ainfra.yaml` committed beside the code | **In a separate central vault** — one `sx.toml` holds all assets for all repos |
 | Composition | Three **layers** (team/repo/personal) **merge** into one resolved state | Per-asset **scopes** **filter** which assets reach which target |
 | Unit | A manifest per repo | An asset in a vault, projected outward |
@@ -31,7 +31,7 @@ sx scope is a gap for ainfra.
 | Identity scopes (`team`/`user`/`bot`, `SX_BOT`) | `scope.identities:` per entry, plus `--identity` and `AINFRA_IDENTITY` | `internal/manifest/types.go` (Selector), `internal/resolve/context.go`, `internal/cli/command.go` |
 | Path scope (`#path` monorepo sub-targeting) | `scope.paths:` per entry — **filter-only in v1**; render targets unchanged | same as above |
 | Profiles / multi-vault | Global personal layer at `$XDG_CONFIG_HOME/ainfra/personal.yaml` (repo wins on conflict) | `internal/manifest/load.go`, `internal/manifest/merge_personal.go` |
-| Audit log (`.sx/audit/*.jsonl`) | Apply history at `.ainfra/history.jsonl` + `ainfra history` | `internal/provider/history.go`, `cmd/ainfra/cmd_history.go` |
+| Audit log (`.sx/audit/*.jsonl`) | Apply history at `.ainfra/history.jsonl` (read directly; `ainfra history` is a hidden alias) | `internal/provider/history.go`, `cmd/ainfra/cmd_history.go` |
 | `metadata.toml` "wrap, don't edit" principle | Adopted as a principle for the skill provider | (not a code change) |
 
 ## Concepts rejected

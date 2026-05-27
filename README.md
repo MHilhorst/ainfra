@@ -2,7 +2,7 @@
 
 **Keep your whole dev team's AI tooling in sync.**
 
-Terraform for your team's AI development setup — a declarative manifest, `plan` before `apply`, and a lockfile that catches drift. Supports Claude Code and Codex.
+A package manager for your team's AI development setup — a declarative manifest, a content-hashed lockfile that catches drift, and the same verbs you already know from `npm` and `brew`. Supports Claude Code and Codex.
 
 **[Quick start](docs/quickstart.md)** · **[Manifest schema](spec/manifest-schema.md)** · **[Design](docs/reference/design.md)** · **[Worked example](examples/multi-database/)**
 
@@ -21,17 +21,16 @@ Or `go install github.com/MHilhorst/ainfra/cmd/ainfra@latest`.
 Joining a team whose repo already has an `ainfra.yaml`:
 
 ```sh
-ainfra plan     # preview what would change on your machine
-ainfra apply    # reconcile your machine to the manifest
-ainfra check    # verify nothing has drifted (safe in CI)
+ainfra install                       # reconcile your machine to the manifest
+ainfra install --dry-run --strict    # CI gate: exit non-zero on drift
 ```
 
-Authoring a new setup:
+Authoring a new setup — most days you work through `add`, never touching YAML by hand:
 
 ```sh
-ainfra init        # scaffold an ainfra.yaml
-ainfra validate    # static-check the manifest
-ainfra lock        # resolve it and write ainfra.lock
+ainfra init                  # scaffold an ainfra.yaml
+ainfra add mcp github        # add an MCP server (writes the entry + installs)
+ainfra list                  # see what's installed
 ```
 
 Run `ainfra --help` for the full command list. The [quick start](docs/quickstart.md) is the full walkthrough; the [`ainfra.yaml`](ainfra.yaml) at the repo root is a worked example you can read in 30 seconds.
@@ -65,8 +64,11 @@ hooks:
 
 ```bash
 git clone <org/repo> && cd <repo>
-ainfra plan && ainfra apply
+ainfra install              # reconcile your machine to the manifest
+ainfra install --dry-run    # preview without writing (CI-friendly with --strict)
 ```
+
+ainfra borrows the package-manager vocabulary on purpose — once you have an `ainfra.yaml`, you mostly work through `install`, `add`, `remove`, `update`, `list`, and `outdated`. Same daily verbs as `npm`, `brew`, or `apt`.
 
 ainfra writes the native config your AI tools already read — `.mcp.json`, the bundles under `.claude/`, `CLAUDE.md`. There is nothing to lock into: stop using ainfra tomorrow and every file it wrote still works.
 
@@ -77,14 +79,14 @@ AI coding agents need configuration to be useful — MCP servers, skills, hooks,
 ainfra fixes this with three promises:
 
 - **Defined once.** One `ainfra.yaml` describes every channel your agents need — MCP servers, skills, plugins, rules, tool permissions, CLI tools, hooks, slash commands — across org/team, repo, and personal [layers](docs/reference/design.md#2-locked-architectural-decisions). Secrets are [references, not values](docs/reference/design.md#5-the-environment-primitive--three-credential-modes).
-- **Reproduced everywhere.** `ainfra apply` reconciles a machine to the manifest, [dependency-aware](docs/reference/design.md#7-the-dependency-graph--the-connective-layer) — installs CLI tools, verifies preconditions (VPN, SSH keys), starts services in the right order. `plan` previews first.
-- **Verified in sync.** `ainfra.lock` pins resolved versions and content hashes; `ainfra check` reports drift with a clean CI exit code, and [catches silent upstream changes](docs/reference/validation.md#scenario-3--an-mcp-server-schema-silently-changes) — a package or advertised toolset shifting underneath you fails loudly.
+- **Reproduced everywhere.** `ainfra install` reconciles a machine to the manifest, [dependency-aware](docs/reference/design.md#7-the-dependency-graph--the-connective-layer) — installs CLI tools, verifies preconditions (VPN, SSH keys), starts services in the right order. `install --dry-run` previews first.
+- **Verified in sync.** `ainfra.lock` pins resolved versions and content hashes; `ainfra install --dry-run --strict` reports drift with a clean CI exit code, and [catches silent upstream changes](docs/reference/validation.md#scenario-3--an-mcp-server-schema-silently-changes) — a package or advertised toolset shifting underneath you fails loudly.
 
 ainfra is *not* a runtime MCP gateway — it consumes gateways, secrets managers, and package managers as pluggable backends.
 
 ## Teach your AI agents how to use ainfra
 
-This repo ships a Claude Code skill at [`skills/using-ainfra/`](skills/using-ainfra/SKILL.md). Reference it from any project's `ainfra.yaml` and every agent that lands in the repo learns the plan/apply/lock/check workflow, the eight channels, and the hard rules (never edit the lockfile, never commit personal config, secrets are references).
+This repo ships a Claude Code skill at [`skills/using-ainfra/`](skills/using-ainfra/SKILL.md). Reference it from any project's `ainfra.yaml` and every agent that lands in the repo learns the install/add/remove/list workflow, the eight channels, and the hard rules (never edit the lockfile, never commit personal config, secrets are references).
 
 ```yaml
 skills:
@@ -95,15 +97,50 @@ skills:
 
 Or scaffold it at `init` time with `ainfra init --with-skill`.
 
+## Commands
+
+| Command | What it does |
+|---------|--------------|
+| `init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
+| `install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
+| `add` | Add an entry to `ainfra.yaml` and reconcile (`ainfra add <channel> <id> [source]`) |
+| `remove` | Remove an entry from `ainfra.yaml` and reconcile |
+| `update` | Re-resolve the lockfile and reinstall (bare or `<channel> <id>`) |
+| `list` | List installed entries (`--channel`, `--json`) |
+| `outdated` | Show entries with newer resolvable versions (`--strict` for CI) |
+| `version` | Print the ainfra version |
+
+Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output; `AINFRA_QUIET=1` suppresses deprecation warnings.
+
+<details>
+<summary>Hidden / deprecated verbs (still callable through 0.x)</summary>
+
+These keep working but are omitted from `ainfra --help`. The first four print a one-line deprecation note on first use and will be removed in 0.2.
+
+| Command | Replacement |
+|---------|-------------|
+| `apply` | `install` |
+| `plan` | `install --dry-run` |
+| `check` | `install --dry-run --strict` |
+| `validate` | `install --dry-run` |
+| `schema` | `install --print-schema` |
+| `sync` | `install` (auto-syncs secrets at end of run) |
+| `exec` | `install` (writes secrets to `.claude/settings.local.json`) |
+| `history` | read `.ainfra/history.jsonl` directly |
+| `lock` | hidden — `install` auto-locks when the manifest is newer |
+| `publish` / `installer` | hidden — subscriber-mode helpers, rarely needed |
+
+</details>
+
 ## Status
 
-Reconciles a Claude Code or Codex environment today. `init`, `validate`, `schema`, `lock`, `plan`, `apply`, `check`, `publish`, `installer`, and `version` all work end to end across five completed build phases (see [design §10](docs/reference/design.md#10-build-phases)). Schemas were validated on paper against [five scenarios](docs/reference/validation.md) before any code was written.
+Reconciles a Claude Code or Codex environment today. `init`, `install` (with all its modes), `add`, `remove`, `update`, `list`, `outdated`, `version`, plus the hidden subscriber-mode helpers (`publish`, `installer`) all work end to end across five completed build phases (see [design §10](docs/reference/design.md#10-build-phases)). Schemas were validated on paper against [five scenarios](docs/reference/validation.md) before any code was written.
 
 Local source files and inline or templated MCP servers work today; fetching sources from remote locations (git/npm) and gateway adapters are the remaining follow-ups.
 
 ### Subscriber mode — non-engineers
 
-Non-engineers (sales, support) need MCP servers in their Claude Desktop app, with no repo and no terminal. `ainfra publish` packages the resolved lockfile into a hash-pinned artifact; `ainfra apply --from <url>` reconciles a machine against it; `ainfra installer` emits a one-time macOS installer that drops a launchd job to apply on a schedule. A failed fetch is a safe no-op.
+Non-engineers (sales, support) need MCP servers in their Claude Desktop app, with no repo and no terminal. `ainfra publish` packages the resolved lockfile into a hash-pinned artifact; `ainfra install --from <url>` reconciles a machine against it; `ainfra installer` emits a one-time macOS installer that drops a launchd job to install on a schedule. A failed fetch is a safe no-op.
 
 ## Build
 

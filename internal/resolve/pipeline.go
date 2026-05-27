@@ -13,6 +13,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/provider"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 	"gopkg.in/yaml.v3"
 )
 
@@ -148,12 +149,14 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 				lock.Secrets[v] = sr
 			}
 			entry.Version = out.MCPServer.Version
-			entry.ContentHash = lockfile.ContentHash(map[string]any{
-				"command": out.MCPServer.Command, "args": out.MCPServer.Args,
-				"version": out.MCPServer.Version, "transport": out.MCPServer.Transport,
-				"url": out.MCPServer.URL,
-				"env": toAnyMap(out.MCPServer.Env), "headers": toAnyMap(out.MCPServer.Headers),
-			})
+			entry.ContentHash = lockfile.ContentHash(claudecode.MCPServerCanonicalMap(map[string]any{
+				"command":   out.MCPServer.Command,
+				"args":      pinPackageVersion(out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Version),
+				"env":       toAnyMap(out.MCPServer.Env),
+				"transport": out.MCPServer.Transport,
+				"url":       out.MCPServer.URL,
+				"headers":   toAnyMap(out.MCPServer.Headers),
+			}))
 			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
 		}
@@ -195,13 +198,27 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			node := "cmd:" + id
 			g.AddNode(node)
 			addRequireEdges(g, node, c.Requires)
-			lock.Entries.Commands[id] = lockfile.Entry{
-				Layer:    string(layerName),
-				Version:  c.Version,
-				Requires: requireRefs(c.Requires),
-				ContentHash: lockfile.ContentHash(map[string]any{
+			// Hash the materialized content (file bytes) so a hand-edit to the
+			// rendered .claude/commands/<id>.md surfaces as drift. Falls back to
+			// the manifest-shape hash when the source file cannot be read
+			// (remote source not yet supported, broken path, etc.) — that keeps
+			// lock deterministic without claiming false fidelity.
+			var contentHash string
+			if c.Source != "" && !isRemoteSource(c.Source) {
+				if raw, err := os.ReadFile(filepath.Join(dir, c.Source)); err == nil {
+					contentHash = lockfile.ContentHash(string(raw))
+				}
+			}
+			if contentHash == "" {
+				contentHash = lockfile.ContentHash(map[string]any{
 					"source": c.Source, "description": c.Description, "version": c.Version,
-				}),
+				})
+			}
+			lock.Entries.Commands[id] = lockfile.Entry{
+				Layer:       string(layerName),
+				Version:     c.Version,
+				Requires:    requireRefs(c.Requires),
+				ContentHash: contentHash,
 			}
 		}
 		for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
@@ -226,12 +243,14 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 				Layer:    string(layerName),
 				Version:  srv.Version,
 				Requires: requireRefs(srv.Requires),
-				ContentHash: lockfile.ContentHash(map[string]any{
-					"command": srv.Command, "args": srv.Args,
-					"version": srv.Version, "transport": srv.Transport,
-					"url": srv.URL,
-					"env": toAnyMap(srv.Env), "headers": toAnyMap(srv.Headers),
-				}),
+				ContentHash: lockfile.ContentHash(claudecode.MCPServerCanonicalMap(map[string]any{
+					"command":   srv.Command,
+					"args":      pinPackageVersion(srv.Command, srv.Args, srv.Version),
+					"env":       toAnyMap(srv.Env),
+					"transport": srv.Transport,
+					"url":       srv.URL,
+					"headers":   toAnyMap(srv.Headers),
+				})),
 			}
 		}
 		for _, id := range slices.Sorted(maps.Keys(m.Skills)) {

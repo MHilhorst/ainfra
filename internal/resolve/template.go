@@ -62,7 +62,28 @@ func Instantiate(id string, inst manifest.MCPServer, tmpl manifest.Template, res
 			return Instance{}, err
 		}
 		if len(src.Args) > 0 {
-			srv.Args = append([]string(nil), src.Args...)
+			srv.Args = make([]string, len(src.Args))
+			for i, a := range src.Args {
+				av, ierr := Interpolate(a, scope)
+				if ierr != nil {
+					return Instance{}, ierr
+				}
+				srv.Args[i] = av
+			}
+		}
+		if src.Command != "" {
+			cv, ierr := Interpolate(src.Command, scope)
+			if ierr != nil {
+				return Instance{}, ierr
+			}
+			srv.Command = cv
+		}
+		if src.URL != "" {
+			uv, ierr := Interpolate(src.URL, scope)
+			if ierr != nil {
+				return Instance{}, ierr
+			}
+			srv.URL = uv
 		}
 		if src.Enabled != nil {
 			b := *src.Enabled

@@ -14,10 +14,12 @@ import (
 // inline validation while authoring a manifest.
 func newSchemaCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "schema",
-		Summary:   "Print the JSON Schema for ainfra.yaml",
-		UsageLine: "ainfra schema",
-		Example:   "ainfra schema > ainfra.schema.json",
+		Name:          "schema",
+		Summary:       "Print the JSON Schema for ainfra.yaml",
+		UsageLine:     "ainfra schema",
+		Example:       "ainfra schema > ainfra.schema.json",
+		Hidden:        true,
+		DeprecatedFor: "install --print-schema",
 		Run: func(ctx cli.Context) int {
 			out, err := json.MarshalIndent(schema.Generate(), "", "  ")
 			if err != nil {

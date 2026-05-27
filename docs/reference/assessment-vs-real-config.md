@@ -1,5 +1,12 @@
 # Assessment — `ainfra` vs. a real team config repo
 
+> **Note (2026-05-27):** This document was written when the CLI used
+> Terraform-shaped verbs (`apply`, `plan`, `check`, `validate`, `lock`,
+> `schema`, `exec`). Those verbs still work as hidden aliases. The current
+> front-page surface is `init`, `install`, `add`, `remove`, `update`,
+> `list`, `outdated`, `version` — see `README.md`. The substance of this
+> assessment (what was tested, what bugs were found) is unchanged.
+
 The [validation gate](validation.md) ran the schema against a *hand-picked*
 multi-database scenario. This document does the harder, honester test: it maps
 `ainfra` against a **real, in-production Claude Code config repo** — the

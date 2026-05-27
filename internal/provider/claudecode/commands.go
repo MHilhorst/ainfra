@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/fsmerge"
 )
@@ -26,8 +27,9 @@ func commandPath(env provider.Env, id string) string {
 }
 
 // Observe lists *.md files in <root>/.claude/commands/ and returns a Resource
-// per file. A missing directory is treated as no resources. ContentHash is left
-// empty; the orchestrator backfills it from the ledger.
+// per file. A missing directory is treated as no resources. ContentHash is the
+// sha256 of the file's bytes so a hand-edit to a materialized command surfaces
+// as drift on the next check.
 func (Commands) Observe(env provider.Env) ([]provider.Resource, error) {
 	entries, err := env.FS.ReadDir(commandsDir(env))
 	if errors.Is(err, iofs.ErrNotExist) {
@@ -43,9 +45,14 @@ func (Commands) Observe(env provider.Env) ([]provider.Resource, error) {
 			continue
 		}
 		id := strings.TrimSuffix(name, ".md")
+		raw, rerr := env.FS.ReadFile(commandPath(env, id))
+		if rerr != nil {
+			continue
+		}
 		resources = append(resources, provider.Resource{
-			ID:      id,
-			Channel: "commands",
+			ID:          id,
+			Channel:     "commands",
+			ContentHash: lockfile.ContentHash(string(raw)),
 		})
 	}
 	return resources, nil

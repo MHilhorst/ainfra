@@ -3,8 +3,8 @@
 Status: **implemented.** This spec was checked on paper against
 [docs/reference/validation.md](../docs/reference/validation.md). Whenever a test scenario exposed a
 gap, the schema itself was changed rather than patched around in code. It is now
-enforced by the loader, `ainfra validate`, and the reflected JSON Schema
-(`ainfra schema`).
+enforced by the loader, `ainfra install --dry-run`, and the reflected JSON
+Schema (`ainfra install --print-schema`).
 
 The manifest — `ainfra.yaml`, the file describing the team's setup — is written
 in YAML. `version: 1` is the stable wire promise: a fixed format other tools can
@@ -349,7 +349,7 @@ preconditions:
     check:
       type: dns-resolves          # dns-resolves | tcp-reachable | file-exists | command-succeeds
       host: bastion.tvt.internal
-    remediation: "Connect the team VPN, then re-run ainfra check."
+    remediation: "Connect the team VPN, then re-run ainfra install."
 ```
 
 When `check` fails, it fails loudly and prints the `remediation` text. The tool

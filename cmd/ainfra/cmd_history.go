@@ -18,10 +18,12 @@ func newHistoryCommand() *cli.Command {
 	var since, actor, channel string
 	var asJSON bool
 	return &cli.Command{
-		Name:      "history",
-		Summary:   "Show recent apply events (who/what/when)",
-		UsageLine: "ainfra history [--since 7d] [--actor <email>] [--channel <name>] [--json]",
-		Example:   "ainfra history --since 24h --channel mcpServers",
+		Name:            "history",
+		Summary:         "Show recent apply events (who/what/when)",
+		UsageLine:       "ainfra history [--since 7d] [--actor <email>] [--channel <name>] [--json]",
+		Example:         "ainfra history --since 24h --channel mcpServers",
+		Hidden:          true,
+		DeprecationNote: "'ainfra history' is deprecated; the history log is at .ainfra/history.jsonl — read it with jq or grep. Will be removed in 0.2.",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.StringVar(&since, "since", "7d", "only events newer than this (e.g. 24h, 7d, 2026-05-20)")
 			fs.StringVar(&actor, "actor", "", "only events by this actor (git user.email)")

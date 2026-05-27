@@ -48,20 +48,72 @@ func TestMCPObserve_WithServers(t *testing.T) {
 	}
 
 	ids := map[string]bool{}
+	hashes := map[string]string{}
 	for _, r := range resources {
 		ids[r.ID] = true
+		hashes[r.ID] = r.ContentHash
 		if r.Channel != "mcpServers" {
 			t.Errorf("resource %q: Channel = %q, want %q", r.ID, r.Channel, "mcpServers")
 		}
-		if r.ContentHash != "" {
-			t.Errorf("resource %q: ContentHash should be empty, got %q", r.ID, r.ContentHash)
+		if r.ContentHash == "" {
+			t.Errorf("resource %q: ContentHash should be populated (drift detection)", r.ID)
 		}
+	}
+	if hashes["a"] == hashes["foreign"] {
+		t.Errorf("distinct servers should hash differently: %q", hashes["a"])
 	}
 	if !ids["a"] {
 		t.Error("expected resource with id 'a'")
 	}
 	if !ids["foreign"] {
 		t.Error("expected resource with id 'foreign'")
+	}
+}
+
+func TestMCPObserve_HashDetectsContentDrift(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	original := `{"mcpServers":{"fs":{"command":"npx","args":["-y","pkg@0.6.2","."]}}}`
+	if err := mem.WriteFile("/repo/.mcp.json", []byte(original), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	first, err := claudecode.MCP{}.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+
+	// Cosmetic whitespace + key reorder should NOT trip drift.
+	reformatted := `{
+  "mcpServers": {
+    "fs": {
+      "args": ["-y", "pkg@0.6.2", "."],
+      "command": "npx"
+    }
+  }
+}`
+	if err := mem.WriteFile("/repo/.mcp.json", []byte(reformatted), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cosmetic, err := claudecode.MCP{}.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if first[0].ContentHash != cosmetic[0].ContentHash {
+		t.Errorf("cosmetic edit changed hash: %q vs %q", first[0].ContentHash, cosmetic[0].ContentHash)
+	}
+
+	// Bumping the version inside args SHOULD trip drift.
+	tampered := `{"mcpServers":{"fs":{"command":"npx","args":["-y","pkg@0.5.0","."]}}}`
+	if err := mem.WriteFile("/repo/.mcp.json", []byte(tampered), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	drifted, err := claudecode.MCP{}.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if first[0].ContentHash == drifted[0].ContentHash {
+		t.Errorf("version edit did not change hash (still %q)", first[0].ContentHash)
 	}
 }
 

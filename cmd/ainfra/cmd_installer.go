@@ -21,6 +21,7 @@ func newInstallerCommand() *cli.Command {
 		Summary:   "Generate a one-time macOS installer for subscriber machines",
 		UsageLine: "ainfra installer [--out <file>]",
 		Example:   "ainfra installer --out ainfra-install.command",
+		Hidden:    true,
 		SetFlags:  func(fs *flag.FlagSet) { fs.StringVar(&out, "out", "ainfra-install.command", "output .command file path") },
 		Run:       func(ctx cli.Context) int { return runInstaller(ctx, out) },
 	}

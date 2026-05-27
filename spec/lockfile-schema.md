@@ -3,7 +3,7 @@
 Status: **implemented.** The lockfile — `ainfra.lock`, the auto-generated file
 that pins exact versions — is what makes a setup reproducible *and* lets the
 tool detect drift (config quietly falling out of sync with what was declared).
-`ainfra lock` generates it. You never hand-edit it, and you commit it to the
+`ainfra install` generates it (or the hidden `ainfra lock` verb directly). You never hand-edit it, and you commit it to the
 repo.
 
 ---
@@ -15,12 +15,13 @@ The manifest — `ainfra.yaml`, the file describing the team's setup — holds t
 manifest after templates are instantiated, layers merged, and tool-owned fields
 computed. It has two jobs:
 
-1. **Reproducibility.** A second developer running `ainfra apply` against the
+1. **Reproducibility.** A second developer running `ainfra install` against the
    same manifest + lock gets the identical stack — including the *same*
    allocated ports, because they are recorded here, not re-derived.
 2. **Drift / rug-pull detection.** A rug-pull is a dependency changing silently
-   upstream after you adopted it. Each entry carries a content hash. `ainfra
-   check` recomputes hashes from the live environment; a mismatch means drift
+   upstream after you adopted it. Each entry carries a content hash.
+   `ainfra install --dry-run --strict` recomputes hashes from the live
+   environment; a mismatch means drift
    (an MCP server's schema changed, a skill's content changed, a file was
    edited).
 
@@ -175,7 +176,8 @@ lands in a committed file:
 | `ainfra.lock` | entries whose winning `layer` is `team` or `repo` | yes |
 | `ainfra.personal.lock` | entries whose winning `layer` is `personal` | **no** — gitignored |
 
-`ainfra lock` writes both files. `ainfra apply` reads both. Personal entries
+`ainfra install` writes both files (re-locking when the manifest is newer)
+and reads both during reconcile. Personal entries
 still get sticky allocated ports — recorded in the personal lock — so a
 developer's own tunnels are as stable as the team's.
 

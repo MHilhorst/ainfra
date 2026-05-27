@@ -16,7 +16,7 @@ Both are applied to [spec/manifest-schema.md](../../spec/manifest-schema.md) and
 **Walk.** A developer clones the repo (the manifest — `ainfra.yaml`, the file
 describing the team's setup — and the lockfile — `ainfra.lock`, the
 auto-generated file that pins exact versions — are both committed) and runs
-`ainfra apply`. The tool then:
+`ainfra install`. The tool then:
 
 - loads the repo layer (a layer is one source of config that gets merged with
   others);
@@ -43,9 +43,9 @@ resolution fails with the resolver's own error — which is correct and loud.
 
 **Walk.** A maintainer changes `skills.disruption-debugging.version` from
 `1.4.0` to `1.5.0`. The merged manifest changes, so `manifestHash` changes too.
-`ainfra plan` re-resolves the skill, fetches `1.5.0`, computes its new
+`ainfra install --dry-run` re-resolves the skill, fetches `1.5.0`, computes its new
 `contentHash`, and renders a diff: `~ skills.disruption-debugging  1.4.0 →
-1.5.0`. `ainfra apply` installs it and rewrites that lockfile entry.
+1.5.0`. `ainfra install` installs it and rewrites that lockfile entry.
 
 **Holds.** No schema change. Skills pin an exact version and the lockfile
 carries a content hash, so the diff is exact.
@@ -92,7 +92,7 @@ Later they promote it: they move the block verbatim into the team layer and
 commit it. For them, the resolved state is unchanged (only the `layer` field
 moves). For teammates, `plan` shows one added entry.
 
-**The schema bent.** The lockfile is committed. If `ainfra lock` had written
+**The schema bent.** The lockfile is committed. If `ainfra install` (which re-locks) had written
 the personal skill's resolved entry into `ainfra.lock`, it would leak
 personal-layer config into a committed file — and create churn in that file for
 every teammate.
@@ -122,9 +122,9 @@ tunnels are distinct by construction.
 
 The `requires` chain — `mcpServer → service → cliTool ssh + cliTool
 mysql-client → precondition vpn-tvt-internal` — is fully declared. `tunnelPort`
-is a `resolved` field of `kind: allocated-port`: `ainfra lock`, which holds the
+is a `resolved` field of `kind: allocated-port`: `ainfra install` (which re-locks), which holds the
 whole set, hands out `13306..13309`. No human types a port, so a collision is
-structurally impossible. `ainfra check` walks the graph and, if the VPN is
+structurally impossible. `ainfra install --dry-run --strict` walks the graph and, if the VPN is
 down, fails on the `vpn-tvt-internal` precondition and prints its `remediation`
 text.
 

@@ -18,6 +18,14 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	reg := cli.NewRegistry(stdout, stderr, version.Version)
 	reg.Add(newInitCommand())
+	reg.Add(newInstallCommand())
+	reg.Add(newAddCommand())
+	reg.Add(newRemoveCommand())
+	reg.Add(newUpdateCommand())
+	reg.Add(newListCommand())
+	reg.Add(newOutdatedCommand())
+	reg.Add(newVersionCommand())
+	// Hidden / deprecated aliases — kept callable through 0.x for backward compat.
 	reg.Add(newValidateCommand())
 	reg.Add(newSchemaCommand())
 	reg.Add(newLockCommand())
@@ -29,6 +37,5 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newExecCommand())
 	reg.Add(newSyncCommand())
 	reg.Add(newHistoryCommand())
-	reg.Add(newVersionCommand())
 	return reg.Dispatch(args)
 }
