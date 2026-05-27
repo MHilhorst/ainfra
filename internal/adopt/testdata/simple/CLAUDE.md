@@ -1,0 +1,3 @@
+# Team rules
+
+- Be terse.

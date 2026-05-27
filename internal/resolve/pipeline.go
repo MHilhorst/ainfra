@@ -1,32 +1,86 @@
 package resolve
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/MHilhorst/ainfra/internal/graph"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/mcpclient"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 	"gopkg.in/yaml.v3"
 )
+
+// ToolsetWarning records why an MCP server's ToolsetHash could not be
+// populated at lock time. The entry remains in the lockfile with an empty
+// ToolsetHash; the warning lets the lock UI surface why introspection was
+// skipped or failed.
+type ToolsetWarning struct {
+	ServerID string
+	Reason   string // "timeout" | "subprocess-failed" | "protocol-error" | "unsupported-transport"
+	Detail   string
+}
+
+// RunLockResult collects side-channel output from a lock run that callers
+// (e.g. cmd ainfra lock) may want to surface but which is not part of the
+// lockfile itself.
+type RunLockResult struct {
+	ToolsetWarnings []ToolsetWarning
+}
+
+// IntrospectRunner overrides the mcpclient.Runner used when populating
+// ToolsetHash. Nil means use the default os/exec-backed runner. Tests inject
+// a fake runner; the disabled-sentinel (DisableIntrospection) skips
+// introspection entirely.
+var IntrospectRunner mcpclient.Runner
+
+// introspectTimeoutForTests overrides the per-server introspection budget.
+// Zero means mcpclient's default (15s). Tests set a short value to exercise
+// timeout classification.
+var introspectTimeoutForTests time.Duration
+
+// DisableIntrospection is a sentinel Runner that causes RunLock to skip
+// introspection entirely and record an "unsupported-transport" warning for
+// every stdio server. Tests that do not exercise ToolsetHash use it to keep
+// lock fast.
+var DisableIntrospection mcpclient.Runner = disabledRunner{}
+
+type disabledRunner struct{}
+
+func (disabledRunner) Start(string, []string, []string) (mcpclient.Process, error) {
+	return nil, errors.New("introspection disabled")
+}
 
 // portBase is the lowest local port ainfra allocates for tunnels and other
 // allocated-port resolved fields. 13306 sits just above the default MySQL port.
 const portBase = 13306
 
 // RunLock executes the full resolve pipeline for the repo at dir and writes
-// ainfra.lock (team+repo entries) and ainfra.personal.lock (personal).
+// ainfra.lock (team+repo entries) and ainfra.personal.lock (personal). Any
+// introspection warnings are discarded; callers that need them should use
+// RunLockWithResult.
 func RunLock(dir string, runner provider.CommandRunner) error {
+	_, err := RunLockWithResult(dir, runner)
+	return err
+}
+
+// RunLockWithResult is RunLock plus a RunLockResult capturing per-server
+// ToolsetHash warnings.
+func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResult, error) {
+	result := &RunLockResult{}
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Merge templates across layers, so a lower layer can reference a template
 	// declared higher up. The resolve phase below reuses this map.
@@ -57,12 +111,12 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 	// tags each diagnostic with its source file — the same check
 	// `ainfra validate` runs.
 	if err := manifest.ValidateAll(layers); err != nil {
-		return err
+		return nil, err
 	}
 
 	prior, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
-		return err
+		return nil, err
 	}
 	priorPorts := portsFromLock(prior)
 
@@ -101,7 +155,7 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 
 	ports, err := AllocatePorts(portReqs, priorPorts, portBase)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	g := graph.New()
@@ -136,14 +190,14 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 		}
 		out, err := Instantiate(ti.id, ti.inst, ti.tmpl, resolved)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		g.AddNode("mcp:" + ti.id)
 		entry := lockfile.Entry{Layer: string(ti.layer), FromTemplate: ti.inst.Template, Resolved: resolved}
 		if out.MCPServer != nil {
 			refs, err := substituteSecrets(out.MCPServer, "mcpServers", ti.id, ti.layer, ti.inst.Secret, allSecrets)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			for v, sr := range refs {
 				lock.Secrets[v] = sr
@@ -159,6 +213,15 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			}))
 			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
+			if hash, tools, warn := introspectMCPServer(ti.id, out.MCPServer.Transport, out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Env); warn != nil {
+				result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
+			} else {
+				entry.ToolsetHash = hash
+				entry.LockedTools = tools
+				entry.Command = out.MCPServer.Command
+				entry.Args = append([]string(nil), out.MCPServer.Args...)
+				entry.Env = copyStringMap(out.MCPServer.Env)
+			}
 		}
 		lock.Entries.MCPServers[ti.id] = entry
 		if out.Service != nil {
@@ -204,10 +267,8 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			// (remote source not yet supported, broken path, etc.) — that keeps
 			// lock deterministic without claiming false fidelity.
 			var contentHash string
-			if c.Source != "" && !isRemoteSource(c.Source) {
-				if raw, err := os.ReadFile(filepath.Join(dir, c.Source)); err == nil {
-					contentHash = lockfile.ContentHash(string(raw))
-				}
+			if content := readSourceForLayer(dir, layerName, c.Source); content != "" {
+				contentHash = lockfile.ContentHash(content)
 			}
 			if contentHash == "" {
 				contentHash = lockfile.ContentHash(map[string]any{
@@ -231,7 +292,7 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			}
 			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets)
 			if err != nil {
-				return err
+				return nil, err
 			}
 			for v, sr := range refs {
 				lock.Secrets[v] = sr
@@ -239,7 +300,7 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			node := "mcp:" + id
 			g.AddNode(node)
 			addRequireEdges(g, node, srv.Requires)
-			lock.Entries.MCPServers[id] = lockfile.Entry{
+			inlineEntry := lockfile.Entry{
 				Layer:    string(layerName),
 				Version:  srv.Version,
 				Requires: requireRefs(srv.Requires),
@@ -252,6 +313,16 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 					"headers":   toAnyMap(srv.Headers),
 				})),
 			}
+			if hash, tools, warn := introspectMCPServer(id, srv.Transport, srv.Command, srv.Args, srv.Env); warn != nil {
+				result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
+			} else {
+				inlineEntry.ToolsetHash = hash
+				inlineEntry.LockedTools = tools
+				inlineEntry.Command = srv.Command
+				inlineEntry.Args = append([]string(nil), srv.Args...)
+				inlineEntry.Env = copyStringMap(srv.Env)
+			}
+			lock.Entries.MCPServers[id] = inlineEntry
 		}
 		for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
 			s := m.Skills[id]
@@ -302,11 +373,11 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 					allVars := collectVars(layers)
 					resolved, resolveErr := resolveVars(allVars, runner)
 					if resolveErr != nil {
-						return resolveErr
+						return nil, resolveErr
 					}
 					rendered, subErr := substituteVars(string(raw), resolved)
 					if subErr != nil {
-						return fmt.Errorf("rule %q: %w", id, subErr)
+						return nil, fmt.Errorf("rule %q: %w", id, subErr)
 					}
 					contentHash = lockfile.ContentHash(rendered)
 				}
@@ -343,7 +414,7 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			if len(t.Secret) > 0 {
 				refs, _, err := collectSecretRefs("cliTools", id, layerName, t.Secret, allSecrets)
 				if err != nil {
-					return err
+					return nil, err
 				}
 				for v, sr := range refs {
 					lock.Secrets[v] = sr
@@ -363,16 +434,102 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 	}
 
 	if _, err := g.TopoSort(); err != nil {
-		return fmt.Errorf("dependency graph invalid: %w", err)
+		return nil, fmt.Errorf("dependency graph invalid: %w", err)
 	}
 
 	committed, personal := splitByLayer(lock)
 	committed.ManifestHash = manifestHash(layers, manifest.LayerTeam, manifest.LayerRepo)
 	personal.ManifestHash = manifestHash(layers, manifest.LayerPersonal)
 	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
-		return err
+		return nil, err
 	}
-	return lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal)
+	if err := lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal); err != nil {
+		return nil, err
+	}
+	sort.Slice(result.ToolsetWarnings, func(i, j int) bool {
+		return result.ToolsetWarnings[i].ServerID < result.ToolsetWarnings[j].ServerID
+	})
+	return result, nil
+}
+
+// introspectMCPServer runs tools/list against a stdio MCP server and returns
+// the canonical hash plus per-tool fingerprints of the resulting tool list.
+// Non-stdio transports skip introspection and return an
+// "unsupported-transport" warning. Any failure returns an empty hash and a
+// classified warning instead of an error — lock must still succeed when an
+// MCP server is unavailable.
+func introspectMCPServer(id, transport, command string, args []string, env map[string]string) (string, []lockfile.LockedTool, *ToolsetWarning) {
+	if isNonStdioTransport(transport, command) {
+		return "", nil, &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: transport}
+	}
+	if command == "" {
+		return "", nil, &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: "no command"}
+	}
+	runner := IntrospectRunner
+	if runner != nil {
+		if _, ok := runner.(disabledRunner); ok {
+			return "", nil, &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: "introspection disabled"}
+		}
+	}
+	tools, err := mcpclient.Introspect(context.Background(), mcpclient.Request{
+		Command: command,
+		Args:    args,
+		Env:     env,
+		Runner:  runner,
+		Timeout: introspectTimeoutForTests,
+	})
+	if err != nil {
+		return "", nil, &ToolsetWarning{ServerID: id, Reason: classifyIntrospectError(err), Detail: errSummary(err)}
+	}
+	return lockfile.ContentHash(tools), lockedToolsFromToolList(tools), nil
+}
+
+// lockedToolsFromToolList derives per-tool diagnostic fingerprints from a
+// canonical ToolList. Hashing each tool's description and input schema lets
+// `ainfra check` identify the changed tool by name without storing full
+// descriptions in the lockfile.
+func lockedToolsFromToolList(tools mcpclient.ToolList) []lockfile.LockedTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]lockfile.LockedTool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, lockfile.LockedTool{
+			Name:            t.Name,
+			DescriptionHash: lockfile.ContentHash(t.Description),
+			InputSchemaHash: lockfile.ContentHash(string(t.InputSchema)),
+		})
+	}
+	return out
+}
+
+func isNonStdioTransport(transport, command string) bool {
+	t := strings.ToLower(transport)
+	if t == "" || t == "stdio" {
+		return false
+	}
+	return true
+}
+
+func classifyIntrospectError(err error) string {
+	var te *mcpclient.TimeoutError
+	if errors.As(err, &te) {
+		return "timeout"
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "rpc error") {
+		return "protocol-error"
+	}
+	return "subprocess-failed"
+}
+
+func errSummary(err error) string {
+	msg := err.Error()
+	const max = 120
+	if len(msg) > max {
+		return msg[:max] + "..."
+	}
+	return msg
 }
 
 // CurrentManifestHash loads the manifest layers from dir and returns the same
@@ -403,6 +560,17 @@ func manifestHash(layers map[manifest.Layer]*manifest.Manifest, want ...manifest
 		return lockfile.ContentHash(subset)
 	}
 	return lockfile.ContentHash(string(data))
+}
+
+func copyStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func toAnyMap(m map[string]string) map[string]any {

@@ -2,7 +2,10 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
+	"sort"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -26,7 +29,8 @@ func newLockCommand() *cli.Command {
 }
 
 func runLock(ctx cli.Context) int {
-	if err := resolve.RunLock(ctx.Dir, provider.ExecRunner{}); err != nil {
+	result, err := resolve.RunLockWithResult(ctx.Dir, provider.ExecRunner{})
+	if err != nil {
 		ui.RenderError(ctx.Stderr, ui.NewColorizer(ctx.Stderr, ctx.NoColor), err)
 		return 1
 	}
@@ -41,6 +45,7 @@ func runLock(ctx cli.Context) int {
 	}
 	fmt.Fprintln(ctx.Stdout, "ainfra: resolved "+lockSummary(committed, personal))
 	fmt.Fprintln(ctx.Stdout, "        wrote ainfra.lock and ainfra.personal.lock")
+	renderMCPServerStatus(ctx.Stdout, committed, personal, result)
 	ui.Next(ctx.Stdout, c, "run 'ainfra plan' to preview changes.")
 	if layers, err := manifest.LoadLayers(ctx.Dir); err == nil {
 		for _, w := range cliToolInstallWarnings(layers) {
@@ -48,6 +53,58 @@ func runLock(ctx cli.Context) int {
 		}
 	}
 	return 0
+}
+
+// renderMCPServerStatus prints a per-server toolset-verification report for
+// every MCP server in the merged lockfile: verified servers list the
+// short-form hash; unverified servers list the warning reason.
+func renderMCPServerStatus(w io.Writer, committed, personal *lockfile.Lock, result *resolve.RunLockResult) {
+	type row struct {
+		id   string
+		hash string
+	}
+	collect := func(l *lockfile.Lock) []row {
+		var rows []row
+		for id, e := range l.Entries.MCPServers {
+			rows = append(rows, row{id: id, hash: e.ToolsetHash})
+		}
+		return rows
+	}
+	rows := append(collect(committed), collect(personal)...)
+	if len(rows) == 0 {
+		return
+	}
+	sort.Slice(rows, func(i, j int) bool { return rows[i].id < rows[j].id })
+	warnings := map[string]resolve.ToolsetWarning{}
+	if result != nil {
+		for _, w := range result.ToolsetWarnings {
+			warnings[w.ServerID] = w
+		}
+	}
+	fmt.Fprintln(w, "MCP servers:")
+	for _, r := range rows {
+		if r.hash != "" {
+			fmt.Fprintf(w, "  %-30s ok (toolset %s)\n", r.id, shortHash(r.hash))
+			continue
+		}
+		reason := "unverified"
+		if wn, ok := warnings[r.id]; ok {
+			reason = "unverified (" + wn.Reason + ")"
+		}
+		fmt.Fprintf(w, "  %-30s %s\n", r.id, reason)
+	}
+}
+
+// shortHash truncates a "sha256:<hex>" string to a 12-char digest with an
+// ellipsis suffix for display.
+func shortHash(h string) string {
+	if i := strings.IndexByte(h, ':'); i >= 0 {
+		h = h[i+1:]
+	}
+	if len(h) > 12 {
+		return h[:12] + "..."
+	}
+	return h
 }
 
 // lockSummary describes the entry counts across both lock files, listing only

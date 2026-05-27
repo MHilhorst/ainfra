@@ -44,6 +44,40 @@ func ResourcesByChannel(l *lockfile.Lock) map[string][]Resource {
 	return out
 }
 
+// PartitionByScope splits a rendered resources map into a repo-scope subset
+// and a user-scope subset. An entry routes to user-scope when its Layer is
+// "personal" — those entries materialize to ~/.claude/ on the user pass.
+// Everything else routes to repo-scope. mcpServers is forced into repo-scope
+// regardless of layer because Claude Code reads user-level MCP servers from
+// ~/.claude.json (a different file with a different format than .mcp.json)
+// which is out of scope for this slice; a warning surfaces in cmd_install.
+func PartitionByScope(rendered map[string][]Resource) (repo, user map[string][]Resource) {
+	repo = map[string][]Resource{}
+	user = map[string][]Resource{}
+	for channel, resources := range rendered {
+		for _, r := range resources {
+			if r.Layer == "personal" && channel != "mcpServers" {
+				user[channel] = append(user[channel], r)
+			} else {
+				repo[channel] = append(repo[channel], r)
+			}
+		}
+	}
+	return repo, user
+}
+
+// HasUserScopeMCP reports whether any rendered mcpServers entry came from
+// the personal layer — callers warn the user that MCP user-scope is not yet
+// supported and the entry will fall back to repo-scope behavior.
+func HasUserScopeMCP(rendered map[string][]Resource) bool {
+	for _, r := range rendered["mcpServers"] {
+		if r.Layer == "personal" {
+			return true
+		}
+	}
+	return false
+}
+
 func entryToResource(id, channel string, e lockfile.Entry) Resource {
 	return Resource{
 		ID:          id,

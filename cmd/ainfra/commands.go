@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/check"
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
@@ -81,6 +82,86 @@ func fileExists(path string) bool {
 
 // warnIfStale prints a warning when the manifest has changed since the last
 // lock run, indicating the lock may be out of date.
+// partitionLockByLayer splits a merged lock into a repo-scope subset and a
+// user-scope subset. An entry routes to user-scope when its Layer is
+// "personal". mcpServers is forced into repo-scope regardless of layer —
+// matches the partition rule used for rendered resources so the ledger and
+// the apply pass agree on which scope owns each entry.
+func partitionLockByLayer(l *lockfile.Lock) (repo, user *lockfile.Lock) {
+	repo = &lockfile.Lock{Version: l.Version, GeneratedAt: l.GeneratedAt, ManifestHash: l.ManifestHash}
+	user = &lockfile.Lock{Version: l.Version, GeneratedAt: l.GeneratedAt, ManifestHash: l.ManifestHash}
+
+	// initialise all the entry maps so downstream nil-map writes don't panic.
+	for _, lock := range []*lockfile.Lock{repo, user} {
+		lock.Entries = lockfile.Entries{
+			MCPServers:         map[string]lockfile.Entry{},
+			BackgroundServices: map[string]lockfile.Entry{},
+			Hooks:              map[string]lockfile.Entry{},
+			Commands:           map[string]lockfile.Entry{},
+			CLITools:           map[string]lockfile.Entry{},
+			Skills:             map[string]lockfile.Entry{},
+			Marketplaces:       map[string]lockfile.Entry{},
+			Plugins:            map[string]lockfile.Entry{},
+			Rules:              map[string]lockfile.Entry{},
+			Tools:              map[string]lockfile.Entry{},
+		}
+	}
+
+	route := func(channel string, src, dstRepo, dstUser map[string]lockfile.Entry) {
+		for id, e := range src {
+			if e.Layer == "personal" && channel != "mcpServers" {
+				dstUser[id] = e
+			} else {
+				dstRepo[id] = e
+			}
+		}
+	}
+	route("mcpServers", l.Entries.MCPServers, repo.Entries.MCPServers, user.Entries.MCPServers)
+	route("backgroundServices", l.Entries.BackgroundServices, repo.Entries.BackgroundServices, user.Entries.BackgroundServices)
+	route("hooks", l.Entries.Hooks, repo.Entries.Hooks, user.Entries.Hooks)
+	route("commands", l.Entries.Commands, repo.Entries.Commands, user.Entries.Commands)
+	route("cliTools", l.Entries.CLITools, repo.Entries.CLITools, user.Entries.CLITools)
+	route("skills", l.Entries.Skills, repo.Entries.Skills, user.Entries.Skills)
+	route("marketplaces", l.Entries.Marketplaces, repo.Entries.Marketplaces, user.Entries.Marketplaces)
+	route("plugins", l.Entries.Plugins, repo.Entries.Plugins, user.Entries.Plugins)
+	route("rules", l.Entries.Rules, repo.Entries.Rules, user.Entries.Rules)
+	route("tools", l.Entries.Tools, repo.Entries.Tools, user.Entries.Tools)
+	return repo, user
+}
+
+// hasAnyEntry reports whether any channel in the lockfile carries at least
+// one entry. Used to decide whether the user-scope cleanup pass should run.
+func hasAnyEntry(l *lockfile.Lock) bool {
+	if l == nil {
+		return false
+	}
+	e := l.Entries
+	return len(e.MCPServers)+len(e.BackgroundServices)+len(e.Hooks)+
+		len(e.Commands)+len(e.CLITools)+len(e.Skills)+
+		len(e.Marketplaces)+len(e.Plugins)+len(e.Rules)+len(e.Tools) > 0
+}
+
+// anyResources reports whether a rendered map has at least one resource.
+func anyResources(rendered map[string][]provider.Resource) bool {
+	for _, rs := range rendered {
+		if len(rs) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// plansEmpty reports whether every channel plan in the map is empty (or the
+// map is nil).
+func plansEmpty(plans map[string]provider.ChannelPlan) bool {
+	for _, p := range plans {
+		if !p.Empty() {
+			return false
+		}
+	}
+	return true
+}
+
 func warnIfStale(ctx cli.Context, dir string, committed *lockfile.Lock) {
 	if committed.ManifestHash == "" {
 		return
@@ -358,21 +439,54 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	env := buildEnv(dir)
 	env.DryRun = dryRun
 	env.NoInstall = noInstall
-	orch := provider.NewOrchestrator(dir, env, providers)
-	plans, err := orch.PlanAllRendered(rendered)
+
+	// Partition resources by scope. Personal-layer entries (except MCP servers,
+	// see provider.PartitionByScope) materialize to ~/.claude/ instead of the
+	// repo's .claude/, so the user's global personal config follows them
+	// across repos. Repo and team entries continue to land in repo paths.
+	repoRendered, userRendered := provider.PartitionByScope(rendered)
+
+	// Warn (once) about MCP entries from the personal layer — Claude Code
+	// reads user-level MCP servers from ~/.claude.json, which is a different
+	// file with a different format than the project's .mcp.json. Until that
+	// channel learns the user-scope path, personal-layer MCP entries fall
+	// back to repo-scope behavior.
+	if provider.HasUserScopeMCP(rendered) {
+		c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+		fmt.Fprintln(ctx.Stderr, c.Yellow(
+			"warning: personal-layer mcpServers entries are written to the repo's .mcp.json today. "+
+				"User-scope MCP (~/.claude.json) is a follow-up; the server will only be visible in this repo."))
+	}
+
+	orch := provider.NewOrchestratorScoped(dir, provider.ScopeRepo, env, providers)
+	plans, err := orch.PlanAllRendered(repoRendered)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
 
-	// Check if there is anything to do.
-	allEmpty := true
-	for _, p := range plans {
-		if !p.Empty() {
-			allEmpty = false
-			break
+	// User-scope plan. Created whenever either the rendered set has
+	// personal-layer entries OR the user-scope applied ledger does — the
+	// latter handles the cleanup case where an entry has been removed from
+	// the personal manifest and needs to be deleted from ~/.claude/.
+	var userOrch *provider.Orchestrator
+	var userPlans map[string]provider.ChannelPlan
+	home, herr := os.UserHomeDir()
+	priorUser, _ := provider.ReadAppliedUser()
+	userLedgerNonEmpty := priorUser != nil && hasAnyEntry(priorUser)
+	if herr == nil && (anyResources(userRendered) || userLedgerNonEmpty) {
+		userEnv := env
+		userEnv.Root = home
+		userOrch = provider.NewOrchestratorScoped(home, provider.ScopeUser, userEnv, providers)
+		userPlans, err = userOrch.PlanAllRendered(userRendered)
+		if err != nil {
+			ui.RenderError(ctx.Stderr, errColor, err)
+			return 1
 		}
 	}
+
+	// Check if there is anything to do.
+	allEmpty := plansEmpty(plans) && plansEmpty(userPlans)
 	if allEmpty {
 		fmt.Fprintln(ctx.Stdout, "Nothing to do.")
 		return 0
@@ -380,6 +494,10 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	ui.RenderPlan(ctx.Stdout, c, plans)
+	if userPlans != nil {
+		fmt.Fprintln(ctx.Stdout, c.Bold("User-scope (~/.claude/):"))
+		ui.RenderPlan(ctx.Stdout, c, userPlans)
+	}
 
 	// Check preconditions before applying.
 	if failures := checkPreconditions(dir, env); len(failures) > 0 {
@@ -403,13 +521,30 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 		}
 	}
 
-	results, err := orch.ApplyAllRendered(rendered, merged)
+	repoLock, userLock := partitionLockByLayer(merged)
+
+	results, err := orch.ApplyAllRendered(repoRendered, repoLock)
 	if !dryRun {
 		renderApplySummary(ctx.Stdout, results)
 	}
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
+	}
+
+	// User-scope pass: same flow against ~/.claude/ when personal-layer
+	// entries exist. Failures here don't block the repo apply — they
+	// surface in the summary.
+	if userOrch != nil {
+		userResults, uerr := userOrch.ApplyAllRendered(userRendered, userLock)
+		if !dryRun {
+			fmt.Fprintln(ctx.Stdout, "User-scope (~/.claude/):")
+			renderApplySummary(ctx.Stdout, userResults)
+		}
+		if uerr != nil {
+			ui.RenderError(ctx.Stderr, errColor, uerr)
+			// Don't return — repo apply succeeded; user-scope failure is reported.
+		}
 	}
 
 	if dryRun {
@@ -552,8 +687,12 @@ func runCheck(ctx cli.Context) int {
 
 	secretFailures := checkSecrets(committed, personal, secret.DefaultRegistry())
 	precondFailures := checkPreconditions(dir, buildEnv(dir))
+	toolsetReport := check.CheckToolsetDrift(committed, personal)
 
-	if allEmpty && len(secretFailures) == 0 && len(precondFailures) == 0 {
+	if allEmpty && len(secretFailures) == 0 && len(precondFailures) == 0 && !toolsetReport.HasDrift() {
+		if toolsetReport.UnverifiedCount > 0 {
+			fmt.Fprintf(ctx.Stdout, "note: %d MCP server(s) skipped — unverified at lock time\n", toolsetReport.UnverifiedCount)
+		}
 		fmt.Fprintln(ctx.Stdout, "No drift.")
 		return 0
 	}
@@ -561,6 +700,12 @@ func runCheck(ctx cli.Context) int {
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	if !allEmpty {
 		ui.RenderPlan(ctx.Stdout, c, plans)
+	}
+	if toolsetReport.HasDrift() {
+		renderToolsetDrift(ctx.Stderr, toolsetReport)
+	}
+	if toolsetReport.UnverifiedCount > 0 {
+		fmt.Fprintf(ctx.Stderr, "note: %d MCP server(s) skipped — unverified at lock time\n", toolsetReport.UnverifiedCount)
 	}
 	if len(precondFailures) > 0 {
 		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
@@ -576,6 +721,27 @@ func runCheck(ctx cli.Context) int {
 	}
 	return 1
 }
+
+// renderToolsetDrift prints a human-readable per-tool diff for every MCP
+// server whose live toolset no longer matches its locked fingerprint, or
+// which could not be re-introspected.
+func renderToolsetDrift(w io.Writer, report check.Report) {
+	fmt.Fprintln(w, "Toolset drift:")
+	for _, d := range report.Drifts {
+		if d.IntrospectErr != "" {
+			fmt.Fprintf(w, "  %s: could not re-introspect server: %s\n", d.ServerID, d.IntrospectErr)
+			continue
+		}
+		fmt.Fprintf(w, "  %s: toolset changed (locked %s, live %s)\n", d.ServerID, shortHash(d.LockedHash), shortHash(d.LiveHash))
+		if len(d.Diff) == 0 {
+			continue
+		}
+		for _, td := range d.Diff {
+			fmt.Fprintf(w, "    tool %q: %s\n", td.Name, td.Kind.String())
+		}
+	}
+}
+
 
 // checkSecrets verifies every secret reference in both lockfiles is resolvable.
 // It returns one message per unresolvable ref; the messages never contain a

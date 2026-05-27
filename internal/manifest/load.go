@@ -24,11 +24,20 @@ import (
 // LoadLayers returns the directly-present layers only.
 func LoadLayers(dir string) (map[Layer]*Manifest, error) {
 	out := map[Layer]*Manifest{}
-	repo, err := loadFile(filepath.Join(dir, "ainfra.yaml"))
+	repoPath := filepath.Join(dir, "ainfra.yaml")
+	repo, err := loadFile(repoPath)
 	if err != nil {
-		return nil, err
+		if os.IsNotExist(err) {
+			// User-scope mode: no repo manifest, only the global personal
+			// layer applies. Lets `ainfra install` work in any directory.
+			repo = nil
+		} else {
+			return nil, err
+		}
 	}
-	out[LayerRepo] = repo
+	if repo != nil {
+		out[LayerRepo] = repo
+	}
 
 	repoPersonal, err := loadFile(filepath.Join(dir, "ainfra.personal.yaml"))
 	if err != nil && !os.IsNotExist(err) {

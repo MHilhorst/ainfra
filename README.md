@@ -18,6 +18,12 @@ Or `go install github.com/MHilhorst/ainfra/cmd/ainfra@latest`.
 
 ## Try it
 
+Adopting ainfra into a repo that already has a Claude Code setup committed (`.mcp.json`, `.claude/`, `CLAUDE.md`):
+
+```sh
+ainfra adopt   # bootstrap ainfra.yaml from an existing .mcp.json / .claude/ / CLAUDE.md setup
+```
+
 Joining a team whose repo already has an `ainfra.yaml`:
 
 ```sh
@@ -25,7 +31,7 @@ ainfra install                       # reconcile your machine to the manifest
 ainfra install --dry-run --strict    # CI gate: exit non-zero on drift
 ```
 
-Authoring a new setup — most days you work through `add`, never touching YAML by hand:
+Authoring a new setup from scratch — most days you work through `add`, never touching YAML by hand:
 
 ```sh
 ainfra init                  # scaffold an ainfra.yaml
@@ -80,7 +86,7 @@ ainfra fixes this with three promises:
 
 - **Defined once.** One `ainfra.yaml` describes every channel your agents need — MCP servers, skills, plugins, rules, tool permissions, CLI tools, hooks, slash commands — across org/team, repo, and personal [layers](docs/reference/design.md#2-locked-architectural-decisions). Secrets are [references, not values](docs/reference/design.md#5-the-environment-primitive--three-credential-modes).
 - **Reproduced everywhere.** `ainfra install` reconciles a machine to the manifest, [dependency-aware](docs/reference/design.md#7-the-dependency-graph--the-connective-layer) — installs CLI tools, verifies preconditions (VPN, SSH keys), starts services in the right order. `install --dry-run` previews first.
-- **Verified in sync.** `ainfra.lock` pins resolved versions and content hashes; `ainfra install --dry-run --strict` reports drift with a clean CI exit code, and [catches silent upstream changes](docs/reference/validation.md#scenario-3--an-mcp-server-schema-silently-changes) — a package or advertised toolset shifting underneath you fails loudly.
+- **Verified in sync.** `ainfra.lock` pins resolved versions and content hashes; `ainfra install --dry-run --strict` reports drift with a clean CI exit code, and [catches silent upstream changes](docs/reference/validation.md#scenario-3--an-mcp-server-schema-silently-changes) — a package or advertised toolset shifting underneath you fails loudly. The lockfile also records a `toolsetHash` per MCP server — the fingerprint of the live `tools/list` description blob — so `ainfra check` catches the case where an upstream server changed its tool descriptions silently.
 
 ainfra is *not* a runtime MCP gateway — it consumes gateways, secrets managers, and package managers as pluggable backends.
 
@@ -102,6 +108,7 @@ Or scaffold it at `init` time with `ainfra init --with-skill`.
 | Command | What it does |
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
+| `adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
 | `install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `add` | Add an entry to `ainfra.yaml` and reconcile (`ainfra add <channel> <id> [source]`) |
 | `remove` | Remove an entry from `ainfra.yaml` and reconcile |
@@ -134,9 +141,9 @@ These keep working but are omitted from `ainfra --help`. The first four print a 
 
 ## Status
 
-Reconciles a Claude Code or Codex environment today. `init`, `install` (with all its modes), `add`, `remove`, `update`, `list`, `outdated`, `version`, plus the hidden subscriber-mode helpers (`publish`, `installer`) all work end to end across five completed build phases (see [design §10](docs/reference/design.md#10-build-phases)). Schemas were validated on paper against [five scenarios](docs/reference/validation.md) before any code was written.
+Reconciles a Claude Code or Codex environment today. `init`, `adopt`, `install` (with all its modes), `add`, `remove`, `update`, `list`, `outdated`, `version`, plus the hidden subscriber-mode helpers (`publish`, `installer`) all work end to end across five completed build phases (see [design §10](docs/reference/design.md#10-build-phases)). Schemas were validated on paper against [five scenarios](docs/reference/validation.md) before any code was written.
 
-Local source files and inline or templated MCP servers work today; fetching sources from remote locations (git/npm) and gateway adapters are the remaining follow-ups.
+Remote sources — `github:`, `npm:`, and `https:` — resolve at lock time and write through a content-addressed cache under `$XDG_CACHE_HOME/ainfra/sources/`, making subsequent fetches offline-capable. Gateway adapters are the remaining follow-up.
 
 ### Subscriber mode — non-engineers
 
