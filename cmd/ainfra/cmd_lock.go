@@ -20,6 +20,7 @@ func newLockCommand() *cli.Command {
 		Summary:   "Resolve the manifest and write ainfra.lock",
 		UsageLine: "ainfra lock",
 		Example:   "ainfra lock",
+		Hidden:    true,
 		Run:       runLock,
 	}
 }

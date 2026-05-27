@@ -22,11 +22,12 @@ import (
 // app) has them — no `ainfra exec` wrapper required.
 func newSyncCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "sync",
-		Summary:   "Resolve secrets and write them to the Claude Code settings env block",
-		UsageLine: "ainfra sync",
-		Example:   "ainfra sync",
-		Hidden:    true,
+		Name:            "sync",
+		Summary:         "Resolve secrets and write them to the Claude Code settings env block",
+		UsageLine:       "ainfra sync",
+		Example:         "ainfra sync",
+		Hidden:          true,
+		DeprecationNote: "'ainfra sync' is deprecated; 'ainfra install' auto-syncs secrets at the end of a run. Will be removed in 0.2.",
 		Run: func(ctx cli.Context) int {
 			return runSyncWith(ctx, secret.DefaultRegistry())
 		},

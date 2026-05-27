@@ -26,11 +26,12 @@ type execFunc func(argv0 string, argv []string, envv []string) error
 // environment. No secret value is written to disk.
 func newExecCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "exec",
-		Summary:   "Resolve secrets and run a command with them in its environment",
-		UsageLine: "ainfra exec [-- <command> [args...]]",
-		Example:   "ainfra exec -- claude",
-		Hidden:    true,
+		Name:            "exec",
+		Summary:         "Resolve secrets and run a command with them in its environment",
+		UsageLine:       "ainfra exec [-- <command> [args...]]",
+		Example:         "ainfra exec -- claude",
+		Hidden:          true,
+		DeprecationNote: "'ainfra exec' is deprecated; 'ainfra install' writes resolved secrets into .claude/settings.local.json so Claude Code reads them directly. Will be removed in 0.2.",
 		Run: func(ctx cli.Context) int {
 			return runExecWith(ctx, secret.DefaultRegistry(), syscall.Exec)
 		},
