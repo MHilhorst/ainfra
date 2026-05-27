@@ -13,7 +13,7 @@ import (
 // in-memory fake cannot reproduce.
 type realFS struct{}
 
-func (realFS) ReadFile(path string) ([]byte, error)                 { return os.ReadFile(path) }
+func (realFS) ReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
 func (realFS) WriteFile(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }

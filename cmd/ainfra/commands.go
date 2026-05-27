@@ -201,11 +201,11 @@ func newApplyCommand() *cli.Command {
 	var yes, dryRun, noInstall, strict bool
 	var from string
 	return &cli.Command{
-		Name:      "apply",
-		Summary:   "Reconcile the environment to match the manifest or a published artifact",
-		UsageLine: "ainfra apply [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>]",
-		Example:   "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
-		Hidden:    true,
+		Name:          "apply",
+		Summary:       "Reconcile the environment to match the manifest or a published artifact",
+		UsageLine:     "ainfra apply [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>]",
+		Example:       "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
+		Hidden:        true,
 		DeprecatedFor: "install",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
