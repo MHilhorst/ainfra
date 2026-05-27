@@ -91,7 +91,14 @@ See [docs/design.md](docs/design.md) for the full, decided design.
 
 ## Get Started
 
-Install with Go:
+Install with Homebrew (macOS, Linux):
+
+```sh
+brew install MHilhorst/ainfra/ainfra
+ainfra version
+```
+
+Or with Go:
 
 ```sh
 go install github.com/MHilhorst/ainfra/cmd/ainfra@latest
