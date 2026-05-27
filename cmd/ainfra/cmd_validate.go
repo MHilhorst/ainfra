@@ -43,6 +43,13 @@ func runValidate(ctx cli.Context) int {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
+	// LoadLayers now returns successfully with no repo layer when there's
+	// no ainfra.yaml (user-scope mode). validate's contract still expects a
+	// repo manifest — there's nothing repo-shaped to check otherwise.
+	if _, ok := layers[manifest.LayerRepo]; !ok {
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.yaml not found in %s", ctx.Dir))
+		return 1
+	}
 	if err := manifest.ValidateAll(layers); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
