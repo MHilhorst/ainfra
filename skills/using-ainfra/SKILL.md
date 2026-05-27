@@ -99,6 +99,26 @@ personal layer with `ainfra add --personal …` or edit `ainfra.personal.yaml`
 directly. Add `ainfra.personal.yaml` and `ainfra.personal.lock` to
 `.gitignore` if they are not there already.
 
+**Global personal layer.** Skills or MCP servers a developer wants
+*everywhere* (every ainfra repo on their machine, not just one) go in the
+global personal manifest at `$XDG_CONFIG_HOME/ainfra/personal.yaml`
+(defaults to `~/.config/ainfra/personal.yaml`). The repo-level
+`ainfra.personal.yaml` wins on conflict.
+
+## Pinning the ainfra binary version
+
+A repo can declare which ainfra version it expects with a top-level field:
+
+```yaml
+version: 1
+ainfraVersion: "0.2.0"
+```
+
+`ainfra install` warns when the running binary doesn't match. Different
+ainfra versions can produce subtly different lockfiles, so pinning prevents
+teammate-vs-teammate drift. Missing field = no check (backward compatible).
+`AINFRA_QUIET=1` suppresses the warning.
+
 ## Hard rules
 
 - **Never commit a credential value.** Secrets are references.

@@ -1,5 +1,10 @@
 version: 1
 
+# Optional: pin the ainfra binary version this repo expects. ainfra install
+# warns to stderr when the running binary differs. Suppress with
+# AINFRA_QUIET=1. Different ainfra versions can produce different lockfiles.
+# ainfraVersion: "0.2.0"
+
 # ---------------------------------------------------------------------------
 # A showcase ainfra.yaml — what a normal team's Claude Code setup looks like
 # as config-as-code. The harder, fully-templated case lives in
