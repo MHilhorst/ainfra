@@ -25,16 +25,30 @@ type Entries struct {
 
 // Entry is one resolved lock entry.
 type Entry struct {
-	Layer           string         `yaml:"layer"`
-	FromTemplate    string         `yaml:"fromTemplate,omitempty"`
-	Resolved        map[string]any `yaml:"resolved,omitempty"`
-	Version         string         `yaml:"version,omitempty"`
-	Integrity       string         `yaml:"integrity,omitempty"`
-	ToolsetHash     string         `yaml:"toolsetHash,omitempty"`
-	Constraint      string         `yaml:"constraint,omitempty"`
-	ResolvedVersion string         `yaml:"resolvedVersion,omitempty"`
-	Requires        []string       `yaml:"requires,omitempty"`
-	ContentHash     string         `yaml:"contentHash"`
+	Layer           string            `yaml:"layer"`
+	FromTemplate    string            `yaml:"fromTemplate,omitempty"`
+	Resolved        map[string]any    `yaml:"resolved,omitempty"`
+	Version         string            `yaml:"version,omitempty"`
+	Integrity       string            `yaml:"integrity,omitempty"`
+	ToolsetHash     string            `yaml:"toolsetHash,omitempty"`
+	LockedTools     []LockedTool      `yaml:"lockedTools,omitempty"`
+	Command         string            `yaml:"command,omitempty"`
+	Args            []string          `yaml:"args,omitempty"`
+	Env             map[string]string `yaml:"env,omitempty"`
+	Constraint      string            `yaml:"constraint,omitempty"`
+	ResolvedVersion string            `yaml:"resolvedVersion,omitempty"`
+	Requires        []string          `yaml:"requires,omitempty"`
+	ContentHash     string            `yaml:"contentHash"`
+}
+
+// LockedTool records the per-tool fingerprint of an MCP server's toolset at
+// lock time. ToolsetHash is the integrity primary; LockedTool is for
+// diagnostic purposes — it lets `ainfra check` identify by name which tool
+// changed when the toolset hash drifts.
+type LockedTool struct {
+	Name            string `yaml:"name"`
+	DescriptionHash string `yaml:"descriptionHash,omitempty"`
+	InputSchemaHash string `yaml:"inputSchemaHash,omitempty"`
 }
 
 // SecretRef is a resolved secret placeholder recorded in the lockfile. It

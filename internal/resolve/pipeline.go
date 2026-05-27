@@ -213,10 +213,14 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 			}))
 			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
-			if hash, warn := introspectMCPServer(ti.id, out.MCPServer.Transport, out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Env); warn != nil {
+			if hash, tools, warn := introspectMCPServer(ti.id, out.MCPServer.Transport, out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Env); warn != nil {
 				result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
 			} else {
 				entry.ToolsetHash = hash
+				entry.LockedTools = tools
+				entry.Command = out.MCPServer.Command
+				entry.Args = append([]string(nil), out.MCPServer.Args...)
+				entry.Env = copyStringMap(out.MCPServer.Env)
 			}
 		}
 		lock.Entries.MCPServers[ti.id] = entry
@@ -311,10 +315,14 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 					"headers":   toAnyMap(srv.Headers),
 				})),
 			}
-			if hash, warn := introspectMCPServer(id, srv.Transport, srv.Command, srv.Args, srv.Env); warn != nil {
+			if hash, tools, warn := introspectMCPServer(id, srv.Transport, srv.Command, srv.Args, srv.Env); warn != nil {
 				result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
 			} else {
 				inlineEntry.ToolsetHash = hash
+				inlineEntry.LockedTools = tools
+				inlineEntry.Command = srv.Command
+				inlineEntry.Args = append([]string(nil), srv.Args...)
+				inlineEntry.Env = copyStringMap(srv.Env)
 			}
 			lock.Entries.MCPServers[id] = inlineEntry
 		}
@@ -447,21 +455,22 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 }
 
 // introspectMCPServer runs tools/list against a stdio MCP server and returns
-// the canonical hash of the resulting tool list. Non-stdio transports skip
-// introspection and return an "unsupported-transport" warning. Any failure
-// returns an empty hash and a classified warning instead of an error — lock
-// must still succeed when an MCP server is unavailable.
-func introspectMCPServer(id, transport, command string, args []string, env map[string]string) (string, *ToolsetWarning) {
+// the canonical hash plus per-tool fingerprints of the resulting tool list.
+// Non-stdio transports skip introspection and return an
+// "unsupported-transport" warning. Any failure returns an empty hash and a
+// classified warning instead of an error — lock must still succeed when an
+// MCP server is unavailable.
+func introspectMCPServer(id, transport, command string, args []string, env map[string]string) (string, []lockfile.LockedTool, *ToolsetWarning) {
 	if isNonStdioTransport(transport, command) {
-		return "", &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: transport}
+		return "", nil, &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: transport}
 	}
 	if command == "" {
-		return "", &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: "no command"}
+		return "", nil, &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: "no command"}
 	}
 	runner := IntrospectRunner
 	if runner != nil {
 		if _, ok := runner.(disabledRunner); ok {
-			return "", &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: "introspection disabled"}
+			return "", nil, &ToolsetWarning{ServerID: id, Reason: "unsupported-transport", Detail: "introspection disabled"}
 		}
 	}
 	tools, err := mcpclient.Introspect(context.Background(), mcpclient.Request{
@@ -472,9 +481,28 @@ func introspectMCPServer(id, transport, command string, args []string, env map[s
 		Timeout: introspectTimeoutForTests,
 	})
 	if err != nil {
-		return "", &ToolsetWarning{ServerID: id, Reason: classifyIntrospectError(err), Detail: errSummary(err)}
+		return "", nil, &ToolsetWarning{ServerID: id, Reason: classifyIntrospectError(err), Detail: errSummary(err)}
 	}
-	return lockfile.ContentHash(tools), nil
+	return lockfile.ContentHash(tools), lockedToolsFromToolList(tools), nil
+}
+
+// lockedToolsFromToolList derives per-tool diagnostic fingerprints from a
+// canonical ToolList. Hashing each tool's description and input schema lets
+// `ainfra check` identify the changed tool by name without storing full
+// descriptions in the lockfile.
+func lockedToolsFromToolList(tools mcpclient.ToolList) []lockfile.LockedTool {
+	if len(tools) == 0 {
+		return nil
+	}
+	out := make([]lockfile.LockedTool, 0, len(tools))
+	for _, t := range tools {
+		out = append(out, lockfile.LockedTool{
+			Name:            t.Name,
+			DescriptionHash: lockfile.ContentHash(t.Description),
+			InputSchemaHash: lockfile.ContentHash(string(t.InputSchema)),
+		})
+	}
+	return out
 }
 
 func isNonStdioTransport(transport, command string) bool {
@@ -534,6 +562,17 @@ func manifestHash(layers map[manifest.Layer]*manifest.Manifest, want ...manifest
 		return lockfile.ContentHash(subset)
 	}
 	return lockfile.ContentHash(string(data))
+}
+
+func copyStringMap(m map[string]string) map[string]string {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func toAnyMap(m map[string]string) map[string]any {
