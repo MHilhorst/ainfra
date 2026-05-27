@@ -22,6 +22,47 @@ import (
 // default identity ("human") and invocation path (".") is used. Callers that
 // need to filter by caller identity or invocation path should call
 // RenderResourcesFor.
+// readSourceForLayer reads a sourced asset's bytes, resolving relative paths
+// against the right base directory for the layer. Repo and team layer sources
+// resolve against the install dir; personal-layer sources may come from the
+// repo's ainfra.personal.yaml OR the user's global personal.yaml at
+// $XDG_CONFIG_HOME/ainfra/personal.yaml — try the install dir first, then
+// the XDG dir as a fallback. Remote sources and empty sources return "".
+func readSourceForLayer(dir string, layerName manifest.Layer, source string) string {
+	if source == "" || isRemoteSource(source) {
+		return ""
+	}
+	// First attempt: install dir (always correct for repo/team layers, also
+	// correct when the source came from the repo's ainfra.personal.yaml).
+	if raw, err := os.ReadFile(filepath.Join(dir, source)); err == nil {
+		return string(raw)
+	}
+	// Fallback for personal layer: source may have come from
+	// $XDG_CONFIG_HOME/ainfra/personal.yaml; resolve against that directory.
+	if layerName == manifest.LayerPersonal {
+		if xdgDir, err := xdgConfigAinfra(); err == nil {
+			if raw, err := os.ReadFile(filepath.Join(xdgDir, source)); err == nil {
+				return string(raw)
+			}
+		}
+	}
+	return ""
+}
+
+// xdgConfigAinfra returns $XDG_CONFIG_HOME/ainfra (or ~/.config/ainfra when
+// XDG_CONFIG_HOME is unset). Local to render.go to avoid importing the
+// internal/xdg package from this leaf module.
+func xdgConfigAinfra() (string, error) {
+	if v := os.Getenv("XDG_CONFIG_HOME"); v != "" {
+		return filepath.Join(v, "ainfra"), nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".config", "ainfra"), nil
+}
+
 func RenderResources(dir string, runner provider.CommandRunner) (map[string][]provider.Resource, error) {
 	return RenderResourcesFor(dir, runner, DefaultContext())
 }
@@ -179,9 +220,9 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 			// A hook may carry a bundled source script; the channel installs
 			// it alongside the hook so `command` can reference it.
 			if h.Source != "" && !isRemoteSource(h.Source) {
-				if raw, err := os.ReadFile(filepath.Join(dir, h.Source)); err == nil {
+				if content := readSourceForLayer(dir, layerName, h.Source); content != "" {
 					payload["scriptName"] = filepath.Base(h.Source)
-					payload["scriptContent"] = string(raw)
+					payload["scriptContent"] = content
 				}
 			}
 			result["hooks"] = append(result["hooks"], provider.Resource{
@@ -204,12 +245,7 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 				continue
 			}
 			entry := merged.commands[id]
-			var content string
-			if c.Source != "" && !isRemoteSource(c.Source) {
-				if raw, err := os.ReadFile(filepath.Join(dir, c.Source)); err == nil {
-					content = string(raw)
-				}
-			}
+			content := readSourceForLayer(dir, layerName, c.Source)
 			result["commands"] = append(result["commands"], provider.Resource{
 				ID:          id,
 				Channel:     "commands",
@@ -244,12 +280,7 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 				continue
 			}
 			entry := merged.rules[id]
-			var content string
-			if r.Source != "" && !isRemoteSource(r.Source) {
-				if raw, err := os.ReadFile(filepath.Join(dir, r.Source)); err == nil {
-					content = string(raw)
-				}
-			}
+			content := readSourceForLayer(dir, layerName, r.Source)
 			if r.Template && content != "" {
 				rv, err := getResolvedVars()
 				if err != nil {
