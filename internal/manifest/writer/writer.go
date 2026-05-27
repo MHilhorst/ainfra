@@ -67,9 +67,7 @@ func RemoveEntry(path, channel, id string) error {
 // addEntry is the testable core; takes and returns []byte so tests don't need
 // to touch the filesystem.
 func addEntry(raw []byte, channel, id, body string) ([]byte, error) {
-	lines := splitKeepNL(raw)
-
-	chRange, indent, err := findChannel(raw, channel)
+	chRange, indent, isEmpty, err := findChannelInfo(raw, channel)
 	if err == errChannelMissing {
 		return appendNewChannel(raw, channel, id, body), nil
 	}
@@ -82,12 +80,17 @@ func addEntry(raw []byte, channel, id, body string) ([]byte, error) {
 		return nil, fmt.Errorf("%s.%s: %w", channel, id, ErrEntryExists)
 	}
 
-	// Build the entry text with proper indent.
-	entryText := formatEntry(id, body, indent)
+	// Empty-mapping channels (`mcpServers: {}`) are valid YAML but can't take
+	// child entries via append. Convert them to block form first by replacing
+	// the inline mapping with a plain `channel:` line.
+	if isEmpty {
+		raw = collapseEmptyMapping(raw, channel)
+		chRange, indent, _, _ = findChannelInfo(raw, channel)
+	}
 
-	// Insertion point: at the end of the channel block, just before the next
-	// top-level key (or EOF).
-	insertAt := chRange.end // line index (exclusive)
+	lines := splitKeepNL(raw)
+	entryText := formatEntry(id, body, indent)
+	insertAt := chRange.end
 	return spliceLines(lines, insertAt, insertAt, entryText), nil
 }
 
@@ -112,6 +115,63 @@ type channelRange struct{ start, end int }
 type entryRange struct{ start, end int }
 
 var errChannelMissing = errors.New("channel missing")
+
+// findChannelInfo is the richer cousin of findChannel that also reports
+// whether the channel is an empty mapping (`channel: {}` or `channel:` with
+// no children).
+func findChannelInfo(raw []byte, channel string) (channelRange, string, bool, error) {
+	var doc yaml.Node
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return channelRange{}, "", false, err
+	}
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return channelRange{}, "", false, errChannelMissing
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return channelRange{}, "", false, errChannelMissing
+	}
+	for i := 0; i < len(root.Content); i += 2 {
+		k := root.Content[i]
+		v := root.Content[i+1]
+		if k.Value != channel {
+			continue
+		}
+		end := -1
+		if i+2 < len(root.Content) {
+			end = root.Content[i+2].Line - 1
+		}
+		lines := splitKeepNL(raw)
+		if end == -1 {
+			end = len(lines)
+		}
+		isEmpty := v.Kind != yaml.MappingNode || len(v.Content) == 0
+		return channelRange{start: k.Line, end: end}, detectChannelIndent(v), isEmpty, nil
+	}
+	return channelRange{}, "", false, errChannelMissing
+}
+
+// collapseEmptyMapping replaces a `channel: {}` style declaration with the
+// block form `channel:` so subsequent inserts work cleanly.
+func collapseEmptyMapping(raw []byte, channel string) []byte {
+	lines := splitKeepNL(raw)
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !strings.HasPrefix(trimmed, channel+":") {
+			continue
+		}
+		// Replace the inline-mapping body with just `channel:\n`.
+		// Preserve leading whitespace (channels at root have none).
+		leading := line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+		lines[i] = leading + channel + ":\n"
+		break
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(l)
+	}
+	return []byte(b.String())
+}
 
 // findChannel locates the named channel in raw and returns its value block's
 // line range plus the indent string used for child entries.
