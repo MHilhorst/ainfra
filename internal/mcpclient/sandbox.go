@@ -62,10 +62,10 @@ type execProcess struct {
 	stderr io.ReadCloser
 }
 
-func (p *execProcess) Stdin() io.WriteCloser  { return p.stdin }
-func (p *execProcess) Stdout() io.ReadCloser  { return p.stdout }
-func (p *execProcess) Stderr() io.ReadCloser  { return p.stderr }
-func (p *execProcess) Wait() error            { return p.cmd.Wait() }
+func (p *execProcess) Stdin() io.WriteCloser { return p.stdin }
+func (p *execProcess) Stdout() io.ReadCloser { return p.stdout }
+func (p *execProcess) Stderr() io.ReadCloser { return p.stderr }
+func (p *execProcess) Wait() error           { return p.cmd.Wait() }
 func (p *execProcess) Kill() error {
 	if p.cmd.Process == nil {
 		return nil

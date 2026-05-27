@@ -16,7 +16,7 @@ const (
 // Var is one template variable. It is written either as a scalar (a literal
 // value) or as a mapping declaring how the value is sourced.
 type Var struct {
-	From    string `yaml:"from"`    // "value" | "env" | "command"
+	From    string `yaml:"from"` // "value" | "env" | "command"
 	Value   string `yaml:"value"`
 	Env     string `yaml:"env"`
 	Command string `yaml:"command"`
@@ -46,8 +46,8 @@ type Manifest struct {
 	// AinfraVersion optionally pins the ainfra binary version this repo
 	// expects. `ainfra install` warns when the running binary does not
 	// match (exact-string match in v1; semver ranges deferred).
-	AinfraVersion string `yaml:"ainfraVersion,omitempty"`
-	Agent         string `yaml:"agent,omitempty"`
+	AinfraVersion      string                       `yaml:"ainfraVersion,omitempty"`
+	Agent              string                       `yaml:"agent,omitempty"`
 	Extends            []Source                     `yaml:"extends"`
 	Preconditions      map[string]Precondition      `yaml:"preconditions"`
 	CLITools           map[string]CLITool           `yaml:"cliTools"`

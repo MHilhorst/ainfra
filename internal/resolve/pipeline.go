@@ -633,7 +633,7 @@ func splitByLayer(l *lockfile.Lock) (committed, personal *lockfile.Lock) {
 				Hooks: map[string]lockfile.Entry{}, Commands: map[string]lockfile.Entry{},
 				CLITools: map[string]lockfile.Entry{}, Skills: map[string]lockfile.Entry{},
 				Marketplaces: map[string]lockfile.Entry{},
-				Plugins: map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
+				Plugins:      map[string]lockfile.Entry{}, Rules: map[string]lockfile.Entry{},
 				Tools: map[string]lockfile.Entry{}}}
 	}
 	committed, personal = mk(), mk()

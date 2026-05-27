@@ -499,6 +499,17 @@ content hash for strong reproducibility and drift detection (Phase 2). Version
 values are strings — always quote them, so `version: "1"` is never misread as a
 number.
 
+For `plugins` specifically, the `version:` field is an *expected resolved
+version*, not the cache key itself. Claude Code's plugin cache is keyed on the
+plugin's own `plugin.json` (or its marketplace entry, or the git commit SHA —
+see the plugins reference). After install, `ainfra` reads the resolved
+version from `~/.claude/plugins/cache/<name>@<marketplace>/<version>/.claude-plugin/plugin.json`
+and emits a warning when it diverges from the pin. The pin itself is never
+passed to `claude plugin install`. To change the *actual* cache key, bump the
+upstream `plugin.json`/marketplace entry. The plugin's content hash in
+`ainfra.lock` is a recursive sha256 of the resolved version directory, so
+in-place edits to a cached plugin are caught by `ainfra check`.
+
 `tools` is a singleton, not an id-keyed map. Its `permissions` block is the
 three-tier Claude Code policy (`allow` / `ask` / `deny`). Across layers it
 union-merges under the rule in §1.1: the lists are additive, and `deny` beats

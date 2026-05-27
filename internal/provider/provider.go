@@ -80,14 +80,24 @@ type ChangeSkip struct {
 	Reason string
 }
 
+// ChangeWarning is one Change that succeeded but with a non-fatal condition
+// worth surfacing — for example, a post-install version mismatch where Claude
+// Code resolved a different version than the manifest pinned.
+type ChangeWarning struct {
+	Change Change
+	Reason string
+}
+
 // ApplyResult records what a provider's Apply actually did. Applied holds the
 // changes that succeeded; Failed holds changes attempted that errored; Skipped
-// holds changes the orchestrator blocked before the provider saw them.
+// holds changes the orchestrator blocked before the provider saw them;
+// Warnings holds changes that succeeded with a non-fatal caveat.
 type ApplyResult struct {
-	Channel string
-	Applied []Change
-	Failed  []ChangeFailure
-	Skipped []ChangeSkip
+	Channel  string
+	Applied  []Change
+	Failed   []ChangeFailure
+	Skipped  []ChangeSkip
+	Warnings []ChangeWarning
 }
 
 // Provider reconciles one channel. Observe reads machine state; Apply mutates

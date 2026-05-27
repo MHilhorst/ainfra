@@ -257,11 +257,12 @@ func runPlan(ctx cli.Context) int {
 // renderApplySummary prints the one-line apply tally and, for any failed or
 // skipped resource, a reason line.
 func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
-	var applied, skipped, failed int
+	var applied, skipped, failed, warned int
 	for _, r := range results {
 		applied += len(r.Applied)
 		skipped += len(r.Skipped)
 		failed += len(r.Failed)
+		warned += len(r.Warnings)
 	}
 	fmt.Fprintf(w, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
 	for _, r := range results {
@@ -271,6 +272,9 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 		for _, s := range r.Skipped {
 			fmt.Fprintf(w, "  skipped: %s %s — %s\n", r.Channel, s.Change.ID, s.Reason)
 		}
+		for _, wn := range r.Warnings {
+			fmt.Fprintf(w, "  warning: %s %s — %s\n", r.Channel, wn.Change.ID, wn.Reason)
+		}
 	}
 }
 
@@ -278,11 +282,11 @@ func newApplyCommand() *cli.Command {
 	var yes, dryRun, noInstall, strict bool
 	var from string
 	return &cli.Command{
-		Name:      "apply",
-		Summary:   "Reconcile the environment to match the manifest or a published artifact",
-		UsageLine: "ainfra apply [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>]",
-		Example:   "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
-		Hidden:    true,
+		Name:          "apply",
+		Summary:       "Reconcile the environment to match the manifest or a published artifact",
+		UsageLine:     "ainfra apply [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>]",
+		Example:       "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
+		Hidden:        true,
 		DeprecatedFor: "install",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
@@ -737,7 +741,6 @@ func renderToolsetDrift(w io.Writer, report check.Report) {
 		}
 	}
 }
-
 
 // checkSecrets verifies every secret reference in both lockfiles is resolvable.
 // It returns one message per unresolvable ref; the messages never contain a

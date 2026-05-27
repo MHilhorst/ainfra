@@ -560,9 +560,9 @@ func TestValidateRejectsCommandVarWithoutCommandField(t *testing.T) {
 func TestValidateAcceptsValidVarsWithTemplateRule(t *testing.T) {
 	m := &Manifest{Version: 1,
 		Vars: map[string]Var{
-			"TEAM":    {From: "value", Value: "Acme"},
-			"NAME":    {From: "command", Command: "git config user.name"},
-			"MY_ENV":  {From: "env", Env: "USER"},
+			"TEAM":   {From: "value", Value: "Acme"},
+			"NAME":   {From: "command", Command: "git config user.name"},
+			"MY_ENV": {From: "env", Env: "USER"},
 		},
 		Rules: map[string]Rule{
 			"r1": {Source: "./r.md", Template: true},
