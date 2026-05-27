@@ -32,14 +32,30 @@ secrets:
     scope: personal                       # each developer supplies their own
     ref: "op://Private/github/personal-access-token"
 
+# --- Templates: define one MCP server shape, instantiate it many times -------
+# `${params.*}` substitutes into args, command, url, env, and headers. This is
+# the trick that compresses a long runbook into a few lines per server.
+templates:
+  fs-scoped:
+    description: A filesystem MCP server pinned to one directory.
+    params:
+      root: { type: string, required: true }
+    produces:
+      mcpServer:
+        transport: stdio
+        command: npx
+        args: ["-y", "@modelcontextprotocol/server-filesystem", "${params.root}"]
+        version: "0.6.2"
+
 # --- MCP servers: what lands in each developer's .mcp.json -------------------
 mcpServers:
-  # A local filesystem server — no credentials, scoped to the repo.
-  filesystem:
-    transport: stdio
-    command: npx
-    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
-    version: "0.6.2"                       # package-launched servers must pin a version
+  # Two instances of the template — same shape, different root directory.
+  repo:
+    template: fs-scoped
+    params: { root: "." }
+  docs:
+    template: fs-scoped
+    params: { root: "./docs" }
 
   # The GitHub server — its token comes from the reference declared above.
   github:

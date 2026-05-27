@@ -63,12 +63,12 @@ teammate resolves the manifest the same way.
 
 ### Editor autocomplete
 
-`ainfra schema` prints the JSON Schema for `ainfra.yaml`. Generate it once, then
-point your editor's YAML language server at it. Your editor will then offer
-autocomplete and flag mistakes inline as you edit:
+`ainfra validate --print-schema` emits the JSON Schema for `ainfra.yaml`.
+Generate it once, then point your editor's YAML language server at it. Your
+editor will then offer autocomplete and flag mistakes inline as you edit:
 
 ```sh
-ainfra schema > ainfra.schema.json
+ainfra validate --print-schema > ainfra.schema.json
 ```
 
 Then add this first line to `ainfra.yaml`:
@@ -113,13 +113,15 @@ four committed to `ainfra.lock`, and one resolved separately into
 | Command | What it does |
 |---|---|
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`) |
-| `ainfra validate` | Static-check the manifest without resolving it |
-| `ainfra schema` | Print the JSON Schema for `ainfra.yaml` |
+| `ainfra validate` | Static-check the manifest (`--print-schema` emits the JSON Schema) |
 | `ainfra lock` | Resolve the manifest and write `ainfra.lock` |
 | `ainfra plan` | Preview the diff between desired state (what you want) and observed state (what is actually on the machine) |
 | `ainfra apply` | Reconcile the environment to the manifest |
 | `ainfra check` | Verify the environment matches the lockfile |
 | `ainfra version` | Print the ainfra version |
+
+Advanced verbs (`schema`, `publish`, `installer`, `exec`, `sync`, `history`)
+keep working but are hidden from `ainfra --help` to keep the front page small.
 
 Global flags: `--chdir <dir>` runs ainfra as if it had started in `<dir>`;
 `--no-color` disables colored output. Run `ainfra <command> --help` for detail

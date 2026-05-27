@@ -133,17 +133,30 @@ Run `ainfra --help` for the command list, or `ainfra <command> --help` for per-c
 | Command | What it does |
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` in the current repo (`--personal`, `--force`) |
-| `validate` | Static-check the manifest without resolving it |
-| `schema` | Print the JSON Schema for `ainfra.yaml` — point an editor at it for autocomplete |
+| `validate` | Static-check the manifest without resolving it (`--print-schema` to emit the JSON Schema) |
 | `lock` | Resolve the manifest and write `ainfra.lock` |
 | `plan` | Preview the diff between desired and observed state |
 | `apply` | Reconcile the environment to the manifest — or to a published artifact with `--from` |
 | `check` | Verify the environment matches the lockfile (or a `--from` artifact); report drift |
-| `publish` | Package the resolved lockfile into a subscriber artifact (`--out`) |
-| `installer` | Generate a one-time macOS installer for subscriber machines (`--out`) |
 | `version` | Print the ainfra version |
 
 Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output.
+
+<details>
+<summary>Hidden / advanced verbs</summary>
+
+These keep working but are omitted from `ainfra --help` so the front page stays small.
+
+| Command | What it does |
+|---------|--------------|
+| `schema` | Folded into `validate --print-schema`; the standalone verb is still wired |
+| `publish` | Package the resolved lockfile into a subscriber artifact (`--out`) |
+| `installer` | Generate a one-time macOS installer for subscriber machines (`--out`) |
+| `exec` | Resolve secrets and run a command with them in its environment |
+| `sync` | Resolve secrets and write them to the Claude Code settings env block |
+| `history` | Show recent apply events (who / what / when) |
+
+</details>
 
 ## Status
 
