@@ -15,27 +15,69 @@ var channelOrder = []string{
 	"skills", "marketplaces", "plugins", "rules", "tools", "hooks", "commands",
 }
 
+// Scope distinguishes a repo-scope orchestrator (writes to repo paths and
+// the repo applied ledger) from a user-scope one (writes to ~/.claude/ and
+// the user-global applied ledger). Each scope uses the same providers and
+// the same diff/apply flow — only the read/write paths differ.
+type Scope int
+
+const (
+	// ScopeRepo is the historical orchestrator behavior: write to env.Root/.claude/
+	// and persist the applied ledger to env.Root/.ainfra/applied.lock.
+	ScopeRepo Scope = iota
+	// ScopeUser writes to $HOME/.claude/ and persists the applied ledger to
+	// $XDG_CONFIG_HOME/ainfra/applied.lock. Personal-layer entries from the
+	// global ainfra config land here.
+	ScopeUser
+)
+
 // Orchestrator loads locks, reads the applied ledger, and drives all registered
 // providers through plan and apply in a deterministic order.
 type Orchestrator struct {
 	root      string
+	scope     Scope
 	env       Env
 	providers map[string]Provider
 }
 
-// NewOrchestrator builds an Orchestrator keyed by each provider's Channel().
+// NewOrchestrator builds a repo-scope Orchestrator keyed by each provider's
+// Channel(). This is the historical constructor; use NewOrchestratorScoped
+// to build a user-scope variant.
 func NewOrchestrator(root string, env Env, ps []Provider) *Orchestrator {
+	return NewOrchestratorScoped(root, ScopeRepo, env, ps)
+}
+
+// NewOrchestratorScoped builds an Orchestrator at the given scope. ScopeUser
+// reads/writes the user-global applied ledger; ScopeRepo behaves identically
+// to the historical NewOrchestrator.
+func NewOrchestratorScoped(root string, scope Scope, env Env, ps []Provider) *Orchestrator {
 	m := make(map[string]Provider, len(ps))
 	for _, p := range ps {
 		m[p.Channel()] = p
 	}
-	return &Orchestrator{root: root, env: env, providers: m}
+	return &Orchestrator{root: root, scope: scope, env: env, providers: m}
+}
+
+// readApplied dispatches the ledger read to the right scope.
+func (o *Orchestrator) readApplied() (*lockfile.Lock, error) {
+	if o.scope == ScopeUser {
+		return ReadAppliedUser()
+	}
+	return ReadApplied(o.root)
+}
+
+// writeApplied dispatches the ledger write to the right scope.
+func (o *Orchestrator) writeApplied(l *lockfile.Lock) error {
+	if o.scope == ScopeUser {
+		return WriteAppliedUser(l)
+	}
+	return WriteApplied(o.root, l)
 }
 
 // PlanAll reads the applied ledger, computes observed state via each provider's
 // Observe, and returns the per-channel diff of desired vs observed vs prior.
 func (o *Orchestrator) PlanAll(desired *lockfile.Lock) (map[string]ChannelPlan, error) {
-	prior, err := ReadApplied(o.root)
+	prior, err := o.readApplied()
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +131,7 @@ func (o *Orchestrator) ApplyAll(desired *lockfile.Lock) error {
 		}
 	}
 
-	return WriteApplied(o.root, desired)
+	return o.writeApplied(desired)
 }
 
 // PlanAllRendered computes the per-channel diff using rendered resources (which
@@ -97,7 +139,7 @@ func (o *Orchestrator) ApplyAll(desired *lockfile.Lock) error {
 // observed state is read from the machine and the prior state from the applied
 // ledger as in PlanAll.
 func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[string]ChannelPlan, error) {
-	prior, err := ReadApplied(o.root)
+	prior, err := o.readApplied()
 	if err != nil {
 		return nil, err
 	}
@@ -142,7 +184,7 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 	if err != nil {
 		return nil, err
 	}
-	prior, err := ReadApplied(o.root)
+	prior, err := o.readApplied()
 	if err != nil {
 		return nil, err
 	}
@@ -187,7 +229,7 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 
 	ledger := buildLedger(prior, desired, results)
 	if !o.env.DryRun {
-		if werr := WriteApplied(o.root, ledger); werr != nil {
+		if werr := o.writeApplied(ledger); werr != nil {
 			errs = append(errs, fmt.Errorf("writing applied ledger: %w", werr))
 		}
 	}
