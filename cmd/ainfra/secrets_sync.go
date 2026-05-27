@@ -9,56 +9,20 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/secret"
-	"github.com/MHilhorst/ainfra/internal/ui"
 )
 
-// newSyncCommand returns the `ainfra sync` command: it resolves every secret
-// reference in the lockfile and writes the values into the Claude Code
-// settings env block, so a normally-launched Claude Code (terminal, IDE, or
-// app) has them — no `ainfra exec` wrapper required.
-func newSyncCommand() *cli.Command {
-	return &cli.Command{
-		Name:            "sync",
-		Summary:         "Resolve secrets and write them to the Claude Code settings env block",
-		UsageLine:       "ainfra sync",
-		Example:         "ainfra sync",
-		Hidden:          true,
-		DeprecationNote: "'ainfra sync' is deprecated; 'ainfra install' auto-syncs secrets at the end of a run. Will be removed in 0.2.",
-		Run: func(ctx cli.Context) int {
-			return runSyncWith(ctx, secret.DefaultRegistry())
-		},
-	}
-}
-
-// syncResult reports what `ainfra sync` materialized.
+// syncResult reports what syncSecrets materialized.
 type syncResult struct {
 	EnvCount     int      // environment variables written to the settings file
 	SettingsPath string   // the settings file written
 	Files        []string // credential files written, by path
 }
 
-// runSyncWith is the testable core of `ainfra sync`.
-func runSyncWith(ctx cli.Context, reg *secret.Registry) int {
-	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-	res, err := syncSecrets(ctx.Dir, reg)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	fmt.Fprintf(ctx.Stdout, "Wrote %d secrets to %s\n", res.EnvCount, res.SettingsPath)
-	for _, f := range res.Files {
-		fmt.Fprintf(ctx.Stdout, "Wrote credential file %s\n", f)
-	}
-	return 0
-}
-
 // syncSecrets resolves every secret referenced by the lockfiles and manifest
-// at dir and materializes it. It is shared by `ainfra sync` and the final step
-// of `ainfra apply`.
+// at dir and materializes it. It runs as the final step of `ainfra install`.
 //
 // A secret is materialized by its destination:
 //   - a single-value secret (lockfile) -> one env var in the settings file

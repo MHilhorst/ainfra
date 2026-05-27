@@ -164,9 +164,12 @@ func TestAdoptOutputValidates(t *testing.T) {
 	if code := run([]string{"--chdir", dir, "adopt"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatalf("adopt: code=%d", code)
 	}
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("lock: code=%d", code)
+	}
 	var validateErr bytes.Buffer
-	if code := run([]string{"--chdir", dir, "validate"}, &bytes.Buffer{}, &validateErr); code != 0 {
+	if code := run([]string{"--chdir", dir, "install", "--dry-run"}, &bytes.Buffer{}, &validateErr); code != 0 {
 		data, _ := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
-		t.Fatalf("validate failed: code=%d err=%q\n--- ainfra.yaml ---\n%s", code, validateErr.String(), data)
+		t.Fatalf("install --dry-run failed: code=%d err=%q\n--- ainfra.yaml ---\n%s", code, validateErr.String(), data)
 	}
 }

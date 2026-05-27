@@ -26,17 +26,9 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newListCommand())
 	reg.Add(newOutdatedCommand())
 	reg.Add(newVersionCommand())
-	// Hidden / deprecated aliases — kept callable through 0.x for backward compat.
-	reg.Add(newValidateCommand())
-	reg.Add(newSchemaCommand())
+	// Hidden helpers — still callable but omitted from `ainfra --help`.
 	reg.Add(newLockCommand())
 	reg.Add(newPublishCommand())
 	reg.Add(newInstallerCommand())
-	reg.Add(newPlanCommand())
-	reg.Add(newApplyCommand())
-	reg.Add(newCheckCommand())
-	reg.Add(newExecCommand())
-	reg.Add(newSyncCommand())
-	reg.Add(newHistoryCommand())
 	return reg.Dispatch(args)
 }

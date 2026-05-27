@@ -1,23 +1,22 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
-	"github.com/MHilhorst/ainfra/internal/check"
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/precond"
 	"github.com/MHilhorst/ainfra/internal/resolve"
+	"github.com/MHilhorst/ainfra/internal/schema"
 	"github.com/MHilhorst/ainfra/internal/secret"
 	"github.com/MHilhorst/ainfra/internal/ui"
 	"github.com/MHilhorst/ainfra/internal/version"
@@ -203,57 +202,6 @@ func warnIfAinfraVersionMismatch(ctx cli.Context, dir string) {
 			repo.AinfraVersion, version.Version)))
 }
 
-func newPlanCommand() *cli.Command {
-	return &cli.Command{
-		Name:          "plan",
-		Summary:       "Show the diff between desired and observed state",
-		UsageLine:     "ainfra plan",
-		Example:       "ainfra plan",
-		Hidden:        true,
-		DeprecatedFor: "install --dry-run",
-		Run:           runPlan,
-	}
-}
-
-func runPlan(ctx cli.Context) int {
-	dir := ctx.Dir
-	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-
-	lockPath := filepath.Join(dir, "ainfra.lock")
-	if !fileExists(lockPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first"))
-		return 1
-	}
-
-	committed, err := lockfile.Read(lockPath)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
-	if err != nil {
-		personal = &lockfile.Lock{}
-	}
-	merged := mergeLocks(committed, personal)
-	warnIfStale(ctx, dir, committed)
-
-	providers, err := providersForDir(dir)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
-	plans, err := orch.PlanAll(merged)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-
-	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	ui.RenderPlan(ctx.Stdout, c, plans)
-	return 0
-}
-
 // renderApplySummary prints the one-line apply tally and, for any failed or
 // skipped resource, a reason line.
 func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
@@ -278,35 +226,8 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 	}
 }
 
-func newApplyCommand() *cli.Command {
-	var yes, dryRun, noInstall, strict bool
-	var from string
-	return &cli.Command{
-		Name:          "apply",
-		Summary:       "Reconcile the environment to match the manifest or a published artifact",
-		UsageLine:     "ainfra apply [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>]",
-		Example:       "ainfra apply --from https://downloads.example.com/ainfra/sales --yes",
-		Hidden:        true,
-		DeprecatedFor: "install",
-		SetFlags: func(fs *flag.FlagSet) {
-			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
-			fs.BoolVar(&dryRun, "dry-run", false, "preview the apply without writing anything")
-			fs.BoolVar(&strict, "strict", false, "exit non-zero when --dry-run finds drift (CI shape)")
-			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
-			fs.StringVar(&from, "from", "", "reconcile against a published artifact instead of a repo")
-		},
-		Run: func(ctx cli.Context) int {
-			if from != "" {
-				return runApplyFrom(ctx, from, yes)
-			}
-			return runApply(ctx, yes, dryRun, noInstall, strict)
-		},
-	}
-}
-
-// newInstallCommand is the renamed front-page reconcile verb. Same body as
-// apply, plus the --strict flag that makes --dry-run exit non-zero on any drift
-// (CI shape, replacing the standalone `check` verb).
+// newInstallCommand is the front-page reconcile verb. It plans, applies, and
+// syncs secrets in one pass; --dry-run + --strict gives the CI drift shape.
 func newInstallCommand() *cli.Command {
 	var yes, dryRun, noInstall, strict, printSchema bool
 	var from string
@@ -580,183 +501,15 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	return 0
 }
 
-func newCheckCommand() *cli.Command {
-	var from string
-	return &cli.Command{
-		Name:          "check",
-		Summary:       "Verify the environment matches the lockfile or a published artifact; report drift",
-		UsageLine:     "ainfra check [--from <url-or-dir>]",
-		Example:       "ainfra check --from https://downloads.example.com/ainfra/sales",
-		Hidden:        true,
-		DeprecatedFor: "install --dry-run --strict",
-		SetFlags: func(fs *flag.FlagSet) {
-			fs.StringVar(&from, "from", "", "check against a published artifact instead of a repo")
-		},
-		Run: func(ctx cli.Context) int {
-			if from != "" {
-				return runCheckFrom(ctx, from)
-			}
-			return runCheck(ctx)
-		},
-	}
-}
-
-func runCheckFrom(ctx cli.Context, from string) int {
-	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-
-	dir, cleanup, err := artifactSource(from)
+// runPrintSchema dumps the manifest's JSON Schema; wired in via `install --print-schema`.
+func runPrintSchema(ctx cli.Context) int {
+	out, err := json.MarshalIndent(schema.Generate(), "", "  ")
 	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
+		ui.RenderError(ctx.Stderr, ui.NewColorizer(ctx.Stderr, ctx.NoColor), err)
 		return 1
 	}
-	defer cleanup()
-
-	providers, rendered, _, err := loadArtifact(dir)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	env, home, err := subscriberEnv()
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	orch := provider.NewOrchestrator(home, env, providers)
-	plans, err := orch.PlanAllRendered(rendered)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-
-	allEmpty := true
-	for _, p := range plans {
-		if !p.Empty() {
-			allEmpty = false
-			break
-		}
-	}
-	if allEmpty {
-		fmt.Fprintln(ctx.Stdout, "No drift.")
-		return 0
-	}
-	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	ui.RenderPlan(ctx.Stdout, c, plans)
-	return 1
-}
-
-func runCheck(ctx cli.Context) int {
-	dir := ctx.Dir
-	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-
-	lockPath := filepath.Join(dir, "ainfra.lock")
-	if !fileExists(lockPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first"))
-		return 1
-	}
-
-	committed, err := lockfile.Read(lockPath)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
-	if err != nil {
-		personal = &lockfile.Lock{}
-	}
-	merged := mergeLocks(committed, personal)
-
-	providers, err := providersForDir(dir)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-	orch := provider.NewOrchestrator(dir, buildEnv(dir), providers)
-	plans, err := orch.PlanAll(merged)
-	if err != nil {
-		ui.RenderError(ctx.Stderr, errColor, err)
-		return 1
-	}
-
-	allEmpty := true
-	for _, p := range plans {
-		if !p.Empty() {
-			allEmpty = false
-			break
-		}
-	}
-
-	secretFailures := checkSecrets(committed, personal, secret.DefaultRegistry())
-	precondFailures := checkPreconditions(dir, buildEnv(dir))
-	toolsetReport := check.CheckToolsetDrift(committed, personal)
-
-	if allEmpty && len(secretFailures) == 0 && len(precondFailures) == 0 && !toolsetReport.HasDrift() {
-		if toolsetReport.UnverifiedCount > 0 {
-			fmt.Fprintf(ctx.Stdout, "note: %d MCP server(s) skipped — unverified at lock time\n", toolsetReport.UnverifiedCount)
-		}
-		fmt.Fprintln(ctx.Stdout, "No drift.")
-		return 0
-	}
-
-	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	if !allEmpty {
-		ui.RenderPlan(ctx.Stdout, c, plans)
-	}
-	if toolsetReport.HasDrift() {
-		renderToolsetDrift(ctx.Stderr, toolsetReport)
-	}
-	if toolsetReport.UnverifiedCount > 0 {
-		fmt.Fprintf(ctx.Stderr, "note: %d MCP server(s) skipped — unverified at lock time\n", toolsetReport.UnverifiedCount)
-	}
-	if len(precondFailures) > 0 {
-		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
-		for _, f := range precondFailures {
-			fmt.Fprintf(ctx.Stderr, "  %s: %s\n", f.ID, f.Remediation)
-		}
-	}
-	if len(secretFailures) > 0 {
-		fmt.Fprintln(ctx.Stderr, "Unresolvable secrets:")
-		for _, f := range secretFailures {
-			fmt.Fprintf(ctx.Stderr, "  %s\n", f)
-		}
-	}
-	return 1
-}
-
-// renderToolsetDrift prints a human-readable per-tool diff for every MCP
-// server whose live toolset no longer matches its locked fingerprint, or
-// which could not be re-introspected.
-func renderToolsetDrift(w io.Writer, report check.Report) {
-	fmt.Fprintln(w, "Toolset drift:")
-	for _, d := range report.Drifts {
-		if d.IntrospectErr != "" {
-			fmt.Fprintf(w, "  %s: could not re-introspect server: %s\n", d.ServerID, d.IntrospectErr)
-			continue
-		}
-		fmt.Fprintf(w, "  %s: toolset changed (locked %s, live %s)\n", d.ServerID, shortHash(d.LockedHash), shortHash(d.LiveHash))
-		if len(d.Diff) == 0 {
-			continue
-		}
-		for _, td := range d.Diff {
-			fmt.Fprintf(w, "    tool %q: %s\n", td.Name, td.Kind.String())
-		}
-	}
-}
-
-// checkSecrets verifies every secret reference in both lockfiles is resolvable.
-// It returns one message per unresolvable ref; the messages never contain a
-// secret value.
-func checkSecrets(committed, personal *lockfile.Lock, reg *secret.Registry) []string {
-	refs := map[string]lockfile.SecretRef{}
-	maps.Copy(refs, committed.Secrets)
-	maps.Copy(refs, personal.Secrets)
-
-	var failures []string
-	for _, v := range slices.Sorted(maps.Keys(refs)) {
-		if err := reg.Check(refs[v].Ref); err != nil {
-			failures = append(failures, err.Error())
-		}
-	}
-	return failures
+	fmt.Fprintln(ctx.Stdout, string(out))
+	return 0
 }
 
 // checkPreconditions loads the manifest layers and runs all declared

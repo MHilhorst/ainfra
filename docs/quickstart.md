@@ -127,6 +127,6 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | `ainfra outdated` | Show entries with newer resolvable versions (`--strict`) |
 | `ainfra version` | Print the ainfra version |
 
-Deprecated aliases (`apply`, `plan`, `check`, `validate`, `schema`, `sync`, `exec`, `history`) and rarely-used helpers (`lock`, `publish`, `installer`) keep working but are hidden from `ainfra --help` to keep the front page small. Set `AINFRA_QUIET=1` to suppress the deprecation warnings.
+Rarely-used helpers (`lock`, `publish`, `installer`) keep working but are hidden from `ainfra --help` to keep the front page small.
 
 Global flags: `--chdir <dir>` runs ainfra as if it had started in `<dir>`; `--no-color` disables colored output. Run `ainfra <command> --help` for detail on a single command.

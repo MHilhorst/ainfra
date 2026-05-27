@@ -53,13 +53,13 @@ commands:
 	// Step 2: plan — must succeed and show pending changes.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("plan (before apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if strings.Contains(combined, "No changes") {
-			t.Errorf("plan (before apply): expected pending changes, got 'No changes': %q", combined)
+		if strings.Contains(combined, "Nothing to do") {
+			t.Errorf("plan (before apply): expected pending changes, got 'Nothing to do': %q", combined)
 		}
 		// Expect at least one "to add" in the summary.
 		if !strings.Contains(combined, "to add") {
@@ -70,7 +70,7 @@ commands:
 	// Step 3: apply --yes — must succeed and write the artifacts.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("apply --yes: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
@@ -111,26 +111,26 @@ commands:
 	// Step 4: check — must exit 0 (no drift).
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "check"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run", "--strict"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("check (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "No drift") {
-			t.Errorf("check (after apply): expected 'No drift', got: %q", combined)
+		if !strings.Contains(combined, "Nothing to do") {
+			t.Errorf("check (after apply): expected 'Nothing to do', got: %q", combined)
 		}
 	}
 
 	// Step 5: second plan — must show no changes.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("plan (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "No changes") {
-			t.Errorf("plan (after apply): expected 'No changes', got: %q", combined)
+		if !strings.Contains(combined, "Nothing to do") {
+			t.Errorf("plan (after apply): expected 'Nothing to do', got: %q", combined)
 		}
 	}
 }
@@ -167,20 +167,20 @@ tools:
 	// Step 2: plan — must report pending changes.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("plan (before apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if strings.Contains(combined, "No changes") {
-			t.Errorf("plan (before apply): expected pending changes, got 'No changes': %q", combined)
+		if strings.Contains(combined, "Nothing to do") {
+			t.Errorf("plan (before apply): expected pending changes, got 'Nothing to do': %q", combined)
 		}
 	}
 
 	// Step 3: apply --yes — must write disabledTools and permissions.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("apply --yes: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
@@ -238,27 +238,27 @@ tools:
 	// Step 4: check — must exit 0 (no drift). This is the regression guard for Bug 1.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "check"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run", "--strict"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("check (after apply): code=%d stdout=%q stderr=%q\n(non-zero exit means tools channel still reports drift — resource ID mismatch not fully fixed)",
 				code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "No drift") {
-			t.Errorf("check (after apply): expected 'No drift', got: %q", combined)
+		if !strings.Contains(combined, "Nothing to do") {
+			t.Errorf("check (after apply): expected 'Nothing to do', got: %q", combined)
 		}
 	}
 
 	// Step 5: second plan — must show no changes.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("plan (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "No changes") {
-			t.Errorf("plan (after apply): expected 'No changes', got: %q", combined)
+		if !strings.Contains(combined, "Nothing to do") {
+			t.Errorf("plan (after apply): expected 'Nothing to do', got: %q", combined)
 		}
 	}
 }
@@ -313,11 +313,11 @@ func TestE2ERepresentative(t *testing.T) {
 	// Step 2: plan — must show pending changes
 	{
 		var out, errOut bytes.Buffer
-		if code := run([]string{"--chdir", dir, "plan"}, &out, &errOut); code != 0 {
+		if code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut); code != 0 {
 			t.Fatalf("plan: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
-		if strings.Contains(out.String()+errOut.String(), "No changes") {
-			t.Errorf("plan: expected pending changes, got 'No changes'")
+		if strings.Contains(out.String()+errOut.String(), "Nothing to do") {
+			t.Errorf("plan: expected pending changes, got 'Nothing to do'")
 		}
 		if !strings.Contains(out.String()+errOut.String(), "to add") {
 			t.Errorf("plan: expected 'to add' in output")
@@ -326,7 +326,7 @@ func TestE2ERepresentative(t *testing.T) {
 	// Step 3: apply --yes --no-install
 	{
 		var out, errOut bytes.Buffer
-		if code := run([]string{"--chdir", dir, "apply", "--yes", "--no-install"}, &out, &errOut); code != 0 {
+		if code := run([]string{"--chdir", dir, "install", "--yes", "--no-install"}, &out, &errOut); code != 0 {
 			t.Fatalf("apply: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
 		if _, err := os.Stat(filepath.Join(dir, ".ainfra", "applied.lock")); err != nil {
@@ -376,21 +376,21 @@ func TestE2ERepresentative(t *testing.T) {
 	// Step 4: check — no drift.
 	{
 		var out, errOut bytes.Buffer
-		if code := run([]string{"--chdir", dir, "check"}, &out, &errOut); code != 0 {
+		if code := run([]string{"--chdir", dir, "install", "--dry-run", "--strict"}, &out, &errOut); code != 0 {
 			t.Fatalf("check: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
-		if !strings.Contains(out.String()+errOut.String(), "No drift") {
-			t.Errorf("check: expected 'No drift'")
+		if !strings.Contains(out.String()+errOut.String(), "Nothing to do") {
+			t.Errorf("check: expected 'Nothing to do'")
 		}
 	}
 	// Step 5: second plan — no changes.
 	{
 		var out, errOut bytes.Buffer
-		if code := run([]string{"--chdir", dir, "plan"}, &out, &errOut); code != 0 {
+		if code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut); code != 0 {
 			t.Fatalf("plan 2: code=%d out=%q err=%q", code, out.String(), errOut.String())
 		}
-		if !strings.Contains(out.String()+errOut.String(), "No changes") {
-			t.Errorf("second plan: expected 'No changes'")
+		if !strings.Contains(out.String()+errOut.String(), "Nothing to do") {
+			t.Errorf("second plan: expected 'Nothing to do'")
 		}
 	}
 }
@@ -440,7 +440,7 @@ rules:
 	// Step 2: plan — must report pending changes.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("plan (before apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
@@ -453,7 +453,7 @@ rules:
 	// Step 3: apply --yes — must write config.toml and AGENTS.md.
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("apply --yes: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
@@ -483,26 +483,26 @@ rules:
 	// Step 4: check — must exit 0 (no drift).
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "check"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run", "--strict"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("check (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "No drift") {
-			t.Errorf("check (after apply): expected 'No drift', got: %q", combined)
+		if !strings.Contains(combined, "Nothing to do") {
+			t.Errorf("check (after apply): expected 'Nothing to do', got: %q", combined)
 		}
 	}
 
 	// Step 5: second plan — must show no changes (idempotence).
 	{
 		var out, errOut bytes.Buffer
-		code := run([]string{"--chdir", dir, "plan"}, &out, &errOut)
+		code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 		if code != 0 {
 			t.Fatalf("plan (after apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "No changes") {
-			t.Errorf("plan (after apply): expected 'No changes', got: %q", combined)
+		if !strings.Contains(combined, "Nothing to do") {
+			t.Errorf("plan (after apply): expected 'Nothing to do', got: %q", combined)
 		}
 	}
 }

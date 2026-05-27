@@ -35,26 +35,9 @@ type Command struct {
 
 	// Hidden commands work normally but are omitted from `ainfra --help`.
 	// Use for niche / advanced verbs that we keep working but don't want to
-	// front-page (subscriber-mode helpers, secret-resolution sidecars, etc.).
+	// front-page (subscriber-mode helpers, etc.).
 	Hidden bool
-
-	// DeprecatedFor names the replacement verb form (e.g. "install --dry-run").
-	// When set, the dispatcher prints one stderr deprecation line per process
-	// the first time this command is invoked. Empty string means "deprecated
-	// with no direct replacement"; use DeprecationNote for the exact text.
-	DeprecatedFor string
-
-	// DeprecationNote overrides the default deprecation message. When empty
-	// the dispatcher composes one from Name + DeprecatedFor. Set this for
-	// verbs whose replacement is a documentation pointer rather than another
-	// CLI form (e.g. `history` -> "read .ainfra/history.jsonl directly").
-	DeprecationNote string
 }
-
-// deprecationFired tracks which command names have already printed their
-// once-per-process deprecation line so scripts that invoke an alias in a loop
-// don't spam stderr.
-var deprecationFired = map[string]bool{}
 
 // Registry holds the registered commands and dispatches to them.
 type Registry struct {
@@ -159,18 +142,6 @@ func (r *Registry) Dispatch(args []string) int {
 		dir = wd
 	}
 
-	if cmd.DeprecatedFor != "" || cmd.DeprecationNote != "" {
-		if !deprecationFired[cmd.Name] && os.Getenv("AINFRA_QUIET") == "" {
-			deprecationFired[cmd.Name] = true
-			cz := ui.NewColorizer(r.stderr, *noColor || *localNoColor)
-			note := cmd.DeprecationNote
-			if note == "" {
-				note = fmt.Sprintf("'ainfra %s' is deprecated; use 'ainfra %s'. Will be removed in 0.2.", cmd.Name, cmd.DeprecatedFor)
-			}
-			fmt.Fprintln(r.stderr, cz.Yellow("warning: "+note))
-		}
-	}
-
 	return cmd.Run(Context{
 		Args:     fs.Args(),
 		Stdin:    r.stdin,
@@ -182,7 +153,3 @@ func (r *Registry) Dispatch(args []string) int {
 	})
 }
 
-// ResetDeprecationFiredForTest clears the once-per-process latch. Test-only.
-func ResetDeprecationFiredForTest() {
-	deprecationFired = map[string]bool{}
-}

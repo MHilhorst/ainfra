@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-
-	"github.com/MHilhorst/ainfra/internal/cli"
 )
 
 // TestInstallYes verifies the renamed verb behaves identically to apply.
@@ -59,53 +57,18 @@ func TestInstallDryRunStrict_WithDrift(t *testing.T) {
 	}
 }
 
-// TestApplyAliasPrintsDeprecation verifies apply still works but warns once.
-func TestApplyAliasPrintsDeprecation(t *testing.T) {
-	cli.ResetDeprecationFiredForTest()
-	dir := newDemoRepo(t)
-	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
-		t.Fatal("lock failed")
-	}
-
-	var errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &bytes.Buffer{}, &errOut)
-	if code != 0 {
-		t.Fatalf("apply --yes: code=%d err=%q", code, errOut.String())
-	}
-	if !strings.Contains(errOut.String(), "deprecated") || !strings.Contains(errOut.String(), "install") {
-		t.Errorf("apply: expected deprecation note pointing at install, got %q", errOut.String())
-	}
-}
-
-// TestApplyAliasDeprecationFiresOnce confirms the once-per-process latch.
-func TestApplyAliasDeprecationFiresOnce(t *testing.T) {
-	cli.ResetDeprecationFiredForTest()
-	dir := newDemoRepo(t)
-	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
-		t.Fatal("lock failed")
-	}
-
-	var errOut bytes.Buffer
-	_ = run([]string{"--chdir", dir, "apply", "--yes"}, &bytes.Buffer{}, &errOut)
-	_ = run([]string{"--chdir", dir, "apply", "--yes"}, &bytes.Buffer{}, &errOut)
-	count := strings.Count(errOut.String(), "is deprecated")
-	if count != 1 {
-		t.Errorf("apply called twice: want 1 deprecation line, got %d (stderr=%q)", count, errOut.String())
-	}
-}
-
-// TestHelpListsInstallNotApply verifies the front-page surface.
-func TestHelpListsInstallNotApply(t *testing.T) {
+// TestHelpListsInstall verifies the front-page surface.
+func TestHelpListsInstall(t *testing.T) {
 	var out bytes.Buffer
 	run([]string{"--help"}, &out, &bytes.Buffer{})
 	s := out.String()
 	if !strings.Contains(s, "install") {
 		t.Errorf("--help missing 'install': %q", s)
 	}
-	// apply/plan/check/validate are now hidden — they should not appear in the overview.
-	for _, hidden := range []string{"  apply ", "  plan ", "  check ", "  validate ", "  schema ", "  sync ", "  exec "} {
-		if strings.Contains(s, hidden) {
-			t.Errorf("--help should not list %q: %q", hidden, s)
+	// Former alias verbs were removed — they must not appear at all.
+	for _, gone := range []string{" apply ", " plan ", " check ", " validate ", " schema ", " sync ", " exec ", " history "} {
+		if strings.Contains(s, gone) {
+			t.Errorf("--help should not list %q: %q", gone, s)
 		}
 	}
 }

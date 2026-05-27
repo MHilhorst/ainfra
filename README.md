@@ -117,25 +117,12 @@ Or scaffold it at `init` time with `ainfra init --with-skill`.
 | `outdated` | Show entries with newer resolvable versions (`--strict` for CI) |
 | `version` | Print the ainfra version |
 
-Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output; `AINFRA_QUIET=1` suppresses deprecation warnings.
+Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output; `AINFRA_QUIET=1` suppresses the `ainfraVersion:` mismatch warning.
 
 <details>
-<summary>Hidden / deprecated verbs (still callable through 0.x)</summary>
+<summary>Hidden verbs</summary>
 
-These keep working but are omitted from `ainfra --help`. The first four print a one-line deprecation note on first use and will be removed in 0.2.
-
-| Command | Replacement |
-|---------|-------------|
-| `apply` | `install` |
-| `plan` | `install --dry-run` |
-| `check` | `install --dry-run --strict` |
-| `validate` | `install --dry-run` |
-| `schema` | `install --print-schema` |
-| `sync` | `install` (auto-syncs secrets at end of run) |
-| `exec` | `install` (writes secrets to `.claude/settings.local.json`) |
-| `history` | read `.ainfra/history.jsonl` directly |
-| `lock` | hidden — `install` auto-locks when the manifest is newer |
-| `publish` / `installer` | hidden — subscriber-mode helpers, rarely needed |
+Still callable but omitted from `ainfra --help`: `lock` (install auto-locks when the manifest is newer), `publish` / `installer` (subscriber-mode helpers).
 
 </details>
 

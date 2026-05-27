@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestApplyYesWritesFile(t *testing.T) {
+func TestInstallYesWritesFile(t *testing.T) {
 	dir := t.TempDir()
 
 	// Write a command source file.
@@ -27,25 +27,25 @@ func TestApplyYesWritesFile(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 	if code != 0 {
-		t.Fatalf("apply --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		t.Fatalf("install --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 
 	// Expect the command file to be written.
 	dest := filepath.Join(dir, ".claude", "commands", "hello.md")
 	if _, err := os.Stat(dest); err != nil {
-		t.Errorf("apply --yes: expected %s to be written, got: %v", dest, err)
+		t.Errorf("install --yes: expected %s to be written, got: %v", dest, err)
 	}
 
 	// Applied ledger should exist.
 	ledger := filepath.Join(dir, ".ainfra", "applied.lock")
 	if _, err := os.Stat(ledger); err != nil {
-		t.Errorf("apply --yes: expected applied ledger at %s, got: %v", ledger, err)
+		t.Errorf("install --yes: expected applied ledger at %s, got: %v", ledger, err)
 	}
 }
 
-func TestApplySecondRunNothingToDo(t *testing.T) {
+func TestInstallSecondRunNothingToDo(t *testing.T) {
 	dir := t.TempDir()
 
 	srcContent := "# Hello command\n"
@@ -60,12 +60,12 @@ func TestApplySecondRunNothingToDo(t *testing.T) {
 	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatal("lock failed")
 	}
-	if code := run([]string{"--chdir", dir, "apply", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+	if code := run([]string{"--chdir", dir, "install", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatal("first apply failed")
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("second apply: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
@@ -75,7 +75,7 @@ func TestApplySecondRunNothingToDo(t *testing.T) {
 	}
 }
 
-func TestApplyDryRun(t *testing.T) {
+func TestInstallDryRun(t *testing.T) {
 	dir := t.TempDir()
 
 	srcContent := "# Hello command\n"
@@ -92,9 +92,9 @@ func TestApplyDryRun(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--dry-run"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--dry-run"}, &out, &errOut)
 	if code != 0 {
-		t.Fatalf("apply --dry-run: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		t.Fatalf("install --dry-run: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 
 	// The command file must NOT be written.
@@ -109,11 +109,11 @@ func TestApplyDryRun(t *testing.T) {
 	}
 	// Output names it a dry run.
 	if !strings.Contains(out.String(), "Dry run") {
-		t.Errorf("apply --dry-run: expected 'Dry run' in output, got: %q", out.String())
+		t.Errorf("install --dry-run: expected 'Dry run' in output, got: %q", out.String())
 	}
 }
 
-func TestApplyNoInstall(t *testing.T) {
+func TestInstallNoInstall(t *testing.T) {
 	dir := t.TempDir()
 
 	srcContent := "# Hello command\n"
@@ -140,7 +140,7 @@ func TestApplyNoInstall(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes", "--no-install"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes", "--no-install"}, &out, &errOut)
 	if code != 0 {
 		t.Fatalf("apply --yes --no-install: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
@@ -148,11 +148,11 @@ func TestApplyNoInstall(t *testing.T) {
 	// The file-writing channels still reconcile.
 	dest := filepath.Join(dir, ".claude", "commands", "hello.md")
 	if _, err := os.Stat(dest); err != nil {
-		t.Errorf("apply --no-install: expected %s to be written, got: %v", dest, err)
+		t.Errorf("install --no-install: expected %s to be written, got: %v", dest, err)
 	}
 }
 
-func TestApplyWithoutNoInstallFailsOnAbsentTool(t *testing.T) {
+func TestInstallWithoutNoInstallFailsOnAbsentTool(t *testing.T) {
 	dir := t.TempDir()
 
 	yaml := "version: 1\n" +
@@ -169,30 +169,30 @@ func TestApplyWithoutNoInstallFailsOnAbsentTool(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 	if code == 0 {
 		t.Fatalf("apply --yes (no --no-install): expected non-zero exit for an absent tool, got 0; out=%q err=%q",
 			out.String(), errOut.String())
 	}
 }
 
-func TestApplyNoLockFile(t *testing.T) {
+func TestInstallNoLockFile(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 	if code == 0 {
-		t.Fatal("apply without lock: expected non-zero exit, got 0")
+		t.Fatal("install without lock: expected non-zero exit, got 0")
 	}
 	combined := out.String() + errOut.String()
 	if !strings.Contains(combined, "ainfra lock") {
-		t.Errorf("apply without lock: expected 'ainfra lock' hint, got: %q", combined)
+		t.Errorf("install without lock: expected 'ainfra lock' hint, got: %q", combined)
 	}
 }
 
-func TestApplyPrintsSummary(t *testing.T) {
+func TestInstallPrintsSummary(t *testing.T) {
 	dir := t.TempDir()
 
 	if err := os.WriteFile(filepath.Join(dir, "hello.md"), []byte("# hello\n"), 0o644); err != nil {
@@ -207,16 +207,16 @@ func TestApplyPrintsSummary(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 	if code != 0 {
-		t.Fatalf("apply --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
+		t.Fatalf("install --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 	if !strings.Contains(out.String(), "applied 1, skipped 0, failed 0") {
 		t.Errorf("expected an apply summary line, got: %q", out.String())
 	}
 }
 
-func TestApplyFailureListsFailedResource(t *testing.T) {
+func TestInstallFailureListsFailedResource(t *testing.T) {
 	dir := t.TempDir()
 
 	// A CLI tool whose binary is absent and whose only install method is
@@ -234,9 +234,9 @@ func TestApplyFailureListsFailedResource(t *testing.T) {
 	}
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "apply", "--yes"}, &out, &errOut)
+	code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &errOut)
 	if code == 0 {
-		t.Fatalf("apply of an absent tool: expected non-zero exit, got 0; out=%q", out.String())
+		t.Fatalf("install of an absent tool: expected non-zero exit, got 0; out=%q", out.String())
 	}
 	combined := out.String() + errOut.String()
 	if !strings.Contains(combined, "failed 1") {

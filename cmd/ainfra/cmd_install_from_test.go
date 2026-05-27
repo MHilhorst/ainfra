@@ -45,7 +45,7 @@ func buildTestArtifact(t *testing.T, resources map[string][]provider.Resource) s
 	return dir
 }
 
-func TestApplyFromLocalArtifact(t *testing.T) {
+func TestInstallFromLocalArtifact(t *testing.T) {
 	resources := map[string][]provider.Resource{
 		"mcpServers": {
 			{
@@ -64,26 +64,26 @@ func TestApplyFromLocalArtifact(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"apply", "--from", artifactDir, "--yes"}, &out, &errOut)
+	code := run([]string{"install", "--from", artifactDir, "--yes"}, &out, &errOut)
 	if code != 0 {
-		t.Fatalf("apply --from: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
+		t.Fatalf("install --from: code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 	}
 
 	configPath := filepath.Join(tmpHome, "Library", "Application Support", "Claude", "claude_desktop_config.json")
 	raw, err := os.ReadFile(configPath)
 	if err != nil {
-		t.Fatalf("apply --from: claude_desktop_config.json not written at %s: %v", configPath, err)
+		t.Fatalf("install --from: claude_desktop_config.json not written at %s: %v", configPath, err)
 	}
 	content := string(raw)
 	if !strings.Contains(content, "demo") {
-		t.Errorf("apply --from: expected 'demo' in config, got: %q", content)
+		t.Errorf("install --from: expected 'demo' in config, got: %q", content)
 	}
 	if !strings.Contains(content, "npx") {
-		t.Errorf("apply --from: expected 'npx' in config, got: %q", content)
+		t.Errorf("install --from: expected 'npx' in config, got: %q", content)
 	}
 }
 
-func TestApplyFromRejectsTamperedArtifact(t *testing.T) {
+func TestInstallFromRejectsTamperedArtifact(t *testing.T) {
 	resources := map[string][]provider.Resource{
 		"mcpServers": {
 			{
@@ -104,13 +104,13 @@ func TestApplyFromRejectsTamperedArtifact(t *testing.T) {
 	t.Setenv("HOME", tmpHome)
 
 	var out, errOut bytes.Buffer
-	code := run([]string{"apply", "--from", artifactDir, "--yes"}, &out, &errOut)
+	code := run([]string{"install", "--from", artifactDir, "--yes"}, &out, &errOut)
 	if code == 0 {
-		t.Fatal("apply --from tampered artifact: expected non-zero exit, got 0")
+		t.Fatal("install --from tampered artifact: expected non-zero exit, got 0")
 	}
 
 	configPath := filepath.Join(tmpHome, "Library", "Application Support", "Claude", "claude_desktop_config.json")
 	if _, err := os.Stat(configPath); err == nil {
-		t.Error("apply --from tampered artifact: claude_desktop_config.json should NOT have been written")
+		t.Error("install --from tampered artifact: claude_desktop_config.json should NOT have been written")
 	}
 }
