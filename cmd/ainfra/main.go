@@ -19,6 +19,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg := cli.NewRegistry(stdout, stderr, version.Version)
 	reg.Add(newInitCommand())
 	reg.Add(newInstallCommand())
+	reg.Add(newListCommand())
+	reg.Add(newOutdatedCommand())
 	reg.Add(newVersionCommand())
 	// Hidden / deprecated aliases — kept callable through 0.x for backward compat.
 	reg.Add(newValidateCommand())
