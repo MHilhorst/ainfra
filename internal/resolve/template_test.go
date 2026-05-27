@@ -93,6 +93,82 @@ func TestInstantiateRejectsBadRequiresReference(t *testing.T) {
 	}
 }
 
+func TestInstantiateInterpolatesArgs(t *testing.T) {
+	tmpl := manifest.Template{
+		Params: map[string]manifest.Param{
+			"root": {Type: "string", Required: true},
+		},
+		Produces: manifest.Produces{
+			MCPServer: &manifest.MCPServer{
+				Command: "npx",
+				Version: "0.6.2",
+				Args:    []string{"-y", "@modelcontextprotocol/server-filesystem", "${params.root}"},
+			},
+		},
+	}
+	a, err := Instantiate("repo", manifest.MCPServer{Params: map[string]any{"root": "."}}, tmpl, nil)
+	if err != nil {
+		t.Fatalf("Instantiate a: %v", err)
+	}
+	b, err := Instantiate("docs", manifest.MCPServer{Params: map[string]any{"root": "./docs"}}, tmpl, nil)
+	if err != nil {
+		t.Fatalf("Instantiate b: %v", err)
+	}
+	if got := a.MCPServer.Args[2]; got != "." {
+		t.Errorf("instance a args[2] = %q, want %q", got, ".")
+	}
+	if got := b.MCPServer.Args[2]; got != "./docs" {
+		t.Errorf("instance b args[2] = %q, want %q", got, "./docs")
+	}
+	if a.MCPServer.Args[0] != "-y" {
+		t.Errorf("non-interpolated args mangled: %v", a.MCPServer.Args)
+	}
+}
+
+func TestInstantiateInterpolatesCommandAndURL(t *testing.T) {
+	tmpl := manifest.Template{
+		Params: map[string]manifest.Param{
+			"host": {Type: "string", Required: true},
+			"bin":  {Type: "string", Required: true},
+		},
+		Produces: manifest.Produces{
+			MCPServer: &manifest.MCPServer{
+				Transport: "http",
+				Command:   "${params.bin}",
+				URL:       "https://${params.host}/sse",
+				Version:   "1.0.0",
+			},
+		},
+	}
+	inst := manifest.MCPServer{Params: map[string]any{"host": "mcp.example.com", "bin": "node"}}
+	out, err := Instantiate("svc", inst, tmpl, nil)
+	if err != nil {
+		t.Fatalf("Instantiate: %v", err)
+	}
+	if out.MCPServer.Command != "node" {
+		t.Errorf("command = %q, want %q", out.MCPServer.Command, "node")
+	}
+	if out.MCPServer.URL != "https://mcp.example.com/sse" {
+		t.Errorf("url = %q, want %q", out.MCPServer.URL, "https://mcp.example.com/sse")
+	}
+}
+
+func TestInstantiateRejectsBadArgsReference(t *testing.T) {
+	tmpl := manifest.Template{
+		Produces: manifest.Produces{
+			MCPServer: &manifest.MCPServer{
+				Command: "npx",
+				Version: "1.0.0",
+				Args:    []string{"${params.missing}"},
+			},
+		},
+	}
+	_, err := Instantiate("x", manifest.MCPServer{Template: "t"}, tmpl, nil)
+	if err == nil {
+		t.Fatal("want error for bad ${...} reference in args")
+	}
+}
+
 func TestInstantiateInterpolatesHeaders(t *testing.T) {
 	tmpl := manifest.Template{
 		Params: map[string]manifest.Param{
