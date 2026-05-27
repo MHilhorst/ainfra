@@ -10,7 +10,7 @@ adapted, and rejected survives the conversation that produced it.
 
 | | ainfra | sx |
 |---|---|---|
-| Shape | Terraform — `plan`/`apply`/`check`, desired vs observed state, drift | Package manager — `sx add` / `sx install`, manifest + lock (npm/cargo/uv lineage) |
+| Shape | Package manager — `install`/`add`/`remove`/`update`/`list`/`outdated` over a content-hashed lockfile. The Terraform-shaped verbs (`plan`/`apply`/`check`) are retained as hidden aliases through 0.x. (see `docs/plans/2026-05-27-002-feat-package-manager-cli-plan.md`) | Package manager — `sx add` / `sx install`, manifest + lock (npm/cargo/uv lineage) |
 | Where config lives | **In the repo it configures** — `ainfra.yaml` committed beside the code | **In a separate central vault** — one `sx.toml` holds all assets for all repos |
 | Composition | Three **layers** (team/repo/personal) **merge** into one resolved state | Per-asset **scopes** **filter** which assets reach which target |
 | Unit | A manifest per repo | An asset in a vault, projected outward |

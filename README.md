@@ -46,9 +46,13 @@ hooks:
 
 ```bash
 git clone <org/repo> && cd <repo>
-ainfra plan     # preview what would change on your machine
-ainfra apply    # reconcile your machine to the manifest
+ainfra install              # reconcile your machine to the manifest
+ainfra install --dry-run    # preview without writing (CI-friendly with --strict)
 ```
+
+ainfra borrows the package-manager vocabulary on purpose — once you have an
+`ainfra.yaml`, you mostly work through `install`, `add`, `remove`, `update`,
+`list`, and `outdated`. Same daily verbs as `npm`, `brew`, or `apt`.
 
 ainfra writes the native config your AI tools already read — `.mcp.json`, the bundles under `.claude/`, `CLAUDE.md`. There is nothing to lock into: stop using ainfra tomorrow and every file it wrote still works.
 
@@ -65,9 +69,9 @@ One `ainfra.yaml` describes every channel your agents need, in a file you commit
 
 ### 2. Reproduced everywhere — one command
 
-`ainfra apply` reconciles a machine to the manifest: it installs what is missing, writes each channel's config, and works through the dependency graph in order. `plan` previews every change first — `apply` is the only command that writes.
+`ainfra install` reconciles a machine to the manifest: it installs what is missing, writes each channel's config, and works through the dependency graph in order. `install --dry-run` previews every change first — `install` (without `--dry-run`) is the only mode that writes.
 
-- **[plan before apply](docs/quickstart.md)** — every change is previewed; nothing is reconciled unseen
+- **[plan before apply](docs/quickstart.md)** — `install --dry-run` previews; nothing is reconciled unseen
 - **[Dependency-aware](docs/design.md#7-the-dependency-graph--the-connective-layer)** — installs CLI tools, verifies preconditions (VPN, SSH keys), and starts background services in the right order
 - **[No runtime lock-in](docs/design.md#0-what-this-is)** — writes the native files your tools already read; remove ainfra and they keep working
 - **[Agent-aware](docs/design.md#14-target-agent--a-chooseable-axis)** — the engine is agent-agnostic; Claude Code and Codex are both supported targets
@@ -111,20 +115,19 @@ go build -o ainfra ./cmd/ainfra   # then move ./ainfra onto your PATH
 **Joining a team** whose repo already has an `ainfra.yaml`:
 
 ```sh
-ainfra plan     # preview what would change on your machine
-ainfra apply    # reconcile your machine to the manifest
-ainfra check    # verify nothing has drifted (safe to run anytime, incl. CI)
+ainfra install                       # reconcile your machine to the manifest
+ainfra install --dry-run --strict    # CI gate: exit non-zero on drift
 ```
 
 **Authoring a setup** from scratch:
 
 ```sh
-ainfra init        # scaffold an ainfra.yaml
-ainfra validate    # static-check the manifest
-ainfra lock        # resolve it and write ainfra.lock
+ainfra init                  # scaffold an ainfra.yaml
+ainfra add mcp github        # add an MCP server (writes the entry + installs)
+ainfra list                  # see what's installed
 ```
 
-The [`ainfra.yaml`](ainfra.yaml) at the repository root is a worked example — a small team setup you can read in 30 seconds and try with `ainfra validate`. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough and [`examples/multi-database/`](examples/multi-database/) for the hardest case.
+The [`ainfra.yaml`](ainfra.yaml) at the repository root is a worked example — a small team setup you can read in 30 seconds and try with `ainfra install --dry-run`. See [docs/quickstart.md](docs/quickstart.md) for the full walkthrough and [`examples/multi-database/`](examples/multi-database/) for the hardest case.
 
 Run `ainfra --help` for the command list, or `ainfra <command> --help` for per-command detail.
 
@@ -133,28 +136,33 @@ Run `ainfra --help` for the command list, or `ainfra <command> --help` for per-c
 | Command | What it does |
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` in the current repo (`--personal`, `--force`) |
-| `validate` | Static-check the manifest without resolving it (`--print-schema` to emit the JSON Schema) |
-| `lock` | Resolve the manifest and write `ainfra.lock` |
-| `plan` | Preview the diff between desired and observed state |
-| `apply` | Reconcile the environment to the manifest — or to a published artifact with `--from` |
-| `check` | Verify the environment matches the lockfile (or a `--from` artifact); report drift |
+| `install` | Reconcile the environment to the manifest (`--dry-run` previews, `--strict` exits non-zero on drift for CI, `--print-schema` emits the JSON Schema, `--from` reconciles a published artifact) |
+| `add` | Add an entry to `ainfra.yaml` and reconcile (`ainfra add <channel> <id> [source]`) |
+| `remove` | Remove an entry from `ainfra.yaml` and reconcile |
+| `update` | Re-resolve the lockfile and reinstall (bare form or `<channel> <id>`) |
+| `list` | List installed entries (`--channel`, `--json`) |
+| `outdated` | Show entries with newer resolvable versions (`--strict` for CI) |
 | `version` | Print the ainfra version |
 
-Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output.
+Global flags: `--chdir <dir>` runs as if started elsewhere; `--no-color` disables colored output; `AINFRA_QUIET=1` suppresses deprecation warnings.
 
 <details>
-<summary>Hidden / advanced verbs</summary>
+<summary>Hidden / deprecated verbs (still callable through 0.x)</summary>
 
-These keep working but are omitted from `ainfra --help` so the front page stays small.
+These keep working but are omitted from `ainfra --help`. The first four print a one-line deprecation note on first use and will be removed in 0.2.
 
-| Command | What it does |
-|---------|--------------|
-| `schema` | Folded into `validate --print-schema`; the standalone verb is still wired |
-| `publish` | Package the resolved lockfile into a subscriber artifact (`--out`) |
-| `installer` | Generate a one-time macOS installer for subscriber machines (`--out`) |
-| `exec` | Resolve secrets and run a command with them in its environment |
-| `sync` | Resolve secrets and write them to the Claude Code settings env block |
-| `history` | Show recent apply events (who / what / when) |
+| Command | Replacement |
+|---------|-------------|
+| `apply` | `install` |
+| `plan` | `install --dry-run` |
+| `check` | `install --dry-run --strict` |
+| `validate` | `install --dry-run` |
+| `schema` | `install --print-schema` |
+| `sync` | `install` (auto-syncs secrets at end of run) |
+| `exec` | `install` (writes secrets to `.claude/settings.local.json`) |
+| `history` | read `.ainfra/history.jsonl` directly |
+| `lock` | hidden — `install` auto-locks when the manifest is newer |
+| `publish` / `installer` | hidden — subscriber-mode helpers, rarely needed |
 
 </details>
 
