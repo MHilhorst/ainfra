@@ -204,10 +204,8 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 			// (remote source not yet supported, broken path, etc.) — that keeps
 			// lock deterministic without claiming false fidelity.
 			var contentHash string
-			if c.Source != "" && !isRemoteSource(c.Source) {
-				if raw, err := os.ReadFile(filepath.Join(dir, c.Source)); err == nil {
-					contentHash = lockfile.ContentHash(string(raw))
-				}
+			if content := readSourceForLayer(dir, layerName, c.Source); content != "" {
+				contentHash = lockfile.ContentHash(content)
 			}
 			if contentHash == "" {
 				contentHash = lockfile.ContentHash(map[string]any{
