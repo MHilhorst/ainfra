@@ -31,7 +31,7 @@ sx scope is a gap for ainfra.
 | Identity scopes (`team`/`user`/`bot`, `SX_BOT`) | `scope.identities:` per entry, plus `--identity` and `AINFRA_IDENTITY` | `internal/manifest/types.go` (Selector), `internal/resolve/context.go`, `internal/cli/command.go` |
 | Path scope (`#path` monorepo sub-targeting) | `scope.paths:` per entry — **filter-only in v1**; render targets unchanged | same as above |
 | Profiles / multi-vault | Global personal layer at `$XDG_CONFIG_HOME/ainfra/personal.yaml` (repo wins on conflict) | `internal/manifest/load.go`, `internal/manifest/merge_personal.go` |
-| Audit log (`.sx/audit/*.jsonl`) | Apply history at `.ainfra/history.jsonl` + `ainfra history` | `internal/provider/history.go`, `cmd/ainfra/cmd_history.go` |
+| Audit log (`.sx/audit/*.jsonl`) | Apply history at `.ainfra/history.jsonl` (read directly; `ainfra history` is a hidden alias) | `internal/provider/history.go`, `cmd/ainfra/cmd_history.go` |
 | `metadata.toml` "wrap, don't edit" principle | Adopted as a principle for the skill provider | (not a code change) |
 
 ## Concepts rejected

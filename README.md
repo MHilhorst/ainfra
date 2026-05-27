@@ -78,9 +78,9 @@ One `ainfra.yaml` describes every channel your agents need, in a file you commit
 
 ### 3. Verified in sync — the lockfile
 
-`ainfra.lock` pins every resolved version and records a content hash of each one. That turns "we're in sync" into something you can verify, not just hope for. `ainfra check` recomputes the hashes against the live environment and reports any drift.
+`ainfra.lock` pins every resolved version and records a content hash of each one. That turns "we're in sync" into something you can verify, not just hope for. `ainfra install --dry-run --strict` recomputes the hashes against the live environment and reports any drift.
 
-- **[Drift detection](spec/lockfile-schema.md)** — `ainfra check` flags anything that changed, with a clean exit code for CI
+- **[Drift detection](spec/lockfile-schema.md)** — `ainfra install --dry-run --strict` flags anything that changed, with a clean exit code for CI
 - **[Catches silent upstream changes](docs/validation.md#scenario-3--an-mcp-server-schema-silently-changes)** — a package or advertised toolset that changes underneath you fails loudly
 - **[Reproducible ports](spec/lockfile-schema.md#4-allocated-ports-are-sticky)** — allocated once, recorded, and reused, so every teammate's tunnels land on the same ports
 - **[Personal config stays private](spec/lockfile-schema.md#7-the-lockfile-is-layered)** — the lockfile is layered; personal entries never land in a committed file
@@ -179,7 +179,7 @@ Both Claude Code and Codex are supported targets, and the pluggable secret resol
 Engineers manage AI tooling as config-as-code in the repo. Non-engineers (sales, support) need the MCP servers in their **Claude Desktop app**, with no repo and no terminal. ainfra bridges this without owning a runtime:
 
 - `ainfra publish` packages the resolved lockfile into a hash-pinned **artifact** (`ainfra.lock` + rendered resources + an `ainfra.sub.json` descriptor + `MANIFEST.sha256`). The team hosts that artifact at a URL.
-- `ainfra apply --from <url>` reconciles a machine against the artifact — rendering `claude_desktop_config.json` — with no repo and no manifest. A failed fetch is a safe no-op: the machine stays on last-known-good config.
+- `ainfra install --from <url>` reconciles a machine against the artifact — rendering `claude_desktop_config.json` — with no repo and no manifest. A failed fetch is a safe no-op: the machine stays on last-known-good config.
 - `ainfra installer` emits a one-time macOS installer that drops a launchd job running `apply --from` at login and on a configurable interval.
 
 The `publish:` block in `ainfra.yaml` configures the artifact URL, target agent, and sync cadence — the team owns every knob; the subscriber configures nothing. See [docs/superpowers/specs/2026-05-22-subscriber-mode-design.md](docs/superpowers/specs/2026-05-22-subscriber-mode-design.md).

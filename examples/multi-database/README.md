@@ -30,7 +30,7 @@ template (a reusable blueprint), or the tool computes it.
 
 That replaces a ~200-line prose runbook ("for each DB: open a tunnel on a free
 port, point the MCP server at it, make sure the VPN is up first…") with a
-single declarative file. A new developer can run `ainfra apply` and reproduce
+single declarative file. A new developer can run `ainfra install` and reproduce
 the setup exactly.
 
 The dependency chain is fully machine-readable:
@@ -43,7 +43,7 @@ mcpServer(analytics-db)
        └─ requires precondition: vpn-tvt-internal
 ```
 
-`ainfra apply` walks that graph leaves-first. `ainfra check` verifies every
+`ainfra install` walks that graph leaves-first. `ainfra install --dry-run --strict` verifies every
 node and fails loudly — with text on how to fix it — if the VPN is down.
 
 ## Hooks and commands
@@ -59,7 +59,7 @@ the lockfile:
 - `commands.db-console` — a `/db-console` slash command, a sourced markdown file.
 
 Both land in `ainfra.lock` with a `contentHash`. That way, a teammate's
-`ainfra check` detects whether a hook script or command was altered after the
+`ainfra install --dry-run --strict` detects whether a hook script or command was altered after the
 fact.
 
 ## Beyond the template

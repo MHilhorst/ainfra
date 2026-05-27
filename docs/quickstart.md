@@ -65,12 +65,12 @@ teammate resolves the manifest the same way.
 
 ### Editor autocomplete
 
-`ainfra validate --print-schema` emits the JSON Schema for `ainfra.yaml`.
+`ainfra install --print-schema` emits the JSON Schema for `ainfra.yaml`.
 Generate it once, then point your editor's YAML language server at it. Your
 editor will then offer autocomplete and flag mistakes inline as you edit:
 
 ```sh
-ainfra validate --print-schema > ainfra.schema.json
+ainfra install --print-schema > ainfra.schema.json
 ```
 
 Then add this first line to `ainfra.yaml`:
@@ -106,7 +106,7 @@ ainfra --chdir examples/multi-database lock
 
 Each of the four database servers gets its own tunnel port, assigned by ainfra
 — no port is ever typed by hand. The example also carries a personal layer
-(`ainfra.personal.yaml`), so `ainfra lock` reports five MCP servers in total:
+(`ainfra.personal.yaml`), so `ainfra install --dry-run` reports five MCP servers in total:
 four committed to `ainfra.lock`, and one resolved separately into
 `ainfra.personal.lock`.
 

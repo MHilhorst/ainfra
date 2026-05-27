@@ -19,7 +19,7 @@ preconditions:
     check:
       type: dns-resolves
       host: bastion.tvt.internal
-    remediation: "Connect the team VPN, then re-run: ainfra check"
+    remediation: "Connect the team VPN, then re-run: ainfra install --dry-run --strict"
 
   mysql-defaults-file:
     description: The mysql client reads connection defaults from ~/.my.cnf.
