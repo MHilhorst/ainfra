@@ -42,8 +42,12 @@ func (v *Var) UnmarshalYAML(node *yaml.Node) error {
 
 // Manifest is one parsed ainfra.yaml file (a single layer).
 type Manifest struct {
-	Version            int                          `yaml:"version"`
-	Agent              string                       `yaml:"agent,omitempty"`
+	Version int `yaml:"version"`
+	// AinfraVersion optionally pins the ainfra binary version this repo
+	// expects. `ainfra install` warns when the running binary does not
+	// match (exact-string match in v1; semver ranges deferred).
+	AinfraVersion string `yaml:"ainfraVersion,omitempty"`
+	Agent         string `yaml:"agent,omitempty"`
 	Extends            []Source                     `yaml:"extends"`
 	Preconditions      map[string]Precondition      `yaml:"preconditions"`
 	CLITools           map[string]CLITool           `yaml:"cliTools"`

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -92,6 +93,33 @@ func warnIfStale(ctx cli.Context, dir string, committed *lockfile.Lock) {
 		c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 		fmt.Fprintln(ctx.Stderr, c.Yellow("warning: manifest has changed since last lock run — run `ainfra lock` to update"))
 	}
+}
+
+// warnIfAinfraVersionMismatch reads the repo layer's optional
+// `ainfraVersion:` field and warns to stderr if the running binary's
+// version does not match. Missing field is silent — only opt-in repos
+// surface a warning. Exact-string match in v1; semver ranges deferred.
+func warnIfAinfraVersionMismatch(ctx cli.Context, dir string) {
+	layers, err := manifest.LoadLayers(dir)
+	if err != nil {
+		return
+	}
+	repo := layers[manifest.LayerRepo]
+	if repo == nil || repo.AinfraVersion == "" {
+		return
+	}
+	if repo.AinfraVersion == version.Version {
+		return
+	}
+	if os.Getenv("AINFRA_QUIET") != "" {
+		return
+	}
+	c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+	fmt.Fprintln(ctx.Stderr, c.Yellow(
+		fmt.Sprintf("warning: this repo expects ainfra %s; you are running %s. "+
+			"Different ainfra versions can produce different lockfiles. "+
+			"See https://github.com/MHilhorst/ainfra/releases to upgrade.",
+			repo.AinfraVersion, version.Version)))
 }
 
 func newPlanCommand() *cli.Command {
@@ -308,6 +336,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	}
 	merged := mergeLocks(committed, personal)
 	warnIfStale(ctx, dir, committed)
+	warnIfAinfraVersionMismatch(ctx, dir)
 
 	// Render resources with Payload so providers can write file content.
 	rctx := resolve.NewContextFromEnv(ctx.Identity, dir, dir)

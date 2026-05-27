@@ -62,11 +62,32 @@ The schema always matches the version of ainfra you have installed. The schema c
 
 ### Your personal layer
 
-Anything that is just yours — a personal MCP server, a local override — goes in a personal layer that is never committed:
+Anything that is just yours — a personal MCP server, a local override — goes in a personal layer that is never committed. There are two flavors:
 
 ```sh
-ainfra init --personal   # scaffold ainfra.personal.yaml (git-ignored)
+ainfra init --personal   # scaffold ainfra.personal.yaml in THIS repo (git-ignored)
 ```
+
+```sh
+# Or write once at the user level — applies to every ainfra-managed repo
+# on this machine. Lives at $XDG_CONFIG_HOME/ainfra/personal.yaml
+# (defaults to ~/.config/ainfra/personal.yaml).
+mkdir -p ~/.config/ainfra
+$EDITOR ~/.config/ainfra/personal.yaml
+```
+
+The repo-level `ainfra.personal.yaml` wins on conflict; the global one provides cross-repo personal tooling that follows you. Use the global layer for skills or MCP servers you want everywhere — your note-taking helper, a favourite filesystem MCP. Use the repo-level layer for one-off overrides scoped to that repo.
+
+### Pin which ainfra version your repo expects
+
+When teammates run different ainfra binary versions, they can produce slightly different lockfiles. Pin the version in `ainfra.yaml`:
+
+```yaml
+version: 1
+ainfraVersion: "0.2.0"   # exact match; running a different ainfra prints a one-line warning
+```
+
+Missing field = no check (backward compatible). `AINFRA_QUIET=1` suppresses the warning if you genuinely want to run with a mismatched binary.
 
 ## Worked example
 
