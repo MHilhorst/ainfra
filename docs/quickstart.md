@@ -22,9 +22,23 @@ ainfra install --dry-run             # preview without writing
 ainfra install --dry-run --strict    # CI gate: exit non-zero on any drift
 ```
 
-`install` asks for confirmation before it touches anything (pass `--yes` to skip the prompt in CI). `--dry-run` is always safe and changes nothing. `--dry-run --strict` exits non-zero when there's anything to do, so it works as a CI gate. Two features are not yet implemented: fetching sources from remote locations (git/npm) and gateway adapters. Local source files and inline MCP server definitions work today.
+`install` asks for confirmation before it touches anything (pass `--yes` to skip the prompt in CI). `--dry-run` is always safe and changes nothing. `--dry-run --strict` exits non-zero when there's anything to do, so it works as a CI gate. Remote sources (`github:`, `npm:`, `https:`) resolve at lock time and write through a content-addressed cache, so subsequent fetches are offline-capable. Gateway adapters remain the one follow-up.
 
-## Authoring a setup
+`ainfra check` re-introspects every MCP server whose lockfile entry has a populated `toolsetHash`, compares the live `tools/list` against the locked per-tool description and input-schema hashes, and exits non-zero on drift with a per-tool diagnostic naming the changed tool.
+
+## Adopting an existing repo
+
+Your repo already has a Claude Code setup committed — `.mcp.json`, `.claude/`, `CLAUDE.md` — and you want to put it under ainfra without rewriting it by hand:
+
+```sh
+ainfra adopt              # draft an ainfra.yaml from the existing files
+ainfra adopt --merge      # add new entries to an existing ainfra.yaml, keep existing keys
+ainfra adopt --force      # overwrite an existing ainfra.yaml
+```
+
+`adopt` reads `.mcp.json`, `.claude/settings.json` hooks, `.claude/commands/*`, and `CLAUDE.md`, and emits a draft `ainfra.yaml`. Literal credentials it recognizes (`ghp_*`, `sk-*`, `xoxb-*`, and generic `token` / `key` / `password` keys) are stripped and replaced with `direct`-mode secret references plus a `TODO` marker for the vault path — nothing sensitive ends up in the manifest. Skills and tool permissions are skipped: skills arrive with `git clone`, and a clean permissions matcher is left for a later iteration.
+
+## Authoring a setup from scratch
 
 Starting a new team setup — most days you work through `add`, never touching `ainfra.yaml` by hand:
 
@@ -104,6 +118,7 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | Command | What it does |
 |---|---|
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
+| `ainfra adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
 | `ainfra install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile |
 | `ainfra remove <ch> <id>` | Remove an entry and reconcile |
