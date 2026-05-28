@@ -59,27 +59,39 @@ type inspectStats struct {
 
 func newInspectCommand() *cli.Command {
 	var asJSON bool
+	var includeAll bool
 	return &cli.Command{
 		Name:      "inspect",
 		Summary:   "Inspect a repo's Claude Code config and what ainfra tracks",
-		UsageLine: "ainfra inspect [--json]",
+		UsageLine: "ainfra inspect [--all] [--json]",
 		Example:   "ainfra inspect",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&asJSON, "json", false, "emit a JSON report instead of a table")
+			fs.BoolVar(&includeAll, "all", false, "include personal-layer entries (global, not specific to this repo)")
 		},
 		Run: func(ctx cli.Context) int {
-			return runInspect(ctx, asJSON)
+			return runInspect(ctx, asJSON, includeAll)
 		},
 	}
 }
 
-func runInspect(ctx cli.Context, asJSON bool) int {
+func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
 	scanned, _, err := adopt.Scan(ctx.Dir)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("scanning %s: %w", ctx.Dir, err))
 		return 1
+	}
+	// Skills aren't covered by the adopt scanner yet, so walk
+	// <root>/.claude/skills/ directly — each subdirectory is one skill.
+	if skills := scanSkills(ctx.Dir); len(skills) > 0 {
+		if scanned.Skills == nil {
+			scanned.Skills = map[string]manifest.Skill{}
+		}
+		for id, s := range skills {
+			scanned.Skills[id] = s
+		}
 	}
 	// Personal-layer entries source files out of ~/.claude/ rather than the
 	// repo, so a repo-only scan would report them as missing even when
@@ -88,6 +100,16 @@ func runInspect(ctx cli.Context, asJSON bool) int {
 	if home, herr := os.UserHomeDir(); herr == nil {
 		userScan, _, _ := adopt.ScanLayout(adopt.UserLayout(home))
 		scanned = mergeManifests(scanned, userScan)
+		if skills := scanSkills(filepath.Join(home, ".claude")); len(skills) > 0 {
+			if scanned.Skills == nil {
+				scanned.Skills = map[string]manifest.Skill{}
+			}
+			for id, s := range skills {
+				if _, exists := scanned.Skills[id]; !exists {
+					scanned.Skills[id] = s
+				}
+			}
+		}
 	}
 
 	// LoadLayers errors loudly on a malformed manifest; on a virgin repo it
@@ -109,6 +131,9 @@ func runInspect(ctx cli.Context, asJSON bool) int {
 	}
 
 	rows := collectInspectRows(scanned, layers, lock)
+	if !includeAll {
+		rows = filterPersonalOnlyRows(rows)
+	}
 	stats := summarize(rows)
 
 	report := inspectReport{
@@ -189,6 +214,18 @@ func collectInspectRows(scanned manifest.Manifest, layers map[manifest.Layer]*ma
 					return ""
 				}
 				return l.Entries.Rules[id].Layer
+			},
+		},
+		{
+			name:     "skills",
+			diskIDs:  func(m manifest.Manifest) []string { return keys(m.Skills) },
+			manifIDs: func(m *manifest.Manifest) []string { return keys(m.Skills) },
+			lockIDs:  func(l *lockfile.Lock) []string { return keys(l.Entries.Skills) },
+			entryLayer: func(l *lockfile.Lock, id string) string {
+				if l == nil {
+					return ""
+				}
+				return l.Entries.Skills[id].Layer
 			},
 		},
 	}
@@ -280,9 +317,11 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 	)
 
 	if len(report.Rows) == 0 {
-		fmt.Fprintln(w, "No mcpServers, commands, hooks, or rules found on disk or in the manifest.")
+		fmt.Fprintln(w, "No repo-scope mcpServers, commands, hooks, rules, or skills found on disk or in this repo's manifest.")
 		if !report.HasManifest {
-			fmt.Fprintln(w, "\nNothing to inspect — this is a virgin repo.")
+			fmt.Fprintln(w, "\nNothing to inspect — this is a virgin repo (re-run with --all to see your personal-layer config).")
+		} else {
+			fmt.Fprintln(w, "\nRe-run with --all to also list your personal-layer entries (apply globally, not specific to this repo).")
 		}
 		renderInspectHints(w, report)
 		return
@@ -292,7 +331,7 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 	for _, r := range report.Rows {
 		byChannel[r.Channel] = append(byChannel[r.Channel], r)
 	}
-	channelOrder := []string{"mcpServers", "commands", "hooks", "rules"}
+	channelOrder := []string{"mcpServers", "commands", "hooks", "rules", "skills"}
 
 	for _, ch := range channelOrder {
 		rows, ok := byChannel[ch]
@@ -363,6 +402,45 @@ func manifestExists(dir string) bool {
 	return fileExists(filepath.Join(dir, "ainfra.yaml"))
 }
 
+// filterPersonalOnlyRows drops rows whose only relationship to this repo is
+// the user's global personal manifest. Rows for repo/team layer entries pass
+// through, as do untracked rows (the question "is this repo using this?" is
+// answered yes for repo/team and unknown for untracked). Pass --all to
+// disable this filter.
+func filterPersonalOnlyRows(rows []inspectRow) []inspectRow {
+	out := make([]inspectRow, 0, len(rows))
+	for _, r := range rows {
+		if r.Status == statusTracked && r.Layer == string(manifest.LayerPersonal) {
+			continue
+		}
+		if r.Status == statusMissing && r.Layer == string(manifest.LayerPersonal) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
+}
+
+// scanSkills walks <root>/.claude/skills/ and returns each subdirectory as a
+// Skill draft. A skill is "a directory containing a SKILL.md" by convention;
+// we accept any subdirectory as a candidate id so the inspect view stays
+// generous about what counts as installed.
+func scanSkills(root string) map[string]manifest.Skill {
+	dir := filepath.Join(root, ".claude", "skills")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := map[string]manifest.Skill{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		out[e.Name()] = manifest.Skill{}
+	}
+	return out
+}
+
 // mergeManifests unions IDs across a primary and secondary draft manifest.
 // Repo entries (primary) win on conflicts because their IDs refer to
 // in-repo files; the user-scope manifest fills in personal-layer IDs that
@@ -372,6 +450,7 @@ func mergeManifests(primary, secondary manifest.Manifest) manifest.Manifest {
 	primary.Commands = mergeStringMap(primary.Commands, secondary.Commands)
 	primary.Hooks = mergeStringMap(primary.Hooks, secondary.Hooks)
 	primary.Rules = mergeStringMap(primary.Rules, secondary.Rules)
+	primary.Skills = mergeStringMap(primary.Skills, secondary.Skills)
 	return primary
 }
 

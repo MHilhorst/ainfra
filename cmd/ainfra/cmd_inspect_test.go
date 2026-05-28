@@ -91,6 +91,50 @@ func TestInspect_JSONOutput(t *testing.T) {
 	}
 }
 
+// Personal-layer entries (from the user's global ~/.config/ainfra/personal.yaml)
+// should be hidden by default — they aren't specific to the repo being
+// inspected. --all opts back in. Reuses the package TestMain XDG isolation
+// to seed a personal layer from a temp dir.
+func TestInspect_HidesPersonalLayerByDefault(t *testing.T) {
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		t.Skip("XDG_CONFIG_HOME not isolated by TestMain")
+	}
+	ainfraDir := filepath.Join(xdg, "ainfra")
+	if err := os.MkdirAll(ainfraDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Materialize the source file so the personal layer's command isn't
+	// classified as missing.
+	cmdFile := filepath.Join(ainfraDir, "mycmd.md")
+	if err := os.WriteFile(cmdFile, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	personalYAML := "version: 1\ncommands:\n  mycmd:\n    source: " + cmdFile + "\n"
+	if err := os.WriteFile(filepath.Join(ainfraDir, "personal.yaml"), []byte(personalYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ainfraDir) })
+
+	dir := t.TempDir()
+	// Default run should not list the personal-layer command.
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	if strings.Contains(stdout, "mycmd") {
+		t.Errorf("default inspect surfaced personal-layer command mycmd; got:\n%s", stdout)
+	}
+	// --all run must surface it.
+	stdoutAll, stderrAll, codeAll := runInspectIn(t, dir, "--all")
+	if codeAll != 0 {
+		t.Fatalf("inspect --all exit code = %d, stderr=%q", codeAll, stderrAll)
+	}
+	if !strings.Contains(stdoutAll, "mycmd") {
+		t.Errorf("inspect --all did not surface personal-layer command mycmd; got:\n%s", stdoutAll)
+	}
+}
+
 // A manifest entry whose source file does not exist must be flagged missing
 // so the user knows to run `ainfra install`.
 func TestInspect_MissingDeclaredCommand(t *testing.T) {
