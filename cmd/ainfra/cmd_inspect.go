@@ -284,6 +284,7 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 		if !report.HasManifest {
 			fmt.Fprintln(w, "\nNothing to inspect — this is a virgin repo.")
 		}
+		renderInspectHints(w, report)
 		return
 	}
 
@@ -315,11 +316,16 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 
 	fmt.Fprintf(w, "Summary: %d tracked, %d untracked, %d missing.\n",
 		report.Summary.Tracked, report.Summary.Untracked, report.Summary.Missing)
-	if len(report.NextStepHints) > 0 {
-		fmt.Fprintln(w, "\nNext:")
-		for _, h := range report.NextStepHints {
-			fmt.Fprintf(w, "  %s\n", h)
-		}
+	renderInspectHints(w, report)
+}
+
+func renderInspectHints(w io.Writer, report inspectReport) {
+	if len(report.NextStepHints) == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\nNext:")
+	for _, h := range report.NextStepHints {
+		fmt.Fprintf(w, "  %s\n", h)
 	}
 }
 
