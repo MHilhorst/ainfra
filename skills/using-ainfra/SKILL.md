@@ -119,6 +119,23 @@ ainfra versions can produce subtly different lockfiles, so pinning prevents
 teammate-vs-teammate drift. Missing field = no check (backward compatible).
 `AINFRA_QUIET=1` suppresses the warning.
 
+## SessionStart staleness warning
+
+`ainfra install` writes a `SessionStart` hook into `.claude/settings.json`
+by default. The hook runs each time Claude Code starts in the repo and
+stays silent unless the manifest has changed since the last install. When
+it does fire, it prints one stderr line pointing at `ainfra install` and
+exits 0 (it never blocks Claude). Ignore the hook entry if you see it in
+`.claude/settings.json` as `__ainfra_staleness` — it's plumbing, not a
+team-declared hook, and it never appears in `ainfra list` output.
+
+Opt out at the manifest root:
+
+```yaml
+version: 1
+stalenessWarning: false
+```
+
 ## Hard rules
 
 - **Never commit a credential value.** Secrets are references.

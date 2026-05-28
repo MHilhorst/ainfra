@@ -1,6 +1,6 @@
 ---
 title: "feat: Tighten ainfra CLI/UX — trim verbs, fix drift, fix template args"
-status: active
+status: shipped
 created: 2026-05-27
 type: feat
 depth: standard

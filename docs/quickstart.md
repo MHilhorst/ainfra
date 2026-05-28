@@ -103,6 +103,19 @@ ainfraVersion: "0.2.0"   # exact match; running a different ainfra prints a one-
 
 Missing field = no check (backward compatible). `AINFRA_QUIET=1` suppresses the warning if you genuinely want to run with a mismatched binary.
 
+### Staleness warning on every Claude session
+
+`ainfra install` writes a `SessionStart` hook into `.claude/settings.json` by default. The hook runs every time you open Claude Code in the repo and stays silent unless the manifest has changed since the last install — at which point it prints one stderr line suggesting you run `ainfra install` to refresh. No "in sync" chatter; the absence of a warning is the confidence signal.
+
+Opt out by setting `stalenessWarning: false` at the manifest root:
+
+```yaml
+version: 1
+stalenessWarning: false
+```
+
+The hook never blocks Claude (exit code is always 0) and runs the equivalent of a `git status` on the manifest hash, so the per-session cost is a few milliseconds.
+
 ## Worked example
 
 `examples/multi-database/` is a complete manifest: four databases reached through SSH tunnels, defined with one template instantiated four times. Resolve it:

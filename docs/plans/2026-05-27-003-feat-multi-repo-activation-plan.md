@@ -1,6 +1,6 @@
 ---
 title: "feat: Multi-repo activation — user-level install + SessionStart staleness hook"
-status: active
+status: shipped
 created: 2026-05-27
 type: feat
 depth: standard

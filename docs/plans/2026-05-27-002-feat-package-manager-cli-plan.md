@@ -1,6 +1,6 @@
 ---
 title: "feat: Commit ainfra CLI to the package-manager mental model"
-status: active
+status: shipped
 created: 2026-05-27
 type: feat
 depth: standard
