@@ -12,6 +12,10 @@ import (
 // line with the change symbol (+/~/−), the channel.id key, and the detail.
 // After iterating all channels it prints a summary line. If there are no
 // non-noop changes anywhere it prints the no-changes message instead.
+//
+// Lines are aligned in two columns: the channel.id key on the left and the
+// detail phrase on the right, sized to the widest key in this report so the
+// detail column stays visually anchored.
 func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan) {
 	channels := make([]string, 0, len(plans))
 	for ch := range plans {
@@ -19,6 +23,12 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 	}
 	sort.Strings(channels)
 
+	type row struct {
+		sym    string
+		name   string
+		detail string
+	}
+	var rows []row
 	var adds, changes, destroys int
 
 	for _, ch := range channels {
@@ -34,7 +44,6 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 			default:
 				continue
 			}
-			name := ch + "." + change.ID
 			var sym string
 			switch change.Kind {
 			case provider.ChangeCreate:
@@ -44,11 +53,7 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 			case provider.ChangeDelete:
 				sym = c.Red("-")
 			}
-			if change.Detail == "" {
-				fmt.Fprintf(w, "  %s %s\n", sym, name)
-			} else {
-				fmt.Fprintf(w, "  %s %s  %s\n", sym, name, c.Dim(change.Detail))
-			}
+			rows = append(rows, row{sym: sym, name: ch + "." + change.ID, detail: change.Detail})
 		}
 	}
 
@@ -57,5 +62,21 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 		return
 	}
 
-	fmt.Fprintf(w, "%d to add, %d to update, %d to remove.\n", adds, changes, destroys)
+	// Align detail column to the longest name so the output reads as a
+	// table rather than a ragged list.
+	width := 0
+	for _, r := range rows {
+		if len(r.name) > width {
+			width = len(r.name)
+		}
+	}
+	for _, r := range rows {
+		if r.detail == "" {
+			fmt.Fprintf(w, "  %s %s\n", r.sym, r.name)
+		} else {
+			fmt.Fprintf(w, "  %s %-*s  %s\n", r.sym, width, r.name, c.Dim(r.detail))
+		}
+	}
+
+	fmt.Fprintf(w, "\nPlan: %d to install, %d to update, %d to remove.\n", adds, changes, destroys)
 }

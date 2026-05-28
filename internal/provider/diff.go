@@ -24,7 +24,7 @@ func DiffResources(channel string, desired, observed, prior []Resource) ChannelP
 			plan.Changes = append(plan.Changes, Change{
 				Kind:     ChangeDelete,
 				ID:       id,
-				Detail:   channel + " " + id + " removed from manifest",
+				Detail:   "no longer in ainfra.yaml — will be removed",
 				Resource: prior,
 			})
 		}
@@ -36,21 +36,21 @@ func DiffResources(channel string, desired, observed, prior []Resource) ChannelP
 			plan.Changes = append(plan.Changes, Change{
 				Kind:     ChangeCreate,
 				ID:       id,
-				Detail:   channel + " " + id + " not present",
+				Detail:   "new — will be installed",
 				Resource: want,
 			})
 		case got.ContentHash != want.ContentHash:
 			plan.Changes = append(plan.Changes, Change{
 				Kind:     ChangeUpdate,
 				ID:       id,
-				Detail:   channel + " " + id + " differs from lockfile",
+				Detail:   "out of sync — will be updated",
 				Resource: want,
 			})
 		default:
 			plan.Changes = append(plan.Changes, Change{
 				Kind:     ChangeNoop,
 				ID:       id,
-				Detail:   channel + " " + id + " up to date",
+				Detail:   "up to date",
 				Resource: want,
 			})
 		}

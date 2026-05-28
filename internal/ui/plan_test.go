@@ -44,8 +44,8 @@ func TestRenderPlanMixedChanges(t *testing.T) {
 	if strings.Contains(out, "existing") {
 		t.Errorf("noop change should not appear, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 to add") {
-		t.Errorf("summary missing add count, got:\n%s", out)
+	if !strings.Contains(out, "1 to install") {
+		t.Errorf("summary missing install count, got:\n%s", out)
 	}
 	if !strings.Contains(out, "1 to update") {
 		t.Errorf("summary missing update count, got:\n%s", out)
