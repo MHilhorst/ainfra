@@ -18,11 +18,11 @@ import (
 
 // inspectStatus classifies one (channel, id) pair against the repo state.
 //
-//	tracked   — declared in some ainfra manifest layer AND present on disk
-//	untracked — present on disk, not declared in any manifest layer
-//	missing   — declared in some manifest layer, absent on disk
+//	tracked   — declared in some ainfra manifest layer AND present locally
+//	untracked — present locally, not declared in any ainfra manifest
+//	missing   — declared in some ainfra manifest, not installed locally
 //
-// Drift detection (lockfile hash vs on-disk hash) is left to
+// Drift detection (lockfile hash vs local file hash) is left to
 // `ainfra update --dry-run` so this command stays read-only and side-effect-free.
 type inspectStatus string
 
@@ -261,10 +261,8 @@ func collectInspectRows(scanned manifest.Manifest, layers map[manifest.Layer]*ma
 				row.Status = statusTracked
 			case disk[id] && manifold[id] == "":
 				row.Status = statusUntracked
-				row.Detail = "on disk, not in ainfra.yaml — run `ainfra init --adopt --force` to absorb"
 			default: // !disk[id] && manifold[id] != ""
 				row.Status = statusMissing
-				row.Detail = "in manifest, not on disk — run `ainfra install` to materialize"
 			}
 			rows = append(rows, row)
 		}
@@ -291,14 +289,14 @@ func summarize(rows []inspectRow) inspectStats {
 func nextStepHints(hasManifest bool, s inspectStats) []string {
 	var hints []string
 	if !hasManifest {
-		hints = append(hints, "ainfra init --adopt    # turn this inventory into ainfra.yaml")
+		hints = append(hints, "ainfra init --adopt    # create ainfra.yaml from what's already here, so teammates get the same setup")
 		return hints
 	}
 	if s.Untracked > 0 {
-		hints = append(hints, "ainfra init --adopt --force    # absorb untracked entries into ainfra.yaml")
+		hints = append(hints, "ainfra init --adopt --force    # fold the local-only entries into ainfra.yaml so they're shared")
 	}
 	if s.Missing > 0 {
-		hints = append(hints, "ainfra install    # materialize missing manifest entries on disk")
+		hints = append(hints, "ainfra install                 # install the entries ainfra.yaml expects but that aren't here yet")
 	}
 	return hints
 }
@@ -316,11 +314,11 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 	fmt.Fprintln(w)
 
 	if len(report.Rows) == 0 {
-		fmt.Fprintln(w, "No repo-scope mcpServers, commands, hooks, rules, or skills found on disk or in this repo's manifest.")
+		fmt.Fprintln(w, "Nothing for this repo: no MCP servers, commands, hooks, rules, or skills declared in ainfra.yaml or present in the repo.")
 		if !report.HasManifest {
-			fmt.Fprintln(w, "\nNothing to inspect — this is a virgin repo (re-run with --all to see your personal-layer config).")
+			fmt.Fprintln(w, "\nThis repo has not been adopted by ainfra. Run with --all to also list your global personal config.")
 		} else {
-			fmt.Fprintln(w, "\nRe-run with --all to also list your personal-layer entries (apply globally, not specific to this repo).")
+			fmt.Fprintln(w, "\nRun with --all to also list your global personal config (applies across every repo).")
 		}
 		renderInspectHints(w, report)
 		return
@@ -337,24 +335,77 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 		if !ok {
 			continue
 		}
-		fmt.Fprintln(w, c.Bold(ch))
+		fmt.Fprintln(w, c.Bold(channelLabel(ch)))
 		for _, r := range rows {
-			marker := statusMarker(c, r.Status)
-			label := fmt.Sprintf("%-30s %-10s", r.ID, string(r.Status))
-			if r.Layer != "" {
-				label = fmt.Sprintf("%s layer=%s", label, r.Layer)
-			}
-			fmt.Fprintf(w, "  %s %s\n", marker, label)
-			if r.Detail != "" {
-				fmt.Fprintf(w, "        %s\n", c.Dim(r.Detail))
-			}
+			fmt.Fprintf(w, "  %s %-32s %s\n", statusMarker(c, r.Status), r.ID, c.Dim(statusPhrase(r)))
 		}
 		fmt.Fprintln(w)
 	}
 
-	fmt.Fprintf(w, "Summary: %d tracked, %d untracked, %d missing.\n",
+	fmt.Fprintf(w, "Summary: %d managed, %d local-only, %d not installed.\n",
 		report.Summary.Tracked, report.Summary.Untracked, report.Summary.Missing)
+	renderInspectLegend(w, c, report.Summary)
 	renderInspectHints(w, report)
+}
+
+// channelLabel maps a channel name to a friendlier section header.
+func channelLabel(ch string) string {
+	switch ch {
+	case "mcpServers":
+		return "MCP servers"
+	case "commands":
+		return "commands"
+	case "hooks":
+		return "hooks"
+	case "rules":
+		return "rules"
+	case "skills":
+		return "skills"
+	default:
+		return ch
+	}
+}
+
+// statusPhrase turns the inspectStatus + layer into one human-readable
+// noun phrase that goes to the right of the id. No imperatives here — the
+// "what to do about it" advice lives in renderInspectHints.
+func statusPhrase(r inspectRow) string {
+	switch r.Status {
+	case statusTracked:
+		switch r.Layer {
+		case string(manifest.LayerPersonal):
+			return "managed by your personal config (global)"
+		case string(manifest.LayerTeam):
+			return "managed by ainfra (team layer)"
+		default:
+			return "managed by ainfra"
+		}
+	case statusUntracked:
+		return "local-only — not declared in ainfra.yaml"
+	case statusMissing:
+		return "declared in ainfra.yaml but not installed here"
+	default:
+		return ""
+	}
+}
+
+// renderInspectLegend prints a one-time guide to the status markers — only
+// for the statuses that actually appear in this report, so the legend stays
+// tight.
+func renderInspectLegend(w io.Writer, c ui.Colorizer, s inspectStats) {
+	if s.Tracked+s.Untracked+s.Missing == 0 {
+		return
+	}
+	fmt.Fprintln(w, "\n"+c.Bold("Legend:"))
+	if s.Tracked > 0 {
+		fmt.Fprintf(w, "  %s  managed by ainfra — kept in sync across machines that run ainfra\n", c.Green("OK"))
+	}
+	if s.Untracked > 0 {
+		fmt.Fprintf(w, "  %s  local-only — present here but ainfra.yaml does not declare it (teammates won't get it)\n", c.Yellow("++"))
+	}
+	if s.Missing > 0 {
+		fmt.Fprintf(w, "  %s  declared but not installed — ainfra.yaml expects it, but the file is not here yet\n", c.Red("--"))
+	}
 }
 
 func renderInspectHints(w io.Writer, report inspectReport) {
