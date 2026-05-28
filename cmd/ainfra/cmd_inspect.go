@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/adopt"
 	"github.com/MHilhorst/ainfra/internal/cli"
@@ -38,6 +39,7 @@ type inspectRow struct {
 	ID      string        `json:"id"`
 	Status  inspectStatus `json:"status"`
 	Layer   string        `json:"layer,omitempty"`
+	Source  string        `json:"source,omitempty"`
 	Detail  string        `json:"detail,omitempty"`
 }
 
@@ -84,15 +86,53 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("scanning %s: %w", ctx.Dir, err))
 		return 1
 	}
+	// scanSources records where each scanned entry was detected on disk,
+	// keyed by "channel:id". Used to put a path column next to each row
+	// in the rendered table.
+	scanSources := map[string]string{}
 	// Skills aren't covered by the adopt scanner yet, so walk
 	// <root>/.claude/skills/ directly — each subdirectory is one skill.
-	repoScan.Skills = mergeStringMap(repoScan.Skills, scanSkills(ctx.Dir))
-	// Some repos (older Claude Code conventions, including this team's
-	// train-service) store MCP config at .claude/mcp.json with a "servers"
-	// key instead of the standard root .mcp.json with "mcpServers". Surface
-	// those servers too so 'inspect' tells the truth about what's there.
-	repoScan.MCPServers = mergeStringMap(repoScan.MCPServers,
-		readMCPFallback(filepath.Join(ctx.Dir, ".claude", "mcp.json")))
+	for id := range scanSkills(ctx.Dir) {
+		if _, ok := repoScan.Skills[id]; !ok {
+			if repoScan.Skills == nil {
+				repoScan.Skills = map[string]manifest.Skill{}
+			}
+			repoScan.Skills[id] = manifest.Skill{}
+		}
+		scanSources["skills:"+id] = filepath.Join(".claude", "skills", id)
+	}
+	// Stamp adopt-scanner detections that have an obvious convention path.
+	for id := range repoScan.Commands {
+		if _, ok := scanSources["commands:"+id]; !ok {
+			scanSources["commands:"+id] = filepath.Join(".claude", "commands", id+".md")
+		}
+	}
+	for id := range repoScan.Hooks {
+		scanSources["hooks:"+id] = filepath.Join(".claude", "settings.json")
+	}
+	for id := range repoScan.Rules {
+		// adopt records rule sources as their relative path (e.g. ./CLAUDE.md);
+		// the adopt Manifest carries that in Rule.Source.
+		if r, ok := repoScan.Rules[id]; ok && r.Source != "" {
+			scanSources["rules:"+id] = strings.TrimPrefix(r.Source, "./")
+		}
+	}
+	// Standard .mcp.json: any server we already have on repoScan came from there.
+	if fileExists(filepath.Join(ctx.Dir, ".mcp.json")) {
+		for id := range repoScan.MCPServers {
+			scanSources["mcpServers:"+id] = ".mcp.json"
+		}
+	}
+	// Older Claude Code convention: .claude/mcp.json with a "servers" key.
+	for id, srv := range readMCPFallback(filepath.Join(ctx.Dir, ".claude", "mcp.json")) {
+		if _, ok := repoScan.MCPServers[id]; !ok {
+			if repoScan.MCPServers == nil {
+				repoScan.MCPServers = map[string]manifest.MCPServer{}
+			}
+			repoScan.MCPServers[id] = srv
+			scanSources["mcpServers:"+id] = filepath.Join(".claude", "mcp.json")
+		}
+	}
 
 	// Personal-layer entries source files out of ~/.claude/ rather than the
 	// repo, so a repo-only scan would report them as missing even when
@@ -103,6 +143,27 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 	if home, herr := os.UserHomeDir(); herr == nil {
 		userScan, _, _ = adopt.ScanLayout(adopt.UserLayout(home))
 		userScan.Skills = mergeStringMap(userScan.Skills, scanSkills(filepath.Join(home, ".claude")))
+		// Stamp user-scope sources (used when a row's only source is ~/.claude/).
+		for id := range userScan.Commands {
+			if _, ok := scanSources["commands:"+id]; !ok {
+				scanSources["commands:"+id] = filepath.Join(home, ".claude", "commands", id+".md")
+			}
+		}
+		for id := range userScan.Skills {
+			if _, ok := scanSources["skills:"+id]; !ok {
+				scanSources["skills:"+id] = filepath.Join(home, ".claude", "skills", id)
+			}
+		}
+		for id, r := range userScan.Rules {
+			if _, ok := scanSources["rules:"+id]; !ok && r.Source != "" {
+				scanSources["rules:"+id] = r.Source
+			}
+		}
+		for id := range userScan.Hooks {
+			if _, ok := scanSources["hooks:"+id]; !ok {
+				scanSources["hooks:"+id] = filepath.Join(home, ".config", "ainfra", "personal.yaml")
+			}
+		}
 	}
 	scanned := mergeManifests(repoScan, userScan)
 
@@ -124,7 +185,7 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 		}
 	}
 
-	rows := collectInspectRows(repoScan, scanned, layers, lock)
+	rows := collectInspectRows(repoScan, scanned, layers, lock, scanSources)
 	if !includeAll {
 		rows = filterPersonalOnlyRows(rows, repoLocalIDSet(repoScan))
 	}
@@ -152,7 +213,7 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 // across all loaded manifest layers; lock is consulted for the layer name
 // when an entry only appears in the lockfile (rare — committed lock with
 // pruned manifest).
-func collectInspectRows(repoScan, scanned manifest.Manifest, layers map[manifest.Layer]*manifest.Manifest, lock *lockfile.Lock) []inspectRow {
+func collectInspectRows(repoScan, scanned manifest.Manifest, layers map[manifest.Layer]*manifest.Manifest, lock *lockfile.Lock, sources map[string]string) []inspectRow {
 	var rows []inspectRow
 
 	type channel struct {
@@ -272,6 +333,9 @@ func collectInspectRows(repoScan, scanned manifest.Manifest, layers map[manifest
 				row.Status = statusUntracked
 				row.Layer = ""
 			}
+			if src, ok := sources[ch.name+":"+id]; ok {
+				row.Source = src
+			}
 			rows = append(rows, row)
 		}
 	}
@@ -345,7 +409,11 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 		}
 		fmt.Fprintln(w, c.Bold(channelLabel(ch)))
 		for _, r := range rows {
-			fmt.Fprintf(w, "  %s %-32s %s\n", statusMarker(c, r.Status), r.ID, c.Dim(statusPhrase(r)))
+			phrase := statusPhrase(r)
+			if r.Source != "" {
+				phrase = fmt.Sprintf("%-32s %s", phrase, shortenHome(r.Source))
+			}
+			fmt.Fprintf(w, "  %s %-32s %s\n", statusMarker(c, r.Status), r.ID, c.Dim(phrase))
 		}
 		fmt.Fprintln(w)
 	}
@@ -354,6 +422,25 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 		report.Summary.Tracked, report.Summary.Untracked, report.Summary.Missing)
 	renderInspectLegend(w, c, report.Summary, report.HasManifest)
 	renderInspectHints(w, report)
+}
+
+// shortenHome replaces a leading $HOME path with ~ so paths in the table
+// don't blow out the width. Repo-relative paths (no leading /) pass through.
+func shortenHome(path string) string {
+	if !strings.HasPrefix(path, "/") {
+		return path
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
+	}
+	if strings.HasPrefix(path, home+"/") {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	if path == home {
+		return "~"
+	}
+	return path
 }
 
 // channelLabel maps a channel name to a friendlier section header.
