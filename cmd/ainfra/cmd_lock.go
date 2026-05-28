@@ -81,15 +81,15 @@ func renderMCPServerStatus(w io.Writer, committed, personal *lockfile.Lock, resu
 			warnings[w.ServerID] = w
 		}
 	}
-	fmt.Fprintln(w, "MCP servers (tool list pinned in lockfile to detect upstream changes):")
+	fmt.Fprintln(w, "MCP servers (tool list pinned so upstream changes surface as drift):")
 	for _, r := range rows {
 		if r.hash != "" {
-			fmt.Fprintf(w, "  %-30s verified (toolset %s)\n", r.id, shortHash(r.hash))
+			fmt.Fprintf(w, "  %-30s tool list pinned\n", r.id)
 			continue
 		}
-		reason := "unverified — couldn't probe the server"
+		reason := "could not probe the server — tool list not pinned"
 		if wn, ok := warnings[r.id]; ok {
-			reason = "unverified — " + wn.Reason
+			reason = "could not probe — " + wn.Reason
 		}
 		fmt.Fprintf(w, "  %-30s %s\n", r.id, reason)
 	}
@@ -113,22 +113,27 @@ func lockSummary(committed, personal *lockfile.Lock) string {
 	count := func(pick func(*lockfile.Lock) map[string]lockfile.Entry) int {
 		return len(pick(committed)) + len(pick(personal))
 	}
-	type channel struct {
-		label string
-		n     int
-	}
-	channels := []channel{
-		{"MCP servers", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.MCPServers })},
-		{"background services", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.BackgroundServices })},
-		{"hooks", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.Hooks })},
-		{"commands", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.Commands })},
-		{"CLI tools", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.CLITools })},
+	channels := []struct {
+		singular string
+		plural   string
+		n        int
+	}{
+		{"MCP server", "MCP servers", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.MCPServers })},
+		{"background service", "background services", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.BackgroundServices })},
+		{"hook", "hooks", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.Hooks })},
+		{"command", "commands", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.Commands })},
+		{"CLI tool", "CLI tools", count(func(l *lockfile.Lock) map[string]lockfile.Entry { return l.Entries.CLITools })},
 	}
 	parts := []string{}
 	for _, ch := range channels {
-		if ch.n > 0 {
-			parts = append(parts, fmt.Sprintf("%d %s", ch.n, ch.label))
+		if ch.n == 0 {
+			continue
 		}
+		label := ch.plural
+		if ch.n == 1 {
+			label = ch.singular
+		}
+		parts = append(parts, fmt.Sprintf("%d %s", ch.n, label))
 	}
 	if len(parts) == 0 {
 		return "0 entries (ainfra.yaml is empty — add some with `ainfra add`)"

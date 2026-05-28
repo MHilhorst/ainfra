@@ -74,6 +74,27 @@ func mergeLocks(committed, personal *lockfile.Lock) *lockfile.Lock {
 	}
 }
 
+// hasApplySummaryContent reports whether the user-scope summary block would
+// say anything beyond "Applied 0 entries". Used to skip an entirely-empty
+// User-scope section that just adds noise to the output.
+func hasApplySummaryContent(results []provider.ApplyResult) bool {
+	for _, r := range results {
+		if len(r.Applied) > 0 || len(r.Skipped) > 0 || len(r.Failed) > 0 || len(r.Warnings) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// pluralS returns "s" when n != 1, "" otherwise. Used to avoid "Applied 1
+// changes" / "Wrote 1 secrets" awkwardness in user-facing output.
+func pluralS(n int) string {
+	if n == 1 {
+		return ""
+	}
+	return "s"
+}
+
 func fileExists(path string) bool {
 	fs := provider.OSFilesystem{}
 	_, err := fs.ReadFile(path)
@@ -203,8 +224,9 @@ func warnIfAinfraVersionMismatch(ctx cli.Context, dir string) {
 			repo.AinfraVersion, version.Version)))
 }
 
-// renderApplySummary prints the one-line apply tally and, for any failed or
-// skipped resource, a reason line.
+// renderApplySummary prints the apply tally and, for any failed or skipped
+// resource, a reason line. Zero-everywhere is rendered as a single "nothing
+// to apply" line so empty channels don't clutter the output.
 func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 	var applied, skipped, failed, warned int
 	for _, r := range results {
@@ -213,7 +235,14 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 		failed += len(r.Failed)
 		warned += len(r.Warnings)
 	}
-	fmt.Fprintf(w, "Applied %d entries, skipped %d, failed %d.\n", applied, skipped, failed)
+	switch {
+	case applied == 0 && skipped == 0 && failed == 0:
+		fmt.Fprintln(w, "Nothing to apply.")
+	case skipped == 0 && failed == 0:
+		fmt.Fprintf(w, "Applied %d change%s.\n", applied, pluralS(applied))
+	default:
+		fmt.Fprintf(w, "Applied %d change%s, skipped %d, failed %d.\n", applied, pluralS(applied), skipped, failed)
+	}
 	for _, r := range results {
 		for _, f := range r.Failed {
 			fmt.Fprintf(w, "  failed:  %s %s — %v\n", r.Channel, f.Change.ID, f.Err)
@@ -466,7 +495,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	// surface in the summary.
 	if userOrch != nil {
 		userResults, uerr := userOrch.ApplyAllRendered(userRendered, userLock)
-		if !dryRun {
+		if !dryRun && hasApplySummaryContent(userResults) {
 			fmt.Fprintln(ctx.Stdout, "User-scope (~/.claude/, applies across all your repos):")
 			renderApplySummary(ctx.Stdout, userResults)
 		}
@@ -501,11 +530,13 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 		ui.RenderError(ctx.Stderr, errColor, serr)
 		return 1
 	}
-	fmt.Fprintf(ctx.Stdout, "Wrote %d secret(s) into Claude Code settings (%s).\n", res.EnvCount, res.SettingsPath)
+	if res.EnvCount > 0 {
+		fmt.Fprintf(ctx.Stdout, "Wrote %d secret%s into %s.\n", res.EnvCount, pluralS(res.EnvCount), res.SettingsPath)
+	}
 	for _, f := range res.Files {
 		fmt.Fprintf(ctx.Stdout, "Wrote credential file %s\n", f)
 	}
-	fmt.Fprintln(ctx.Stdout, "Apply complete — your environment now matches ainfra.yaml.")
+	fmt.Fprintln(ctx.Stdout, "Done — your environment now matches ainfra.yaml.")
 	return 0
 }
 
