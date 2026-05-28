@@ -1,0 +1,66 @@
+/* ainfra — darker dark theme */
+
+:root.dark {
+  /* Background scale: near-black with subtle elevation steps */
+  --vp-c-bg: #0a0a0a;
+  --vp-c-bg-alt: #050505;
+  --vp-c-bg-elv: #111111;
+  --vp-c-bg-soft: #141414;
+
+  /* Borders & dividers — quieter than default */
+  --vp-c-divider: #1f1f1f;
+  --vp-c-gutter: #050505;
+  --vp-c-border: #1f1f1f;
+
+  /* Text */
+  --vp-c-text-1: #f5f5f5;
+  --vp-c-text-2: #b3b3b3;
+  --vp-c-text-3: #6f6f6f;
+
+  /* Brand — warm orange, more punch on a near-black canvas */
+  --vp-c-brand-1: #ff7a45;
+  --vp-c-brand-2: #ff8c5e;
+  --vp-c-brand-3: #ff6a30;
+  --vp-c-brand-soft: rgba(255, 122, 69, 0.14);
+
+  /* Code block surface */
+  --vp-code-block-bg: #050505;
+  --vp-code-block-divider-color: #1f1f1f;
+  --vp-code-line-highlight-color: rgba(255, 255, 255, 0.04);
+
+  /* Sidebar / nav */
+  --vp-sidebar-bg-color: #050505;
+  --vp-nav-bg-color: rgba(10, 10, 10, 0.85);
+  --vp-nav-screen-bg-color: #0a0a0a;
+  --vp-local-nav-bg-color: #0a0a0a;
+}
+
+/* Home hero gradient — restrained accent on near-black */
+:root.dark {
+  --vp-home-hero-name-color: transparent;
+  --vp-home-hero-name-background: -webkit-linear-gradient(120deg, #ff7a45 30%, #ffb347);
+
+  --vp-home-hero-image-background-image: linear-gradient(-45deg, #ff7a45 35%, #c44 60%);
+  --vp-home-hero-image-filter: blur(56px);
+}
+
+/* Tighten the default backdrop blur on the nav so it blends with #0a0a0a */
+:root.dark .VPNav {
+  backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* Feature cards: lower contrast, less plasticky */
+:root.dark .VPFeature {
+  background-color: #111111;
+  border-color: #1f1f1f;
+}
+
+:root.dark .VPFeature:hover {
+  border-color: #2a2a2a;
+}
+
+/* Code spans inside prose */
+:root.dark :not(pre) > code {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #ffd1bd;
+}
