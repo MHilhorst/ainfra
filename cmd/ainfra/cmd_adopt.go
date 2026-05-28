@@ -120,7 +120,7 @@ func runAdopt(ctx cli.Context, scope string, force bool) int {
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	errC := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
-	fmt.Fprintln(ctx.Stdout, "ainfra: wrote "+path)
+	fmt.Fprintln(ctx.Stdout, "Wrote "+path+".")
 	strippedCount := printAdoptWarnings(ctx.Stderr, errC, warnings)
 
 	base := filepath.Base(path)

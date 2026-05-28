@@ -82,7 +82,7 @@ func newAddCommand() *cli.Command {
 	var personal, noInstall bool
 	return &cli.Command{
 		Name:      "add",
-		Summary:   "Add an entry to ainfra.yaml and reconcile (npm-install-style)",
+		Summary:   "Add an entry to ainfra.yaml and install it (npm-install-style)",
 		UsageLine: "ainfra add <channel> <id> [source] [--personal] [--no-install]",
 		Example:   "ainfra add mcp github\n  ainfra add command audit ./commands/audit.md\n  ainfra add --personal mcp local-fs",
 		SetFlags: func(fs *flag.FlagSet) {
@@ -110,7 +110,7 @@ func runAdd(ctx cli.Context, personal, noInstall bool) int {
 
 	canonical, ok := channelAlias[rawChannel]
 	if !ok {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("unknown channel %q; valid: mcp, hook, command, skill, cliTool, plugin, marketplace, rule, tool", rawChannel))
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("unknown channel %q. Pick one: mcp, hook, command, skill, cliTool, plugin, marketplace, rule, tool", rawChannel))
 		return 1
 	}
 
@@ -121,9 +121,9 @@ func runAdd(ctx cli.Context, personal, noInstall bool) int {
 	manifestPath := filepath.Join(ctx.Dir, manifestFile)
 	if !fileExists(manifestPath) {
 		if personal {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("%s not found — run `ainfra init --personal` first", manifestFile))
+			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no %s in this repo. Create one with: ainfra init --personal", manifestFile))
 		} else {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.yaml not found — run `ainfra init` first"))
+			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no ainfra.yaml in this repo. Create one with: ainfra init  (or `ainfra adopt` to import existing Claude Code config)"))
 		}
 		return 1
 	}
@@ -136,14 +136,14 @@ func runAdd(ctx cli.Context, personal, noInstall bool) int {
 
 	if err := writer.AddEntry(manifestPath, canonical, id, body); err != nil {
 		if errors.Is(err, writer.ErrEntryExists) {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("%s.%s already exists — use `ainfra update %s %s` to bump or remove first", canonical, id, rawChannel, id))
+			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("%s.%s already exists in %s. Bump it with: ainfra update %s %s  (or `ainfra remove %s %s` first)", canonical, id, manifestFile, rawChannel, id, rawChannel, id))
 			return 1
 		}
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
 
-	fmt.Fprintf(ctx.Stdout, "Added %s.%s to %s\n", canonical, id, manifestFile)
+	fmt.Fprintf(ctx.Stdout, "Added %s.%s to %s.\n", canonical, id, manifestFile)
 
 	// Re-lock so the new entry lands in ainfra.lock.
 	if err := resolve.RunLock(ctx.Dir, provider.ExecRunner{}); err != nil {
@@ -152,7 +152,9 @@ func runAdd(ctx cli.Context, personal, noInstall bool) int {
 	}
 
 	if noInstall {
-		fmt.Fprintln(ctx.Stdout, "Skipping install (--no-install).")
+		c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+		fmt.Fprintln(ctx.Stdout, "Wrote the manifest entry and re-locked. Skipped install (--no-install).")
+		ui.Next(ctx.Stdout, c, "run `ainfra install` to apply.")
 		return 0
 	}
 

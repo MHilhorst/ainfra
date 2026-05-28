@@ -20,7 +20,7 @@ import (
 func newLockCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "lock",
-		Summary:   "Resolve the manifest and write ainfra.lock",
+		Summary:   "Resolve ainfra.yaml into ainfra.lock (pins exact versions; commit this file)",
 		UsageLine: "ainfra lock",
 		Example:   "ainfra lock",
 		Hidden:    true,
@@ -43,10 +43,10 @@ func runLock(ctx cli.Context) int {
 	if err != nil {
 		personal = &lockfile.Lock{}
 	}
-	fmt.Fprintln(ctx.Stdout, "ainfra: resolved "+lockSummary(committed, personal))
-	fmt.Fprintln(ctx.Stdout, "        wrote ainfra.lock and ainfra.personal.lock")
+	fmt.Fprintln(ctx.Stdout, "Resolved ainfra.yaml: "+lockSummary(committed, personal)+".")
+	fmt.Fprintln(ctx.Stdout, "Wrote ainfra.lock (commit this) and ainfra.personal.lock (git-ignored).")
 	renderMCPServerStatus(ctx.Stdout, committed, personal, result)
-	ui.Next(ctx.Stdout, c, "run 'ainfra plan' to preview changes.")
+	ui.Next(ctx.Stdout, c, "run `ainfra install --dry-run` to preview changes, or `ainfra install` to apply.")
 	if layers, err := manifest.LoadLayers(ctx.Dir); err == nil {
 		for _, w := range cliToolInstallWarnings(layers) {
 			fmt.Fprintln(ctx.Stderr, c.Yellow("warning: "+w))
@@ -81,15 +81,15 @@ func renderMCPServerStatus(w io.Writer, committed, personal *lockfile.Lock, resu
 			warnings[w.ServerID] = w
 		}
 	}
-	fmt.Fprintln(w, "MCP servers:")
+	fmt.Fprintln(w, "MCP servers (tool list pinned in lockfile to detect upstream changes):")
 	for _, r := range rows {
 		if r.hash != "" {
-			fmt.Fprintf(w, "  %-30s ok (toolset %s)\n", r.id, shortHash(r.hash))
+			fmt.Fprintf(w, "  %-30s verified (toolset %s)\n", r.id, shortHash(r.hash))
 			continue
 		}
-		reason := "unverified"
+		reason := "unverified — couldn't probe the server"
 		if wn, ok := warnings[r.id]; ok {
-			reason = "unverified (" + wn.Reason + ")"
+			reason = "unverified — " + wn.Reason
 		}
 		fmt.Fprintf(w, "  %-30s %s\n", r.id, reason)
 	}
@@ -131,7 +131,7 @@ func lockSummary(committed, personal *lockfile.Lock) string {
 		}
 	}
 	if len(parts) == 0 {
-		return "an empty manifest (no entries)"
+		return "0 entries (ainfra.yaml is empty — add some with `ainfra add`)"
 	}
 	out := parts[0]
 	for _, p := range parts[1:] {

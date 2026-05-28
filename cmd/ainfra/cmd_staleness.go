@@ -111,6 +111,6 @@ func runStalenessCheck(ctx cli.Context) int {
 	}
 	c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 	fmt.Fprintln(ctx.Stderr, c.Yellow(
-		"ainfra: this repo's manifest has changed since the last install — run `ainfra install` to refresh"))
+		"ainfra: ainfra.yaml has changed since the last `ainfra install` — your environment is out of date. Run `ainfra install` to refresh."))
 	return 0
 }
