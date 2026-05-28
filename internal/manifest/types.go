@@ -46,8 +46,13 @@ type Manifest struct {
 	// AinfraVersion optionally pins the ainfra binary version this repo
 	// expects. `ainfra install` warns when the running binary does not
 	// match (exact-string match in v1; semver ranges deferred).
-	AinfraVersion      string                       `yaml:"ainfraVersion,omitempty"`
-	Agent              string                       `yaml:"agent,omitempty"`
+	AinfraVersion string `yaml:"ainfraVersion,omitempty"`
+	Agent         string `yaml:"agent,omitempty"`
+	// StalenessWarning controls whether `ainfra install` auto-emits a
+	// SessionStart hook into .claude/settings.json that warns when the
+	// manifest has changed since the last apply. Default (nil) = enabled.
+	// Set explicitly to false to opt out.
+	StalenessWarning *bool `yaml:"stalenessWarning,omitempty"`
 	Extends            []Source                     `yaml:"extends"`
 	Preconditions      map[string]Precondition      `yaml:"preconditions"`
 	CLITools           map[string]CLITool           `yaml:"cliTools"`

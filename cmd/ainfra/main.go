@@ -30,5 +30,6 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newLockCommand())
 	reg.Add(newPublishCommand())
 	reg.Add(newInstallerCommand())
+	reg.Add(newStalenessCheckCommand())
 	return reg.Dispatch(args)
 }

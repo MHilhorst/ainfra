@@ -57,7 +57,8 @@ func mergeLocks(committed, personal *lockfile.Lock) *lockfile.Lock {
 		return out
 	}
 	return &lockfile.Lock{
-		Version: committed.Version,
+		Version:      committed.Version,
+		ManifestHash: committed.ManifestHash,
 		Entries: lockfile.Entries{
 			MCPServers:         merge(committed.Entries.MCPServers, personal.Entries.MCPServers),
 			BackgroundServices: merge(committed.Entries.BackgroundServices, personal.Entries.BackgroundServices),
@@ -351,6 +352,12 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
+
+	// Auto-emit the SessionStart staleness hook when a repo manifest exists
+	// and hasn't opted out. The hook is infra plumbing, not a manifest entry —
+	// it stays out of `ainfra.yaml`, the persisted lockfile, and `ainfra list`.
+	// The orchestrator and applied ledger treat it like any other hook.
+	injectStalenessHook(dir, rendered, merged)
 
 	providers, err := providersForDir(dir)
 	if err != nil {

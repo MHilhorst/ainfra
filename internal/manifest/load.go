@@ -56,6 +56,14 @@ func LoadLayers(dir string) (map[Layer]*Manifest, error) {
 	return out, nil
 }
 
+// StalenessHookID is the synthetic id under which `ainfra install`
+// auto-emits the built-in SessionStart staleness hook. The `__ainfra_`
+// prefix keeps it out of any user-defined hook namespace.
+const StalenessHookID = "__ainfra_staleness"
+
+// StalenessHookCommand is the shell command Claude Code runs at SessionStart.
+const StalenessHookCommand = "ainfra _staleness-check"
+
 // loadGlobalPersonal reads the user's cross-repo personal manifest from
 // $XDG_CONFIG_HOME/ainfra/personal.yaml (or ~/.config/ainfra/personal.yaml if
 // XDG_CONFIG_HOME is unset). A missing file is not an error.
