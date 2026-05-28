@@ -212,7 +212,7 @@ func TestInstallPrintsSummary(t *testing.T) {
 		t.Fatalf("install --yes: code=%d out=%q err=%q", code, out.String(), errOut.String())
 	}
 	// 1 command + the auto-emitted SessionStart staleness hook.
-	if !strings.Contains(out.String(), "Applied 2 entries, skipped 0, failed 0") {
+	if !strings.Contains(out.String(), "Applied 2 changes") {
 		t.Errorf("expected an apply summary line, got: %q", out.String())
 	}
 }

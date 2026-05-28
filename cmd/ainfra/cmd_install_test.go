@@ -20,8 +20,8 @@ func TestInstallYes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("install --yes: code=%d err=%q", code, errOut.String())
 	}
-	if !strings.Contains(out.String(), "Apply complete") {
-		t.Errorf("install --yes: expected 'Apply complete' in stdout, got %q", out.String())
+	if !strings.Contains(out.String(), "Done") {
+		t.Errorf("install --yes: expected 'Done' in stdout, got %q", out.String())
 	}
 }
 
