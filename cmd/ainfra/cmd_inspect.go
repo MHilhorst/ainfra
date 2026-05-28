@@ -46,6 +46,7 @@ type inspectReport struct {
 	Repo          string       `json:"repo"`
 	HasManifest   bool         `json:"hasManifest"`
 	HasLock       bool         `json:"hasLock"`
+	Notes         []string     `json:"notes,omitempty"`
 	Rows          []inspectRow `json:"rows"`
 	Summary       inspectStats `json:"summary"`
 	NextStepHints []string     `json:"nextStepHints,omitempty"`
@@ -59,36 +60,51 @@ type inspectStats struct {
 
 func newInspectCommand() *cli.Command {
 	var asJSON bool
+	var includeAll bool
 	return &cli.Command{
 		Name:      "inspect",
 		Summary:   "Inspect a repo's Claude Code config and what ainfra tracks",
-		UsageLine: "ainfra inspect [--json]",
+		UsageLine: "ainfra inspect [--all] [--json]",
 		Example:   "ainfra inspect",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&asJSON, "json", false, "emit a JSON report instead of a table")
+			fs.BoolVar(&includeAll, "all", false, "include personal-layer entries (global, not specific to this repo)")
 		},
 		Run: func(ctx cli.Context) int {
-			return runInspect(ctx, asJSON)
+			return runInspect(ctx, asJSON, includeAll)
 		},
 	}
 }
 
-func runInspect(ctx cli.Context, asJSON bool) int {
+func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
-	scanned, _, err := adopt.Scan(ctx.Dir)
+	repoScan, _, err := adopt.Scan(ctx.Dir)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("scanning %s: %w", ctx.Dir, err))
 		return 1
 	}
+	// Skills aren't covered by the adopt scanner yet, so walk
+	// <root>/.claude/skills/ directly — each subdirectory is one skill.
+	repoScan.Skills = mergeStringMap(repoScan.Skills, scanSkills(ctx.Dir))
+	// Some repos (older Claude Code conventions, including this team's
+	// train-service) store MCP config at .claude/mcp.json with a "servers"
+	// key instead of the standard root .mcp.json with "mcpServers". Surface
+	// those servers too so 'inspect' tells the truth about what's there.
+	repoScan.MCPServers = mergeStringMap(repoScan.MCPServers,
+		readMCPFallback(filepath.Join(ctx.Dir, ".claude", "mcp.json")))
+
 	// Personal-layer entries source files out of ~/.claude/ rather than the
 	// repo, so a repo-only scan would report them as missing even when
-	// they're present. Merge in a user-scope scan; conflicts are resolved
-	// in favor of the repo scan since IDs there refer to in-repo files.
+	// they're present. Track the user-scope scan separately so the default
+	// view can still surface a repo-local file when the manifest claims its
+	// id is "personal".
+	var userScan manifest.Manifest
 	if home, herr := os.UserHomeDir(); herr == nil {
-		userScan, _, _ := adopt.ScanLayout(adopt.UserLayout(home))
-		scanned = mergeManifests(scanned, userScan)
+		userScan, _, _ = adopt.ScanLayout(adopt.UserLayout(home))
+		userScan.Skills = mergeStringMap(userScan.Skills, scanSkills(filepath.Join(home, ".claude")))
 	}
+	scanned := mergeManifests(repoScan, userScan)
 
 	// LoadLayers errors loudly on a malformed manifest; on a virgin repo it
 	// just returns an empty map. Treat both as "no manifest" so inspect
@@ -109,12 +125,16 @@ func runInspect(ctx cli.Context, asJSON bool) int {
 	}
 
 	rows := collectInspectRows(scanned, layers, lock)
+	if !includeAll {
+		rows = filterPersonalOnlyRows(rows, repoLocalIDSet(repoScan))
+	}
 	stats := summarize(rows)
 
 	report := inspectReport{
 		Repo:          ctx.Dir,
 		HasManifest:   hasManifest,
 		HasLock:       hasLock,
+		Notes:         inspectNotes(ctx.Dir),
 		Rows:          rows,
 		Summary:       stats,
 		NextStepHints: nextStepHints(hasManifest, stats),
@@ -189,6 +209,18 @@ func collectInspectRows(scanned manifest.Manifest, layers map[manifest.Layer]*ma
 					return ""
 				}
 				return l.Entries.Rules[id].Layer
+			},
+		},
+		{
+			name:     "skills",
+			diskIDs:  func(m manifest.Manifest) []string { return keys(m.Skills) },
+			manifIDs: func(m *manifest.Manifest) []string { return keys(m.Skills) },
+			lockIDs:  func(l *lockfile.Lock) []string { return keys(l.Entries.Skills) },
+			entryLayer: func(l *lockfile.Lock, id string) string {
+				if l == nil {
+					return ""
+				}
+				return l.Entries.Skills[id].Layer
 			},
 		},
 	}
@@ -274,15 +306,21 @@ func nextStepHints(hasManifest bool, s inspectStats) []string {
 func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 	c := ui.NewColorizer(w, noColor)
 	fmt.Fprintf(w, "Repo: %s\n", report.Repo)
-	fmt.Fprintf(w, "ainfra: %s, %s\n\n",
+	fmt.Fprintf(w, "ainfra: %s, %s\n",
 		yesNo(report.HasManifest, "ainfra.yaml present", "no ainfra.yaml"),
 		yesNo(report.HasLock, "ainfra.lock present", "no ainfra.lock"),
 	)
+	for _, n := range report.Notes {
+		fmt.Fprintf(w, "Note: %s\n", c.Dim(n))
+	}
+	fmt.Fprintln(w)
 
 	if len(report.Rows) == 0 {
-		fmt.Fprintln(w, "No mcpServers, commands, hooks, or rules found on disk or in the manifest.")
+		fmt.Fprintln(w, "No repo-scope mcpServers, commands, hooks, rules, or skills found on disk or in this repo's manifest.")
 		if !report.HasManifest {
-			fmt.Fprintln(w, "\nNothing to inspect — this is a virgin repo.")
+			fmt.Fprintln(w, "\nNothing to inspect — this is a virgin repo (re-run with --all to see your personal-layer config).")
+		} else {
+			fmt.Fprintln(w, "\nRe-run with --all to also list your personal-layer entries (apply globally, not specific to this repo).")
 		}
 		renderInspectHints(w, report)
 		return
@@ -292,7 +330,7 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 	for _, r := range report.Rows {
 		byChannel[r.Channel] = append(byChannel[r.Channel], r)
 	}
-	channelOrder := []string{"mcpServers", "commands", "hooks", "rules"}
+	channelOrder := []string{"mcpServers", "commands", "hooks", "rules", "skills"}
 
 	for _, ch := range channelOrder {
 		rows, ok := byChannel[ch]
@@ -363,6 +401,130 @@ func manifestExists(dir string) bool {
 	return fileExists(filepath.Join(dir, "ainfra.yaml"))
 }
 
+// inspectNotes surfaces relevant config files that 'inspect' intentionally
+// does not classify so the user knows what was skipped vs missed.
+func inspectNotes(dir string) []string {
+	var notes []string
+	if fileExists(filepath.Join(dir, ".claude", "settings.local.json")) {
+		notes = append(notes, ".claude/settings.local.json present — gitignored local settings, not inspected.")
+	}
+	return notes
+}
+
+// filterPersonalOnlyRows drops rows whose only relationship to this repo is
+// the user's global personal manifest. Rows for repo/team layer entries pass
+// through, as do untracked rows (the question "is this repo using this?" is
+// answered yes for repo/team and unknown for untracked). An entry whose
+// manifest layer is personal but whose on-disk file lives inside the repo
+// is *not* hidden — e.g. a repo's own CLAUDE.md collides on id "claude-md"
+// with the personal-layer rule, and the repo-local file is what the user
+// asked about. Pass --all to disable this filter entirely.
+func filterPersonalOnlyRows(rows []inspectRow, repoLocal map[string]bool) []inspectRow {
+	out := make([]inspectRow, 0, len(rows))
+	for _, r := range rows {
+		if r.Layer != string(manifest.LayerPersonal) {
+			out = append(out, r)
+			continue
+		}
+		if repoLocal[r.Channel+":"+r.ID] {
+			out = append(out, r)
+			continue
+		}
+		if r.Status == statusUntracked {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// repoLocalIDSet returns the set of (channel, id) keys whose on-disk
+// artefact lives inside the repo at scan time. Used by the personal-filter
+// to keep repo-local files visible even when their id collides with a
+// personal-layer manifest entry (e.g. a repo's CLAUDE.md vs the personal
+// claude-md rule).
+func repoLocalIDSet(repoScan manifest.Manifest) map[string]bool {
+	out := map[string]bool{}
+	for id := range repoScan.MCPServers {
+		out["mcpServers:"+id] = true
+	}
+	for id := range repoScan.Commands {
+		out["commands:"+id] = true
+	}
+	for id := range repoScan.Hooks {
+		out["hooks:"+id] = true
+	}
+	for id := range repoScan.Rules {
+		out["rules:"+id] = true
+	}
+	for id := range repoScan.Skills {
+		out["skills:"+id] = true
+	}
+	return out
+}
+
+// readMCPFallback handles non-standard MCP config files that the adopt
+// scanner skips: ones at <repo>/.claude/mcp.json (instead of <repo>/.mcp.json)
+// and ones that use a top-level "servers" key (instead of "mcpServers").
+// Older Claude Code conventions used this layout — without surfacing it,
+// 'inspect' silently misreports a repo as having no MCP servers.
+func readMCPFallback(path string) map[string]manifest.MCPServer {
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil
+	}
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil
+	}
+	body, ok := doc["mcpServers"]
+	if !ok {
+		body, ok = doc["servers"]
+	}
+	if !ok {
+		return nil
+	}
+	var entries map[string]map[string]any
+	if json.Unmarshal(body, &entries) != nil {
+		return nil
+	}
+	out := map[string]manifest.MCPServer{}
+	for id, fields := range entries {
+		srv := manifest.MCPServer{}
+		if cmd, ok := fields["command"].(string); ok {
+			srv.Command = cmd
+		}
+		if args, ok := fields["args"].([]any); ok {
+			for _, a := range args {
+				if s, ok := a.(string); ok {
+					srv.Args = append(srv.Args, s)
+				}
+			}
+		}
+		out[id] = srv
+	}
+	return out
+}
+
+// scanSkills walks <root>/.claude/skills/ and returns each subdirectory as a
+// Skill draft. A skill is "a directory containing a SKILL.md" by convention;
+// we accept any subdirectory as a candidate id so the inspect view stays
+// generous about what counts as installed.
+func scanSkills(root string) map[string]manifest.Skill {
+	dir := filepath.Join(root, ".claude", "skills")
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := map[string]manifest.Skill{}
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		out[e.Name()] = manifest.Skill{}
+	}
+	return out
+}
+
 // mergeManifests unions IDs across a primary and secondary draft manifest.
 // Repo entries (primary) win on conflicts because their IDs refer to
 // in-repo files; the user-scope manifest fills in personal-layer IDs that
@@ -372,6 +534,7 @@ func mergeManifests(primary, secondary manifest.Manifest) manifest.Manifest {
 	primary.Commands = mergeStringMap(primary.Commands, secondary.Commands)
 	primary.Hooks = mergeStringMap(primary.Hooks, secondary.Hooks)
 	primary.Rules = mergeStringMap(primary.Rules, secondary.Rules)
+	primary.Skills = mergeStringMap(primary.Skills, secondary.Skills)
 	return primary
 }
 

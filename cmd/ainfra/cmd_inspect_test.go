@@ -91,6 +91,112 @@ func TestInspect_JSONOutput(t *testing.T) {
 	}
 }
 
+// Personal-layer entries (from the user's global ~/.config/ainfra/personal.yaml)
+// should be hidden by default — they aren't specific to the repo being
+// inspected. --all opts back in. Reuses the package TestMain XDG isolation
+// to seed a personal layer from a temp dir.
+func TestInspect_HidesPersonalLayerByDefault(t *testing.T) {
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		t.Skip("XDG_CONFIG_HOME not isolated by TestMain")
+	}
+	ainfraDir := filepath.Join(xdg, "ainfra")
+	if err := os.MkdirAll(ainfraDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Materialize the source file so the personal layer's command isn't
+	// classified as missing.
+	cmdFile := filepath.Join(ainfraDir, "mycmd.md")
+	if err := os.WriteFile(cmdFile, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	personalYAML := "version: 1\ncommands:\n  mycmd:\n    source: " + cmdFile + "\n"
+	if err := os.WriteFile(filepath.Join(ainfraDir, "personal.yaml"), []byte(personalYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ainfraDir) })
+
+	dir := t.TempDir()
+	// Default run should not list the personal-layer command.
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	if strings.Contains(stdout, "mycmd") {
+		t.Errorf("default inspect surfaced personal-layer command mycmd; got:\n%s", stdout)
+	}
+	// --all run must surface it.
+	stdoutAll, stderrAll, codeAll := runInspectIn(t, dir, "--all")
+	if codeAll != 0 {
+		t.Fatalf("inspect --all exit code = %d, stderr=%q", codeAll, stderrAll)
+	}
+	if !strings.Contains(stdoutAll, "mycmd") {
+		t.Errorf("inspect --all did not surface personal-layer command mycmd; got:\n%s", stdoutAll)
+	}
+}
+
+// .claude/mcp.json with the older "servers" key (instead of root .mcp.json
+// with "mcpServers") must surface — without this fallback, inspect silently
+// reports a repo as having no MCP config when it actually has plenty.
+func TestInspect_FallbackMCPPathAndServersKey(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"servers":{"postgres":{"command":"npx","args":["-y","@modelcontextprotocol/server-postgres"]}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".claude", "mcp.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"postgres", "untracked"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected %q in stdout (fallback MCP path/schema), got:\n%s", want, stdout)
+		}
+	}
+}
+
+// A rule whose id collides with the personal layer (the canonical case is
+// CLAUDE.md vs the personal claude-md rule) must still surface when the
+// on-disk file lives inside the repo. Otherwise the default --all-off view
+// hides the repo's own CLAUDE.md, which is exactly the file users come to
+// inspect for.
+func TestInspect_RepoLocalCLAUDEMDNotHiddenByPersonalCollision(t *testing.T) {
+	xdg := os.Getenv("XDG_CONFIG_HOME")
+	if xdg == "" {
+		t.Skip("XDG_CONFIG_HOME not isolated by TestMain")
+	}
+	ainfraDir := filepath.Join(xdg, "ainfra")
+	if err := os.MkdirAll(ainfraDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	homeRule := filepath.Join(ainfraDir, "fake-home-CLAUDE.md")
+	if err := os.WriteFile(homeRule, []byte("home"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	personalYAML := "version: 1\nrules:\n  claude-md:\n    source: " + homeRule + "\n    target: CLAUDE.md\n"
+	if err := os.WriteFile(filepath.Join(ainfraDir, "personal.yaml"), []byte(personalYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(ainfraDir) })
+
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte("repo content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "claude-md") {
+		t.Errorf("expected repo-local claude-md to surface despite personal-layer collision, got:\n%s", stdout)
+	}
+}
+
 // A manifest entry whose source file does not exist must be flagged missing
 // so the user knows to run `ainfra install`.
 func TestInspect_MissingDeclaredCommand(t *testing.T) {
