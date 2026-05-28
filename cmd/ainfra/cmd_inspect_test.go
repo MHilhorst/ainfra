@@ -1,0 +1,117 @@
+package main
+
+import (
+	"bytes"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/cli"
+)
+
+// runInspectIn drives the inspect command against dir with --no-color so
+// status markers compare cleanly across terminals.
+func runInspectIn(t *testing.T, dir string, args ...string) (string, string, int) {
+	t.Helper()
+	var stdout, stderr bytes.Buffer
+	fullArgs := append([]string{"--chdir", dir, "--no-color", "inspect"}, args...)
+	code := run(fullArgs, &stdout, &stderr)
+	_ = cli.Context{} // keep import for future use
+	return stdout.String(), stderr.String(), code
+}
+
+// A virgin repo with no ainfra.yaml and no .claude/ should produce a no-op
+// report that nudges the user toward `ainfra init --adopt`.
+func TestInspect_VirginRepoSuggestsAdopt(t *testing.T) {
+	dir := t.TempDir()
+
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	if !strings.Contains(stdout, "no ainfra.yaml") {
+		t.Errorf("expected 'no ainfra.yaml' in stdout, got:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "ainfra init --adopt") {
+		t.Errorf("expected 'ainfra init --adopt' hint in stdout, got:\n%s", stdout)
+	}
+}
+
+// A repo where .mcp.json declares a server but ainfra.yaml is absent must
+// classify that server as untracked and surface the adopt hint.
+func TestInspect_UntrackedMCPServer(t *testing.T) {
+	dir := t.TempDir()
+	mcp := `{"mcpServers":{"demo":{"command":"npx","args":["@demo/pkg"]}}}`
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(mcp), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"demo", "untracked", "ainfra init --adopt"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected %q in stdout, got:\n%s", want, stdout)
+		}
+	}
+}
+
+// --json must emit a parseable report including the summary counts.
+func TestInspect_JSONOutput(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{"mcpServers":{"x":{"command":"npx"}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runInspectIn(t, dir, "--json")
+	if code != 0 {
+		t.Fatalf("inspect --json exit code = %d, stderr=%q", code, stderr)
+	}
+	var report inspectReport
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("not valid JSON: %v\nstdout=%s", err, stdout)
+	}
+	if report.HasManifest {
+		t.Errorf("HasManifest = true, want false (no ainfra.yaml in fixture)")
+	}
+	var foundX bool
+	for _, r := range report.Rows {
+		if r.Channel == "mcpServers" && r.ID == "x" {
+			foundX = true
+			if r.Status != statusUntracked {
+				t.Errorf("server x status = %q, want %q", r.Status, statusUntracked)
+			}
+		}
+	}
+	if !foundX {
+		t.Errorf("server 'x' not in report.Rows:\n%+v", report.Rows)
+	}
+}
+
+// A manifest entry whose source file does not exist must be flagged missing
+// so the user knows to run `ainfra install`.
+func TestInspect_MissingDeclaredCommand(t *testing.T) {
+	dir := t.TempDir()
+	body := `version: 1
+commands:
+  not-on-disk:
+    source: ./commands/not-on-disk.md
+    description: declared but never materialized
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runInspectIn(t, dir)
+	if code != 0 {
+		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
+	}
+	for _, want := range []string{"not-on-disk", "missing", "ainfra install"} {
+		if !strings.Contains(stdout, want) {
+			t.Errorf("expected %q in stdout, got:\n%s", want, stdout)
+		}
+	}
+}
