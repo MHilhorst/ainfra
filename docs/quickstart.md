@@ -32,9 +32,10 @@ Your repo already has a Claude Code setup committed — `.mcp.json`, `.claude/`,
 
 ```sh
 ainfra adopt              # draft an ainfra.yaml from the existing files
-ainfra adopt --merge      # add new entries to an existing ainfra.yaml, keep existing keys
-ainfra adopt --force      # overwrite an existing ainfra.yaml
+ainfra adopt --force      # throw the existing ainfra.yaml away and re-scan from scratch
 ```
+
+`adopt` is the one-shot brownfield onramp. Once a manifest exists, the manifest is the source of truth — to reconcile on-disk drift back into matching it, run `ainfra install`. Adopt deliberately does not merge into an existing manifest.
 
 `adopt` reads `.mcp.json`, `.claude/settings.json` hooks, `.claude/commands/*`, and `CLAUDE.md`, and emits a draft `ainfra.yaml`. Literal credentials it recognizes (`ghp_*`, `sk-*`, `xoxb-*`, and generic `token` / `key` / `password` keys) are stripped and replaced with `direct`-mode secret references plus a `TODO` marker for the vault path — nothing sensitive ends up in the manifest. Skills and tool permissions are skipped: skills arrive with `git clone`, and a clean permissions matcher is left for a later iteration.
 
@@ -131,7 +132,7 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | Command | What it does |
 |---|---|
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
-| `ainfra adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
+| `ainfra adopt` | One-shot bootstrap: draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--force` to re-scan). Use `install` for drift after that. |
 | `ainfra install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile |
 | `ainfra remove <ch> <id>` | Remove an entry and reconcile |

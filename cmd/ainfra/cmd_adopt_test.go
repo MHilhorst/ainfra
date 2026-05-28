@@ -106,34 +106,16 @@ func TestAdoptForceOverwrites(t *testing.T) {
 	}
 }
 
-func TestAdoptMergeAddsNewKeys(t *testing.T) {
+func TestAdoptRefusesWhenManifestExistsPointsToInstall(t *testing.T) {
 	dir := t.TempDir()
-	existing := "version: 1\nmcpServers:\n  existing:\n    transport: http\n    url: https://existing.example.com\n"
-	os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(existing), 0o644)
-	os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{
-		"mcpServers": {
-			"existing": {"type":"http","url":"https://different.example.com"},
-			"newone":   {"type":"http","url":"https://new.example.com"}
-		}
-	}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644)
 	var errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "adopt", "--merge"}, &bytes.Buffer{}, &errOut)
-	if code != 0 {
-		t.Fatalf("merge: code=%d err=%q", code, errOut.String())
+	code := run([]string{"--chdir", dir, "adopt"}, &bytes.Buffer{}, &errOut)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
-	s := string(data)
-	if !strings.Contains(s, "https://existing.example.com") {
-		t.Errorf("existing key was overwritten:\n%s", s)
-	}
-	if strings.Contains(s, "https://different.example.com") {
-		t.Errorf("scanned overwrote existing key:\n%s", s)
-	}
-	if !strings.Contains(s, "newone:") {
-		t.Errorf("new key not added:\n%s", s)
-	}
-	if !strings.Contains(errOut.String(), "adding mcpServers.newone") {
-		t.Errorf("missing add warning: %s", errOut.String())
+	if !strings.Contains(errOut.String(), "ainfra install") {
+		t.Errorf("expected hint to point at 'ainfra install': %s", errOut.String())
 	}
 }
 
@@ -211,37 +193,6 @@ func TestAdoptUserScopeRefusesToOverwriteWithoutFlag(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "personal.yaml exists") {
 		t.Errorf("missing refusal: %s", errOut.String())
-	}
-}
-
-func TestAdoptUserScopeMergePreservesExisting(t *testing.T) {
-	home := t.TempDir()
-	xdg := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", xdg)
-
-	dest := filepath.Join(xdg, "ainfra", "personal.yaml")
-	os.MkdirAll(filepath.Dir(dest), 0o755)
-	existing := "version: 1\ncommands:\n  keep:\n    source: ./keep.md\n"
-	os.WriteFile(dest, []byte(existing), 0o644)
-
-	os.MkdirAll(filepath.Join(home, ".claude", "commands"), 0o755)
-	os.WriteFile(filepath.Join(home, ".claude", "commands", "fresh.md"), []byte("# fresh"), 0o644)
-
-	var errOut bytes.Buffer
-	code := run([]string{"--chdir", t.TempDir(), "adopt", "--scope=user", "--merge"}, &bytes.Buffer{}, &errOut)
-	if code != 0 {
-		t.Fatalf("merge: code=%d err=%q", code, errOut.String())
-	}
-	data, _ := os.ReadFile(dest)
-	s := string(data)
-	for _, fragment := range []string{"keep:", "fresh:"} {
-		if !strings.Contains(s, fragment) {
-			t.Errorf("missing %q in:\n%s", fragment, s)
-		}
-	}
-	if !strings.Contains(errOut.String(), "adding commands.fresh") {
-		t.Errorf("missing add warning: %s", errOut.String())
 	}
 }
 
