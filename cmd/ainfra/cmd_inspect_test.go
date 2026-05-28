@@ -52,7 +52,7 @@ func TestInspect_UntrackedMCPServer(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"demo", "untracked", "ainfra init --adopt"} {
+	for _, want := range []string{"demo", "local-only", "ainfra init --adopt"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("expected %q in stdout, got:\n%s", want, stdout)
 		}
@@ -152,7 +152,7 @@ func TestInspect_FallbackMCPPathAndServersKey(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"postgres", "untracked"} {
+	for _, want := range []string{"postgres", "local-only"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("expected %q in stdout (fallback MCP path/schema), got:\n%s", want, stdout)
 		}
@@ -215,7 +215,7 @@ commands:
 	if code != 0 {
 		t.Fatalf("inspect exit code = %d, stderr=%q", code, stderr)
 	}
-	for _, want := range []string{"not-on-disk", "missing", "ainfra install"} {
+	for _, want := range []string{"not-on-disk", "not installed", "ainfra install"} {
 		if !strings.Contains(stdout, want) {
 			t.Errorf("expected %q in stdout, got:\n%s", want, stdout)
 		}
