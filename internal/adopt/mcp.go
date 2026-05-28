@@ -152,7 +152,10 @@ func stripStringMap(in map[string]any, pathPrefix string, secrets map[string]man
 		// emitted manifest never contains the original credential.
 		out[k] = "${secrets." + res.SecretName + "}"
 		warnings = append(warnings, Warning{
-			Message: fmt.Sprintf("adopt: stripped literal credential at %s.%s -> %s (review the secret declaration before committing)", pathPrefix, k, res.SecretName),
+			Kind:    WarnStripped,
+			Target:  "secrets." + res.SecretName,
+			Origin:  pathPrefix + "." + k,
+			Message: "stripped literal credential",
 		})
 	}
 	return out, warnings
