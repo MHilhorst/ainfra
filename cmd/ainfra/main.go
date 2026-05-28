@@ -18,7 +18,6 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) int {
 	reg := cli.NewRegistry(stdout, stderr, version.Version)
 	reg.Add(newInitCommand())
-	reg.Add(newAdoptCommand())
 	reg.Add(newInstallCommand())
 	reg.Add(newAddCommand())
 	reg.Add(newRemoveCommand())
