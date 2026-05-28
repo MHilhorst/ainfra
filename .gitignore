@@ -26,3 +26,12 @@ ainfra.schema.json
 
 # OS
 .DS_Store
+
+# Docs site (VitePress)
+/node_modules/
+/package-lock.json
+/docs/.vitepress/dist/
+/docs/.vitepress/cache/
+# Synced at build time from /spec
+/docs/spec/
+.vercel
