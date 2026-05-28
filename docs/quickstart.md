@@ -32,9 +32,10 @@ Your repo already has a Claude Code setup committed — `.mcp.json`, `.claude/`,
 
 ```sh
 ainfra init --adopt              # draft an ainfra.yaml from the existing files
-ainfra init --adopt --merge      # add new entries to an existing ainfra.yaml, keep existing keys
-ainfra init --adopt --force      # overwrite an existing ainfra.yaml
+ainfra init --adopt --force      # throw the existing ainfra.yaml away and re-scan from scratch
 ```
+
+`init --adopt` is the one-shot brownfield onramp. Once a manifest exists, the manifest is the source of truth — to reconcile on-disk drift back into matching it, run `ainfra install`. Adopt deliberately does not merge into an existing manifest.
 
 Bootstrapping a shared team config repo from your own polished `~/.claude/`:
 
@@ -138,7 +139,7 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | Command | What it does |
 |---|---|
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
-| `ainfra init --adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
+| `ainfra init --adopt` | One-shot bootstrap: draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--force` to re-scan). Use `install` for drift after that. |
 | `ainfra init team <path>` | Scaffold a team config repo at `<path>`, scanning `~/.claude/` by default (`--empty` for a skeleton) |
 | `ainfra install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile |

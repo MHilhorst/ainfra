@@ -106,34 +106,16 @@ func TestAdoptForceOverwrites(t *testing.T) {
 	}
 }
 
-func TestAdoptMergeAddsNewKeys(t *testing.T) {
+func TestAdoptRefusesWhenManifestExistsPointsToInstall(t *testing.T) {
 	dir := t.TempDir()
-	existing := "version: 1\nmcpServers:\n  existing:\n    transport: http\n    url: https://existing.example.com\n"
-	os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(existing), 0o644)
-	os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{
-		"mcpServers": {
-			"existing": {"type":"http","url":"https://different.example.com"},
-			"newone":   {"type":"http","url":"https://new.example.com"}
-		}
-	}`), 0o644)
+	os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644)
 	var errOut bytes.Buffer
-	code := run([]string{"--chdir", dir, "init", "--adopt", "--merge"}, &bytes.Buffer{}, &errOut)
-	if code != 0 {
-		t.Fatalf("merge: code=%d err=%q", code, errOut.String())
+	code := run([]string{"--chdir", dir, "init", "--adopt"}, &bytes.Buffer{}, &errOut)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
 	}
-	data, _ := os.ReadFile(filepath.Join(dir, "ainfra.yaml"))
-	s := string(data)
-	if !strings.Contains(s, "https://existing.example.com") {
-		t.Errorf("existing key was overwritten:\n%s", s)
-	}
-	if strings.Contains(s, "https://different.example.com") {
-		t.Errorf("scanned overwrote existing key:\n%s", s)
-	}
-	if !strings.Contains(s, "newone:") {
-		t.Errorf("new key not added:\n%s", s)
-	}
-	if !strings.Contains(errOut.String(), "adding mcpServers.newone") {
-		t.Errorf("missing add warning: %s", errOut.String())
+	if !strings.Contains(errOut.String(), "ainfra install") {
+		t.Errorf("expected hint to point at 'ainfra install': %s", errOut.String())
 	}
 }
 

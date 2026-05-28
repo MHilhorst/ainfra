@@ -21,17 +21,14 @@ const (
 	// reference. The user MUST replace the synthesized TODO ref before the
 	// manifest is shareable.
 	WarnStripped
-	// WarnMergeAdd flags a key the scan added to an existing manifest in
-	// --merge mode. Informational; nothing to fix.
-	WarnMergeAdd
 )
 
 // Warning is a non-fatal note surfaced to the user during a scan.
 //
 // Message carries the human-readable line (used verbatim for review-bucket
 // warnings). Target and Origin are optional structured fields the CLI uses to
-// render aligned rows for WarnStripped (Target=secrets.<name>, Origin=where it
-// was) and WarnMergeAdd (Target=channel.key).
+// render aligned rows for WarnStripped (Target=secrets.<name>, Origin=where
+// it was).
 type Warning struct {
 	Kind    WarningKind
 	Message string

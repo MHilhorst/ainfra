@@ -18,7 +18,7 @@ func newRemoveCommand() *cli.Command {
 	var personal, noInstall bool
 	return &cli.Command{
 		Name:      "remove",
-		Summary:   "Remove an entry from ainfra.yaml and reconcile",
+		Summary:   "Remove an entry from ainfra.yaml and uninstall it",
 		UsageLine: "ainfra remove <channel> <id> [--personal] [--no-install]",
 		Example:   "ainfra remove mcp github\n  ainfra remove --personal mcp local-fs",
 		SetFlags: func(fs *flag.FlagSet) {
@@ -42,7 +42,7 @@ func runRemove(ctx cli.Context, personal, noInstall bool) int {
 
 	canonical, ok := channelAlias[rawChannel]
 	if !ok {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("unknown channel %q", rawChannel))
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("unknown channel %q. Pick one: mcp, hook, command, skill, cliTool, plugin, marketplace, rule, tool", rawChannel))
 		return 1
 	}
 
@@ -52,20 +52,20 @@ func runRemove(ctx cli.Context, personal, noInstall bool) int {
 	}
 	manifestPath := filepath.Join(ctx.Dir, manifestFile)
 	if !fileExists(manifestPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("%s not found", manifestFile))
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no %s in this repo — nothing to remove from", manifestFile))
 		return 1
 	}
 
 	if err := writer.RemoveEntry(manifestPath, canonical, id); err != nil {
 		if errors.Is(err, writer.ErrEntryNotFound) {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("%s.%s not found in %s", canonical, id, manifestFile))
+			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("%s.%s not found in %s — nothing to remove. (Run `ainfra list` to see what's there.)", canonical, id, manifestFile))
 			return 1
 		}
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
 
-	fmt.Fprintf(ctx.Stdout, "Removed %s.%s from %s\n", canonical, id, manifestFile)
+	fmt.Fprintf(ctx.Stdout, "Removed %s.%s from %s.\n", canonical, id, manifestFile)
 
 	if err := resolve.RunLock(ctx.Dir, provider.ExecRunner{}); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -73,7 +73,9 @@ func runRemove(ctx cli.Context, personal, noInstall bool) int {
 	}
 
 	if noInstall {
-		fmt.Fprintln(ctx.Stdout, "Skipping install (--no-install).")
+		c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+		fmt.Fprintln(ctx.Stdout, "Removed from manifest and re-locked. Skipped uninstall (--no-install).")
+		ui.Next(ctx.Stdout, c, "run `ainfra install` to delete the rendered files.")
 		return 0
 	}
 

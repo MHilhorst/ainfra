@@ -51,7 +51,7 @@ func runList(ctx cli.Context, channelFilter string, asJSON bool) int {
 
 	lockPath := filepath.Join(ctx.Dir, "ainfra.lock")
 	if !fileExists(lockPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra install` first"))
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no ainfra.lock yet — there's nothing installed to list. Run `ainfra lock` first (resolves ainfra.yaml), then `ainfra install`."))
 		return 1
 	}
 	committed, err := lockfile.Read(lockPath)
@@ -90,7 +90,7 @@ func runList(ctx cli.Context, channelFilter string, asJSON bool) int {
 	}
 
 	if len(entries) == 0 {
-		fmt.Fprintln(ctx.Stdout, "No entries.")
+		fmt.Fprintln(ctx.Stdout, "No entries. Add one with: ainfra add <channel> <id>  (channels: mcp, hook, command, skill, plugin, rule, ...)")
 		return 0
 	}
 

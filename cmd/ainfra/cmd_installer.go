@@ -74,7 +74,7 @@ func runInstaller(ctx cli.Context, out string) int {
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	fmt.Fprintf(ctx.Stdout, "ainfra: wrote installer to %s\n", out)
-	ui.Next(ctx.Stdout, c, "send this file to the subscriber; they double-click it once")
+	fmt.Fprintf(ctx.Stdout, "Wrote macOS installer to %s.\n", out)
+	ui.Next(ctx.Stdout, c, "send this file to a teammate; they double-click it once to install ainfra + your shared setup.")
 	return 0
 }

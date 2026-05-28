@@ -64,15 +64,15 @@ skills:
 //   ainfra init team <path>      — scaffold a team config repo at <path>, scanning
 //                                  ~/.claude/ by default; --empty for a skeleton
 //
-// The consolidation puts every "start a new ainfra thing" flow under one verb;
-// `ainfra adopt` remains as a forwarding alias so existing muscle memory keeps
-// working.
+// `--adopt` is bootstrap-only — once a manifest exists, run `ainfra install` to
+// reconcile drift rather than re-adopting. `--force` is the only escape hatch
+// and rewrites the manifest from scratch.
 func newInitCommand() *cli.Command {
-	var personal, force, merge, withSkill, doAdopt, empty bool
+	var personal, force, withSkill, doAdopt, empty bool
 	return &cli.Command{
 		Name:    "init",
 		Summary: "Scaffold an ainfra.yaml in the current repo, or a team config repo",
-		UsageLine: "ainfra init [--personal | --adopt] [--with-skill] [--merge | --force]\n" +
+		UsageLine: "ainfra init [--personal | --adopt] [--with-skill] [--force]\n" +
 			"       ainfra init team <path> [--empty] [--with-skill] [--force]",
 		Example: "ainfra init team ../claude-config",
 		SetFlags: func(fs *flag.FlagSet) {
@@ -80,19 +80,18 @@ func newInitCommand() *cli.Command {
 			fs.BoolVar(&doAdopt, "adopt", false, "import the current repo's ./.claude/ setup into ainfra.yaml")
 			fs.BoolVar(&withSkill, "with-skill", false, "include the using-ainfra skill so AI agents know how to use ainfra")
 			fs.BoolVar(&force, "force", false, "overwrite existing files (team: allow non-empty target)")
-			fs.BoolVar(&merge, "merge", false, "with --adopt: add new entries without overwriting existing keys")
 			fs.BoolVar(&empty, "empty", false, "team: scaffold an empty manifest instead of scanning ~/.claude/")
 		},
 		Run: func(ctx cli.Context) int {
 			if len(ctx.Args) > 0 && ctx.Args[0] == "team" {
 				return runInitTeam(ctx, ctx.Args[1:], empty, withSkill, force)
 			}
-			return runInit(ctx, personal, withSkill, force, doAdopt, merge)
+			return runInit(ctx, personal, withSkill, force, doAdopt)
 		},
 	}
 }
 
-func runInit(ctx cli.Context, personal, withSkill, force, doAdopt, merge bool) int {
+func runInit(ctx cli.Context, personal, withSkill, force, doAdopt bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
 	if doAdopt && personal {
@@ -103,7 +102,7 @@ func runInit(ctx cli.Context, personal, withSkill, force, doAdopt, merge bool) i
 		return 1
 	}
 	if doAdopt {
-		return runAdopt(ctx, force, merge)
+		return runAdopt(ctx, force)
 	}
 
 	name, content := "ainfra.yaml", starterManifest
@@ -133,11 +132,11 @@ func runInit(ctx cli.Context, personal, withSkill, force, doAdopt, merge bool) i
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	fmt.Fprintln(ctx.Stdout, "ainfra: created "+name)
+	fmt.Fprintln(ctx.Stdout, "Created "+name+".")
 	if withSkill && !personal {
-		fmt.Fprintln(ctx.Stdout, "ainfra: included the using-ainfra skill — AI agents in this repo will learn the plan/apply/lock/check workflow.")
+		fmt.Fprintln(ctx.Stdout, "Included the using-ainfra skill so AI agents in this repo learn how to use ainfra.")
 	}
-	ui.Next(ctx.Stdout, c, "edit "+name+", then run 'ainfra lock'.")
+	ui.Next(ctx.Stdout, c, "edit "+name+" to declare what you want (mcpServers, hooks, commands, ...), then run `ainfra lock`.")
 	return 0
 }
 

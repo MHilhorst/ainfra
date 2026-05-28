@@ -116,7 +116,7 @@ Or scaffold it at `init` time with `ainfra init --with-skill`.
 | Command | What it does |
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
-| `adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
+| `adopt` | One-shot bootstrap: draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--force` to re-scan). Once a manifest exists, use `install` to reconcile drift. |
 | `install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `add` | Add an entry to `ainfra.yaml` and reconcile (`ainfra add <channel> <id> [source]`) |
 | `remove` | Remove an entry from `ainfra.yaml` and reconcile |

@@ -47,11 +47,11 @@ func TestRenderPlanMixedChanges(t *testing.T) {
 	if !strings.Contains(out, "1 to add") {
 		t.Errorf("summary missing add count, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 to change") {
-		t.Errorf("summary missing change count, got:\n%s", out)
+	if !strings.Contains(out, "1 to update") {
+		t.Errorf("summary missing update count, got:\n%s", out)
 	}
-	if !strings.Contains(out, "1 to destroy") {
-		t.Errorf("summary missing destroy count, got:\n%s", out)
+	if !strings.Contains(out, "1 to remove") {
+		t.Errorf("summary missing remove count, got:\n%s", out)
 	}
 }
 
@@ -99,7 +99,7 @@ func TestRenderPlanNoChanges(t *testing.T) {
 	RenderPlan(&b, Colorizer{}, plans)
 	out := b.String()
 
-	want := "No changes. Environment matches the lockfile."
+	want := "No changes. Your environment already matches the lockfile."
 	if !strings.Contains(out, want) {
 		t.Errorf("expected %q, got:\n%s", want, out)
 	}
@@ -110,7 +110,7 @@ func TestRenderPlanEmptyMap(t *testing.T) {
 	RenderPlan(&b, Colorizer{}, map[string]provider.ChannelPlan{})
 	out := b.String()
 
-	want := "No changes. Environment matches the lockfile."
+	want := "No changes. Your environment already matches the lockfile."
 	if !strings.Contains(out, want) {
 		t.Errorf("expected %q, got:\n%s", want, out)
 	}
