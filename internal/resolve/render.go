@@ -29,24 +29,47 @@ import (
 // $XDG_CONFIG_HOME/ainfra/personal.yaml — try the install dir first, then
 // the XDG dir as a fallback. Remote sources and empty sources return "".
 func readSourceForLayer(dir string, layerName manifest.Layer, source string) string {
+	content, _ := readSourceForLayerExists(dir, layerName, source)
+	return content
+}
+
+// readSourceForLayerExists is like readSourceForLayer but distinguishes
+// "source not readable" (ok=false) from "source read successfully but
+// empty" (ok=true, content=""). Hash sites that fall back to a manifest-
+// shape hash when the source file is missing need this signal so a
+// deliberately-empty source file produces a stable empty-content hash
+// instead of looping into perpetual drift.
+func readSourceForLayerExists(dir string, layerName manifest.Layer, source string) (string, bool) {
 	if source == "" || isRemoteSource(source) {
-		return ""
+		return "", false
 	}
-	// First attempt: install dir (always correct for repo/team layers, also
-	// correct when the source came from the repo's ainfra.personal.yaml).
+	// Absolute and ~-rooted paths bypass layer-relative resolution. XDG
+	// personal manifests commonly emit absolute paths (e.g.
+	// /Users/foo/.claude/commands/x.md) or ~/-rooted paths;
+	// filepath.Join(dir, "/abs/path") would yield the wrong result.
+	if filepath.IsAbs(source) || strings.HasPrefix(source, "~") {
+		expanded := source
+		if strings.HasPrefix(source, "~/") || source == "~" {
+			if home, err := os.UserHomeDir(); err == nil {
+				expanded = filepath.Join(home, strings.TrimPrefix(strings.TrimPrefix(source, "~"), "/"))
+			}
+		}
+		if raw, err := os.ReadFile(expanded); err == nil {
+			return string(raw), true
+		}
+		return "", false
+	}
 	if raw, err := os.ReadFile(filepath.Join(dir, source)); err == nil {
-		return string(raw)
+		return string(raw), true
 	}
-	// Fallback for personal layer: source may have come from
-	// $XDG_CONFIG_HOME/ainfra/personal.yaml; resolve against that directory.
 	if layerName == manifest.LayerPersonal {
 		if xdgDir, err := xdgConfigAinfra(); err == nil {
 			if raw, err := os.ReadFile(filepath.Join(xdgDir, source)); err == nil {
-				return string(raw)
+				return string(raw), true
 			}
 		}
 	}
-	return ""
+	return "", false
 }
 
 // xdgConfigAinfra returns $XDG_CONFIG_HOME/ainfra (or ~/.config/ainfra when
