@@ -2,6 +2,8 @@ package claudecode_test
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
@@ -26,6 +28,42 @@ func TestHooksObserve_NoLedgerEmpty(t *testing.T) {
 	}
 	if len(resources) != 0 {
 		t.Fatalf("Observe: got %d resources with no ledger, want 0", len(resources))
+	}
+}
+
+// User-scope Observe must read the XDG applied ledger, not <env.Root>/.ainfra.
+// Before the fix, hooks Observe ignored the scope flag and always read
+// <env.Root>/.ainfra/applied.lock — so applied user-scope hooks looked
+// unobserved on every subsequent run and the planner reported them as "to add"
+// forever.
+func TestHooksObserve_UserScopeReadsXDGLedger(t *testing.T) {
+	xdgRoot := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdgRoot)
+	// Seed the XDG applied ledger with a single managed hook entry.
+	xdgLedgerDir := filepath.Join(xdgRoot, "ainfra")
+	if err := os.MkdirAll(xdgLedgerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ledgerYAML := `version: 1
+entries:
+    hooks:
+        seeded-hook:
+            layer: personal
+            contentHash: sha256:deadbeef
+`
+	if err := os.WriteFile(filepath.Join(xdgLedgerDir, "applied.lock"), []byte(ledgerYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// env.Root points to a fresh dir with no .ainfra/applied.lock — only
+	// honoring UserScope=true will surface the seeded hook.
+	env := provider.Env{Root: t.TempDir(), UserScope: true}
+	resources, err := claudecode.Hooks{}.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: unexpected error: %v", err)
+	}
+	if len(resources) != 1 || resources[0].ID != "seeded-hook" {
+		t.Fatalf("Observe: got %+v, want one resource with ID seeded-hook", resources)
 	}
 }
 
