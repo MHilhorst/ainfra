@@ -33,7 +33,11 @@ func readHooks(path string) (map[string]manifest.Hook, []Warning, error) {
 		return nil, nil, nil
 	}
 
-	out := map[string]manifest.Hook{}
+	type rawHook struct {
+		event, matcher, command string
+		timeoutMs               int
+	}
+	var raws []rawHook
 	var warnings []Warning
 
 	events := make([]string, 0, len(hooksBlock))
@@ -63,24 +67,74 @@ func readHooks(path string) (map[string]manifest.Hook, []Warning, error) {
 				if command == "" {
 					continue
 				}
-				timeoutSec, _ := hm["timeout"].(float64)
-				id := synthesizeHookID(event, matcher, command)
-				out[id] = manifest.Hook{
-					Event:   event,
-					Matcher: matcher,
-					Command: command,
-					Timeout: int(timeoutSec) * 1000, // settings.json stores seconds; manifest stores ms.
+				// Skip ainfra-owned hooks (e.g. the staleness-check that
+				// 'ainfra install' injects). These are implementation
+				// details, not user content — including them in the
+				// adopted manifest would round-trip them into ainfra.yaml
+				// and surface them in 'inspect' as if the user wrote them.
+				if isAinfraOwnedHookCommand(command) {
+					continue
 				}
+				timeoutSec, _ := hm["timeout"].(float64)
+				raws = append(raws, rawHook{
+					event:     event,
+					matcher:   matcher,
+					command:   command,
+					timeoutMs: int(timeoutSec) * 1000, // settings.json stores seconds; manifest stores ms.
+				})
 			}
+		}
+	}
+
+	// Two-pass id assignment: first try a short id ("<event>-<matcher>"),
+	// fall back to a hash-suffixed id only when two hooks would collide.
+	// Avoids cryptic suffixes like "pretooluse-bash-172d96a1" when there's
+	// just one PreToolUse/Bash hook in the file.
+	out := map[string]manifest.Hook{}
+	shortCounts := map[string]int{}
+	for _, r := range raws {
+		shortCounts[shortHookID(r.event, r.matcher)]++
+	}
+	for _, r := range raws {
+		short := shortHookID(r.event, r.matcher)
+		id := short
+		if shortCounts[short] > 1 {
+			id = synthesizeHookID(r.event, r.matcher, r.command)
+		}
+		out[id] = manifest.Hook{
+			Event:   r.event,
+			Matcher: r.matcher,
+			Command: r.command,
+			Timeout: r.timeoutMs,
 		}
 	}
 
 	if len(out) > 0 {
 		warnings = append(warnings, Warning{
-			Message: "adopt: observed hooks can't be mapped back to ainfra IDs without the applied ledger; synthesized stable IDs from event+matcher+sha8-of-command",
+			Message: "adopt: hooks adopted from settings.json get auto-assigned IDs; rename in ainfra.yaml if you want different names",
 		})
 	}
 	return out, warnings, nil
+}
+
+// isAinfraOwnedHookCommand reports whether a settings.json hook command is
+// one ainfra itself manages (it injects the staleness-check on every install,
+// and any future built-ins will live under the same prefix). These are not
+// user content and must not be round-tripped through adopt.
+func isAinfraOwnedHookCommand(command string) bool {
+	c := strings.TrimSpace(command)
+	return strings.HasPrefix(c, "ainfra _") || strings.HasPrefix(c, "ainfra staleness-check")
+}
+
+// shortHookID returns the readable form of a hook id: "<event>-<matcher>"
+// with matcher omitted when empty. Used as the first-choice id, with the
+// hash-suffixed form reserved for actual collisions.
+func shortHookID(event, matcher string) string {
+	parts := []string{strings.ToLower(event)}
+	if matcher != "" {
+		parts = append(parts, slug(matcher))
+	}
+	return strings.Join(parts, "-")
 }
 
 // synthesizeHookID builds a stable, human-readable hook id from its event,
