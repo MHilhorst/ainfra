@@ -41,7 +41,7 @@ func runOutdated(ctx cli.Context, strict bool) int {
 
 	lockPath := filepath.Join(ctx.Dir, "ainfra.lock")
 	if !fileExists(lockPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra install` first"))
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no ainfra.lock yet — nothing to compare against. Run `ainfra lock` first, then re-run this command."))
 		return 1
 	}
 	committed, err := lockfile.Read(lockPath)
@@ -57,7 +57,7 @@ func runOutdated(ctx cli.Context, strict bool) int {
 	stale := outdatedEntries(committed, personal)
 
 	if len(stale) == 0 {
-		fmt.Fprintln(ctx.Stdout, "Up to date.")
+		fmt.Fprintln(ctx.Stdout, "Up to date. No installed entries have a newer version available.")
 		return 0
 	}
 

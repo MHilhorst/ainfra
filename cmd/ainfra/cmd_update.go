@@ -21,7 +21,7 @@ func newUpdateCommand() *cli.Command {
 	var noInstall bool
 	return &cli.Command{
 		Name:      "update",
-		Summary:   "Bump locked versions and reconcile (or re-resolve if no entry named)",
+		Summary:   "Re-resolve ainfra.yaml into a fresh lockfile and install (use after editing ainfra.yaml)",
 		UsageLine: "ainfra update [<channel> <id>] [--no-install]",
 		Example:   "ainfra update          # re-resolve all\n  ainfra update mcp github  # one entry",
 		SetFlags: func(fs *flag.FlagSet) {
@@ -47,7 +47,7 @@ func runUpdate(ctx cli.Context, noInstall bool) int {
 	if len(ctx.Args) >= 2 {
 		rawChannel := ctx.Args[0]
 		if _, ok := channelAlias[rawChannel]; !ok {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("unknown channel %q", rawChannel))
+			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("unknown channel %q (try one of: mcp, hook, command, skill, cliTool, plugin, marketplace, rule, tool)", rawChannel))
 			return 1
 		}
 	}
@@ -56,9 +56,11 @@ func runUpdate(ctx cli.Context, noInstall bool) int {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
-	fmt.Fprintln(ctx.Stdout, "Re-resolved lockfile.")
+	fmt.Fprintln(ctx.Stdout, "Re-resolved lockfile from ainfra.yaml.")
 
 	if noInstall {
+		c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+		ui.Next(ctx.Stdout, c, "run `ainfra install` to apply the updated lockfile.")
 		return 0
 	}
 	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/)

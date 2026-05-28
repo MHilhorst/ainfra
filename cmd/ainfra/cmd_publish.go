@@ -91,7 +91,7 @@ func runPublish(ctx cli.Context, out string) int {
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	fmt.Fprintf(ctx.Stdout, "ainfra: wrote artifact to %s\n", out)
-	ui.Next(ctx.Stdout, c, "upload the artifact directory to "+pub.ArtifactURL)
+	fmt.Fprintf(ctx.Stdout, "Wrote publishable artifact to %s.\n", out)
+	ui.Next(ctx.Stdout, c, "upload the artifact directory to "+pub.ArtifactURL+" so subscribers can `ainfra install --from <url>`.")
 	return 0
 }

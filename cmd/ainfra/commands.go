@@ -172,7 +172,7 @@ func warnIfStale(ctx cli.Context, dir string, committed *lockfile.Lock) {
 	}
 	if current != committed.ManifestHash {
 		c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-		fmt.Fprintln(ctx.Stderr, c.Yellow("warning: manifest has changed since last lock run — run `ainfra lock` to update"))
+		fmt.Fprintln(ctx.Stderr, c.Yellow("warning: ainfra.yaml has changed since the last `ainfra lock` — the lockfile is stale. Run `ainfra lock` to refresh it."))
 	}
 }
 
@@ -213,7 +213,7 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 		failed += len(r.Failed)
 		warned += len(r.Warnings)
 	}
-	fmt.Fprintf(w, "applied %d, skipped %d, failed %d\n", applied, skipped, failed)
+	fmt.Fprintf(w, "Applied %d entries, skipped %d, failed %d.\n", applied, skipped, failed)
 	for _, r := range results {
 		for _, f := range r.Failed {
 			fmt.Fprintf(w, "  failed:  %s %s — %v\n", r.Channel, f.Change.ID, f.Err)
@@ -234,15 +234,15 @@ func newInstallCommand() *cli.Command {
 	var from string
 	return &cli.Command{
 		Name:      "install",
-		Summary:   "Reconcile the environment to match the manifest (install/update everything)",
+		Summary:   "Install/update everything in ainfra.yaml (writes config files, installs CLI tools)",
 		UsageLine: "ainfra install [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>] [--print-schema]",
 		Example:   "ainfra install --yes",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
 			fs.BoolVar(&dryRun, "dry-run", false, "preview without writing (replaces 'ainfra plan')")
 			fs.BoolVar(&strict, "strict", false, "with --dry-run, exit non-zero on any drift (CI shape; replaces 'ainfra check')")
-			fs.BoolVar(&noInstall, "no-install", false, "reconcile config files but skip CLI-tool installs")
-			fs.StringVar(&from, "from", "", "reconcile against a published artifact instead of a repo")
+			fs.BoolVar(&noInstall, "no-install", false, "write config files but skip running CLI-tool installers")
+			fs.StringVar(&from, "from", "", "install from a published artifact (URL or dir) instead of this repo")
 			fs.BoolVar(&printSchema, "print-schema", false, "print the JSON Schema for ainfra.yaml and exit (replaces 'ainfra schema')")
 		},
 		Run: func(ctx cli.Context) int {
@@ -292,7 +292,7 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 		}
 	}
 	if allEmpty {
-		fmt.Fprintln(ctx.Stdout, "Nothing to do.")
+		fmt.Fprintln(ctx.Stdout, "Nothing to do — the artifact is already applied.")
 		return 0
 	}
 
@@ -300,13 +300,13 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 	ui.RenderPlan(ctx.Stdout, c, plans)
 
 	if !yes {
-		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Do you want to apply these changes? (yes/no): ")
+		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Apply these changes? (yes/no): ")
 		if err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
 			return 1
 		}
 		if !ok {
-			fmt.Fprintln(ctx.Stdout, "Aborted.")
+			fmt.Fprintln(ctx.Stdout, "Aborted — no changes were made.")
 			return 0
 		}
 	}
@@ -318,7 +318,7 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 		return 1
 	}
 	appendApplyHistory(home, "apply --from", "", lock.ManifestHash, results, ctx.Stderr)
-	fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	fmt.Fprintln(ctx.Stdout, "Apply complete — your environment matches the artifact.")
 	return 0
 }
 
@@ -328,7 +328,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 
 	lockPath := filepath.Join(dir, "ainfra.lock")
 	if !fileExists(lockPath) {
-		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first"))
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no ainfra.lock yet — run `ainfra lock` to resolve ainfra.yaml into a lockfile, then re-run this command"))
 		return 1
 	}
 
@@ -416,20 +416,20 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	// Check if there is anything to do.
 	allEmpty := plansEmpty(plans) && plansEmpty(userPlans)
 	if allEmpty {
-		fmt.Fprintln(ctx.Stdout, "Nothing to do.")
+		fmt.Fprintln(ctx.Stdout, "Nothing to do — your environment already matches ainfra.yaml.")
 		return 0
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 	ui.RenderPlan(ctx.Stdout, c, plans)
 	if userPlans != nil {
-		fmt.Fprintln(ctx.Stdout, c.Bold("User-scope (~/.claude/):"))
+		fmt.Fprintln(ctx.Stdout, c.Bold("User-scope (~/.claude/, applies across all your repos):"))
 		ui.RenderPlan(ctx.Stdout, c, userPlans)
 	}
 
 	// Check preconditions before applying.
 	if failures := checkPreconditions(dir, env); len(failures) > 0 {
-		fmt.Fprintln(ctx.Stderr, "Preconditions failed:")
+		fmt.Fprintln(ctx.Stderr, "Setup checks failed — fix these before applying:")
 		for _, f := range failures {
 			fmt.Fprintf(ctx.Stderr, "  %s: %s\n", f.ID, f.Remediation)
 		}
@@ -438,13 +438,13 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 
 	// Confirm unless --yes or --dry-run (a dry run changes nothing).
 	if !yes && !dryRun {
-		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Do you want to apply these changes? (yes/no): ")
+		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Apply these changes? (yes/no): ")
 		if err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
 			return 1
 		}
 		if !ok {
-			fmt.Fprintln(ctx.Stdout, "Aborted.")
+			fmt.Fprintln(ctx.Stdout, "Aborted — no changes were made.")
 			return 0
 		}
 	}
@@ -466,7 +466,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	if userOrch != nil {
 		userResults, uerr := userOrch.ApplyAllRendered(userRendered, userLock)
 		if !dryRun {
-			fmt.Fprintln(ctx.Stdout, "User-scope (~/.claude/):")
+			fmt.Fprintln(ctx.Stdout, "User-scope (~/.claude/, applies across all your repos):")
 			renderApplySummary(ctx.Stdout, userResults)
 		}
 		if uerr != nil {
@@ -476,7 +476,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	}
 
 	if dryRun {
-		fmt.Fprintln(ctx.Stdout, "Dry run complete — no changes were applied.")
+		fmt.Fprintln(ctx.Stdout, "Dry run complete — nothing was written. Re-run without --dry-run to apply.")
 		if strict {
 			return 1
 		}
@@ -500,11 +500,11 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 		ui.RenderError(ctx.Stderr, errColor, serr)
 		return 1
 	}
-	fmt.Fprintf(ctx.Stdout, "Synced %d secrets to %s\n", res.EnvCount, res.SettingsPath)
+	fmt.Fprintf(ctx.Stdout, "Wrote %d secret(s) into Claude Code settings (%s).\n", res.EnvCount, res.SettingsPath)
 	for _, f := range res.Files {
-		fmt.Fprintf(ctx.Stdout, "Synced credential file %s\n", f)
+		fmt.Fprintf(ctx.Stdout, "Wrote credential file %s\n", f)
 	}
-	fmt.Fprintln(ctx.Stdout, "Apply complete.")
+	fmt.Fprintln(ctx.Stdout, "Apply complete — your environment now matches ainfra.yaml.")
 	return 0
 }
 

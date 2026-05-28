@@ -53,9 +53,9 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 	}
 
 	if adds+changes+destroys == 0 {
-		fmt.Fprintln(w, "No changes. Environment matches the lockfile.")
+		fmt.Fprintln(w, "No changes. Your environment already matches the lockfile.")
 		return
 	}
 
-	fmt.Fprintf(w, "%d to add, %d to change, %d to destroy.\n", adds, changes, destroys)
+	fmt.Fprintf(w, "%d to add, %d to update, %d to remove.\n", adds, changes, destroys)
 }

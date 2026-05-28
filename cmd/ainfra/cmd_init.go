@@ -100,11 +100,11 @@ func runInit(ctx cli.Context, personal, withSkill, force bool) int {
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	fmt.Fprintln(ctx.Stdout, "ainfra: created "+name)
+	fmt.Fprintln(ctx.Stdout, "Created "+name+".")
 	if withSkill && !personal {
-		fmt.Fprintln(ctx.Stdout, "ainfra: included the using-ainfra skill — AI agents in this repo will learn the plan/apply/lock/check workflow.")
+		fmt.Fprintln(ctx.Stdout, "Included the using-ainfra skill so AI agents in this repo learn how to use ainfra.")
 	}
-	ui.Next(ctx.Stdout, c, "edit "+name+", then run 'ainfra lock'.")
+	ui.Next(ctx.Stdout, c, "edit "+name+" to declare what you want (mcpServers, hooks, commands, ...), then run `ainfra lock`.")
 	return 0
 }
 
