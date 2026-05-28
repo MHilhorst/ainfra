@@ -23,24 +23,28 @@ import (
 // global personal manifest at $XDG_CONFIG_HOME/ainfra/personal.yaml. This is
 // the migration path for developers with an existing ~/.claude/ setup who
 // want to start managing their cross-repo personal layer through ainfra.
+//
+// Adopt is intentionally bootstrap-only. Once a manifest exists, the manifest
+// is the source of truth; reconciling disk drift back into the manifest is not
+// adopt's job — `ainfra install` reconciles the other direction (manifest →
+// disk), which is the model ainfra is built around.
 func newAdoptCommand() *cli.Command {
-	var force, merge bool
+	var force bool
 	var scope string
 	return &cli.Command{
 		Name:      "adopt",
 		Summary:   "Generate ainfra.yaml (or personal.yaml) from existing Claude Code config",
-		UsageLine: "ainfra adopt [--scope=repo|user] [--force | --merge]",
+		UsageLine: "ainfra adopt [--scope=repo|user] [--force]",
 		Example:   "ainfra adopt --scope=user",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&force, "force", false, "overwrite an existing manifest")
-			fs.BoolVar(&merge, "merge", false, "add new entries to an existing manifest without overwriting existing keys")
 			fs.StringVar(&scope, "scope", "repo", "which manifest to emit: 'repo' (./ainfra.yaml) or 'user' ($XDG_CONFIG_HOME/ainfra/personal.yaml)")
 		},
-		Run: func(ctx cli.Context) int { return runAdopt(ctx, scope, force, merge) },
+		Run: func(ctx cli.Context) int { return runAdopt(ctx, scope, force) },
 	}
 }
 
-func runAdopt(ctx cli.Context, scope string, force, merge bool) int {
+func runAdopt(ctx cli.Context, scope string, force bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
 	if scope == "" {
@@ -81,22 +85,14 @@ func runAdopt(ctx cli.Context, scope string, force, merge bool) int {
 		layout = adopt.RepoLayout(ctx.Dir)
 	}
 
-	if force && merge {
-		ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
-			Summary: "adopt: --force and --merge are mutually exclusive",
-			Hint:    "Pick one: --force overwrites; --merge adds only new entries.",
-		})
-		return 1
-	}
-
 	existingPresent := false
 	if _, err := os.Stat(path); err == nil {
 		existingPresent = true
 	}
-	if existingPresent && !force && !merge {
+	if existingPresent && !force {
 		ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
 			Summary: "adopt: " + filepath.Base(path) + " exists",
-			Hint:    "Use --merge to add new entries or --force to overwrite.",
+			Hint:    "Adopt is a one-shot bootstrap; once a manifest exists it is the source of truth. To reconcile on-disk drift back into matching the manifest, run 'ainfra install'. Use --force only to throw the existing manifest away and re-scan from scratch.",
 		})
 		return 1
 	}
@@ -107,23 +103,7 @@ func runAdopt(ctx cli.Context, scope string, force, merge bool) int {
 		return 1
 	}
 
-	final := scanned
-	if merge && existingPresent {
-		existing, err := loadExistingForMerge(ctx.Dir, scope)
-		if err != nil {
-			ui.RenderError(ctx.Stderr, errColor, err)
-			return 1
-		}
-		if existing == nil {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("adopt: --merge: could not load existing %s", filepath.Base(path)))
-			return 1
-		}
-		merged, mws := mergeAdopt(*existing, scanned)
-		final = merged
-		warnings = append(warnings, mws...)
-	}
-
-	out, err := adopt.Emit(final)
+	out, err := adopt.Emit(scanned)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
@@ -166,13 +146,11 @@ func printAdoptWarnings(w io.Writer, c ui.Colorizer, warnings []adopt.Warning) i
 	if len(warnings) == 0 {
 		return 0
 	}
-	var stripped, merged, review []adopt.Warning
+	var stripped, review []adopt.Warning
 	for _, x := range warnings {
 		switch x.Kind {
 		case adopt.WarnStripped:
 			stripped = append(stripped, x)
-		case adopt.WarnMergeAdd:
-			merged = append(merged, x)
 		default:
 			review = append(review, x)
 		}
@@ -205,17 +183,6 @@ func printAdoptWarnings(w io.Writer, c ui.Colorizer, warnings []adopt.Warning) i
 		}
 	}
 
-	if len(merged) > 0 {
-		fmt.Fprintln(w)
-		fmt.Fprintln(w, c.Bold(fmt.Sprintf("Merged new entries (%d)", len(merged))))
-		fmt.Fprintln(w, c.Dim("  These keys weren't in your existing manifest, so adopt added them."))
-		fmt.Fprintln(w, c.Dim("  Nothing to fix — listed for awareness."))
-		fmt.Fprintln(w)
-		for _, x := range merged {
-			fmt.Fprintf(w, "  %s %s\n", c.Green("+"), x.Message)
-		}
-	}
-
 	if len(review) > 0 {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, c.Bold(fmt.Sprintf("Review manually (%d)", len(review))))
@@ -227,118 +194,4 @@ func printAdoptWarnings(w io.Writer, c ui.Colorizer, warnings []adopt.Warning) i
 		}
 	}
 	return len(stripped)
-}
-
-// loadExistingForMerge returns the manifest that --merge should fold the scan
-// result into. For repo scope this is the repo's ainfra.yaml; for user scope
-// it is the global personal manifest at $XDG_CONFIG_HOME/ainfra/personal.yaml.
-func loadExistingForMerge(dir, scope string) (*manifest.Manifest, error) {
-	if scope == "user" {
-		return manifest.LoadGlobalPersonal()
-	}
-	layers, err := manifest.LoadLayers(dir)
-	if err != nil {
-		return nil, err
-	}
-	return layers[manifest.LayerRepo], nil
-}
-
-// mergeAdopt overlays scanned onto existing: existing keys win, new keys from
-// scanned land. Returns one warning per newly-added entry per channel.
-func mergeAdopt(existing, scanned manifest.Manifest) (manifest.Manifest, []adopt.Warning) {
-	out := existing
-	var warnings []adopt.Warning
-
-	out.MCPServers, warnings = addNewMCP(out.MCPServers, scanned.MCPServers, "mcpServers", warnings)
-	out.Secrets, warnings = addNewSecrets(out.Secrets, scanned.Secrets, "secrets", warnings)
-	out.Hooks, warnings = addNewHooks(out.Hooks, scanned.Hooks, "hooks", warnings)
-	out.Commands, warnings = addNewCommands(out.Commands, scanned.Commands, "commands", warnings)
-	out.Rules, warnings = addNewRules(out.Rules, scanned.Rules, "rules", warnings)
-
-	return out, warnings
-}
-
-func addNewMCP(dst, src map[string]manifest.MCPServer, channel string, ws []adopt.Warning) (map[string]manifest.MCPServer, []adopt.Warning) {
-	if dst == nil {
-		dst = map[string]manifest.MCPServer{}
-	}
-	for k, v := range src {
-		if _, ok := dst[k]; ok {
-			continue
-		}
-		dst[k] = v
-		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
-	}
-	if len(dst) == 0 {
-		return nil, ws
-	}
-	return dst, ws
-}
-
-func addNewSecrets(dst, src map[string]manifest.Secret, channel string, ws []adopt.Warning) (map[string]manifest.Secret, []adopt.Warning) {
-	if dst == nil {
-		dst = map[string]manifest.Secret{}
-	}
-	for k, v := range src {
-		if _, ok := dst[k]; ok {
-			continue
-		}
-		dst[k] = v
-		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
-	}
-	if len(dst) == 0 {
-		return nil, ws
-	}
-	return dst, ws
-}
-
-func addNewHooks(dst, src map[string]manifest.Hook, channel string, ws []adopt.Warning) (map[string]manifest.Hook, []adopt.Warning) {
-	if dst == nil {
-		dst = map[string]manifest.Hook{}
-	}
-	for k, v := range src {
-		if _, ok := dst[k]; ok {
-			continue
-		}
-		dst[k] = v
-		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
-	}
-	if len(dst) == 0 {
-		return nil, ws
-	}
-	return dst, ws
-}
-
-func addNewCommands(dst, src map[string]manifest.Command, channel string, ws []adopt.Warning) (map[string]manifest.Command, []adopt.Warning) {
-	if dst == nil {
-		dst = map[string]manifest.Command{}
-	}
-	for k, v := range src {
-		if _, ok := dst[k]; ok {
-			continue
-		}
-		dst[k] = v
-		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
-	}
-	if len(dst) == 0 {
-		return nil, ws
-	}
-	return dst, ws
-}
-
-func addNewRules(dst, src map[string]manifest.Rule, channel string, ws []adopt.Warning) (map[string]manifest.Rule, []adopt.Warning) {
-	if dst == nil {
-		dst = map[string]manifest.Rule{}
-	}
-	for k, v := range src {
-		if _, ok := dst[k]; ok {
-			continue
-		}
-		dst[k] = v
-		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
-	}
-	if len(dst) == 0 {
-		return nil, ws
-	}
-	return dst, ws
 }
