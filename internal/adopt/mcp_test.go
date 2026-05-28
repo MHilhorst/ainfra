@@ -32,7 +32,7 @@ func TestReadMCPHttpDropsStdioFields(t *testing.T) {
 			"a": {"type": "http", "url": "https://x", "command": "should-drop", "args": ["x"]}
 		}
 	}`), 0o644)
-	servers, _, _, err := readMCP(dir)
+	servers, _, _, err := readMCP(filepath.Join(dir, ".mcp.json"))
 	if err != nil {
 		t.Fatal(err)
 	}

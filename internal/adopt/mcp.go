@@ -6,7 +6,6 @@ import (
 	"fmt"
 	iofs "io/fs"
 	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -17,10 +16,9 @@ import (
 // versionInArgRe spots a "pkg@1.2.3" suffix in an npx/uvx package launch arg.
 var versionInArgRe = regexp.MustCompile(`@(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.\-]+)?)$`)
 
-// readMCP scans <dir>/.mcp.json and emits MCP server entries plus any stripped
-// secret declarations. A missing file is not an error.
-func readMCP(dir string) (mcpServers map[string]manifest.MCPServer, secrets map[string]manifest.Secret, warnings []Warning, err error) {
-	path := filepath.Join(dir, ".mcp.json")
+// readMCP scans the given .mcp.json file and emits MCP server entries plus any
+// stripped secret declarations. A missing file is not an error.
+func readMCP(path string) (mcpServers map[string]manifest.MCPServer, secrets map[string]manifest.Secret, warnings []Warning, err error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, iofs.ErrNotExist) {
 		return nil, nil, nil, nil

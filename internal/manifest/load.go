@@ -46,7 +46,7 @@ func LoadLayers(dir string) (map[Layer]*Manifest, error) {
 	if err != nil {
 		repoPersonal = nil
 	}
-	globalPersonal, err := loadGlobalPersonal()
+	globalPersonal, err := LoadGlobalPersonal()
 	if err != nil {
 		return nil, err
 	}
@@ -64,11 +64,11 @@ const StalenessHookID = "__ainfra_staleness"
 // StalenessHookCommand is the shell command Claude Code runs at SessionStart.
 const StalenessHookCommand = "ainfra _staleness-check"
 
-// loadGlobalPersonal reads the user's cross-repo personal manifest from
+// LoadGlobalPersonal reads the user's cross-repo personal manifest from
 // $XDG_CONFIG_HOME/ainfra/personal.yaml (or ~/.config/ainfra/personal.yaml if
 // XDG_CONFIG_HOME is unset). A missing file is not an error.
-func loadGlobalPersonal() (*Manifest, error) {
-	path := globalPersonalPath()
+func LoadGlobalPersonal() (*Manifest, error) {
+	path := GlobalPersonalPath()
 	if path == "" {
 		return nil, nil
 	}
@@ -82,9 +82,9 @@ func loadGlobalPersonal() (*Manifest, error) {
 	return m, nil
 }
 
-// globalPersonalPath returns the resolved path of the global personal file,
+// GlobalPersonalPath returns the resolved path of the global personal file,
 // or "" when no home/XDG dir can be determined.
-func globalPersonalPath() string {
+func GlobalPersonalPath() string {
 	if x := os.Getenv("XDG_CONFIG_HOME"); x != "" {
 		return filepath.Join(x, "ainfra", "personal.yaml")
 	}

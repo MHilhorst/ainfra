@@ -2,25 +2,20 @@ package adopt
 
 import (
 	"os"
-	"path/filepath"
 
 	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
-// readRules emits one manifest rule per top-level context file present in the
-// repo. CLAUDE.md and AGENTS.md are the two recognised filenames.
-func readRules(dir string) map[string]manifest.Rule {
+// readRules emits one manifest rule per RuleSource whose file is present.
+func readRules(sources []RuleSource) map[string]manifest.Rule {
 	out := map[string]manifest.Rule{}
-	for id, file := range map[string]string{
-		"claude-md": "CLAUDE.md",
-		"agents-md": "AGENTS.md",
-	} {
-		path := filepath.Join(dir, file)
-		if _, err := os.Stat(path); err == nil {
-			out[id] = manifest.Rule{
-				Source: "./" + file,
-				Target: file,
-			}
+	for _, rs := range sources {
+		if _, err := os.Stat(rs.Path); err != nil {
+			continue
+		}
+		out[rs.ID] = manifest.Rule{
+			Source: rs.Source,
+			Target: rs.Target,
 		}
 	}
 	if len(out) == 0 {

@@ -16,24 +16,68 @@ import (
 // newAdoptCommand scans an existing repo's .mcp.json, .claude/, and CLAUDE.md
 // and emits a draft ainfra.yaml. It is the brownfield onramp: a one-shot import
 // for teams who already have a Claude Code setup committed to git.
+//
+// With --scope=user, it instead scans the user's ~/.claude/ tree and emits the
+// global personal manifest at $XDG_CONFIG_HOME/ainfra/personal.yaml. This is
+// the migration path for developers with an existing ~/.claude/ setup who
+// want to start managing their cross-repo personal layer through ainfra.
 func newAdoptCommand() *cli.Command {
 	var force, merge bool
+	var scope string
 	return &cli.Command{
 		Name:      "adopt",
-		Summary:   "Generate ainfra.yaml from existing .mcp.json / .claude/ / CLAUDE.md",
-		UsageLine: "ainfra adopt [--force | --merge]",
-		Example:   "ainfra adopt",
+		Summary:   "Generate ainfra.yaml (or personal.yaml) from existing Claude Code config",
+		UsageLine: "ainfra adopt [--scope=repo|user] [--force | --merge]",
+		Example:   "ainfra adopt --scope=user",
 		SetFlags: func(fs *flag.FlagSet) {
-			fs.BoolVar(&force, "force", false, "overwrite an existing ainfra.yaml")
-			fs.BoolVar(&merge, "merge", false, "add new entries to an existing ainfra.yaml without overwriting existing keys")
+			fs.BoolVar(&force, "force", false, "overwrite an existing manifest")
+			fs.BoolVar(&merge, "merge", false, "add new entries to an existing manifest without overwriting existing keys")
+			fs.StringVar(&scope, "scope", "repo", "which manifest to emit: 'repo' (./ainfra.yaml) or 'user' ($XDG_CONFIG_HOME/ainfra/personal.yaml)")
 		},
-		Run: func(ctx cli.Context) int { return runAdopt(ctx, force, merge) },
+		Run: func(ctx cli.Context) int { return runAdopt(ctx, scope, force, merge) },
 	}
 }
 
-func runAdopt(ctx cli.Context, force, merge bool) int {
+func runAdopt(ctx cli.Context, scope string, force, merge bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-	path := filepath.Join(ctx.Dir, "ainfra.yaml")
+
+	if scope == "" {
+		scope = "repo"
+	}
+	if scope != "repo" && scope != "user" {
+		ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
+			Summary: "adopt: invalid --scope " + scope,
+			Hint:    "Use --scope=repo (default) or --scope=user.",
+		})
+		return 1
+	}
+
+	var (
+		path   string
+		layout adopt.Layout
+	)
+	if scope == "user" {
+		home, err := os.UserHomeDir()
+		if err != nil || home == "" {
+			ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
+				Summary: "adopt --scope=user: cannot resolve home directory",
+				Hint:    "Set HOME (or XDG_CONFIG_HOME) and re-run.",
+			})
+			return 1
+		}
+		path = manifest.GlobalPersonalPath()
+		if path == "" {
+			ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
+				Summary: "adopt --scope=user: cannot resolve personal manifest path",
+				Hint:    "Set XDG_CONFIG_HOME or HOME and re-run.",
+			})
+			return 1
+		}
+		layout = adopt.UserLayout(home)
+	} else {
+		path = filepath.Join(ctx.Dir, "ainfra.yaml")
+		layout = adopt.RepoLayout(ctx.Dir)
+	}
 
 	if force && merge {
 		ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
@@ -49,13 +93,13 @@ func runAdopt(ctx cli.Context, force, merge bool) int {
 	}
 	if existingPresent && !force && !merge {
 		ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
-			Summary: "adopt: ainfra.yaml exists",
+			Summary: "adopt: " + filepath.Base(path) + " exists",
 			Hint:    "Use --merge to add new entries or --force to overwrite.",
 		})
 		return 1
 	}
 
-	scanned, warnings, err := adopt.Scan(ctx.Dir)
+	scanned, warnings, err := adopt.ScanLayout(layout)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
@@ -63,14 +107,13 @@ func runAdopt(ctx cli.Context, force, merge bool) int {
 
 	final := scanned
 	if merge && existingPresent {
-		layers, err := manifest.LoadLayers(ctx.Dir)
+		existing, err := loadExistingForMerge(ctx.Dir, scope)
 		if err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
 			return 1
 		}
-		existing := layers[manifest.LayerRepo]
 		if existing == nil {
-			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("adopt: --merge: could not load existing ainfra.yaml"))
+			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("adopt: --merge: could not load existing %s", filepath.Base(path)))
 			return 1
 		}
 		merged, mws := mergeAdopt(*existing, scanned)
@@ -80,6 +123,10 @@ func runAdopt(ctx cli.Context, force, merge bool) int {
 
 	out, err := adopt.Emit(final)
 	if err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
@@ -93,9 +140,27 @@ func runAdopt(ctx cli.Context, force, merge bool) int {
 	}
 
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
-	fmt.Fprintln(ctx.Stdout, "ainfra: wrote "+filepath.Base(path))
-	ui.Next(ctx.Stdout, c, "review ainfra.yaml, then run 'ainfra validate', 'ainfra lock', and 'ainfra plan'.")
+	fmt.Fprintln(ctx.Stdout, "ainfra: wrote "+path)
+	if scope == "user" {
+		ui.Next(ctx.Stdout, c, "review "+filepath.Base(path)+"; entries declared here install to ~/.claude/. For team-shared tooling prefer a team manifest via extends:.")
+	} else {
+		ui.Next(ctx.Stdout, c, "review ainfra.yaml, then run 'ainfra validate', 'ainfra lock', and 'ainfra plan'.")
+	}
 	return 0
+}
+
+// loadExistingForMerge returns the manifest that --merge should fold the scan
+// result into. For repo scope this is the repo's ainfra.yaml; for user scope
+// it is the global personal manifest at $XDG_CONFIG_HOME/ainfra/personal.yaml.
+func loadExistingForMerge(dir, scope string) (*manifest.Manifest, error) {
+	if scope == "user" {
+		return manifest.LoadGlobalPersonal()
+	}
+	layers, err := manifest.LoadLayers(dir)
+	if err != nil {
+		return nil, err
+	}
+	return layers[manifest.LayerRepo], nil
 }
 
 // mergeAdopt overlays scanned onto existing: existing keys win, new keys from

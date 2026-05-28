@@ -8,7 +8,7 @@ import (
 
 func TestReadCommandsMissingDir(t *testing.T) {
 	dir := t.TempDir()
-	out, err := readCommands(dir)
+	out, err := readCommands(filepath.Join(dir, ".claude", "commands"), "./.claude/commands")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestReadCommandsSkipsNonMd(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(cmds, "foo.md"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(cmds, "ignore.txt"), []byte("x"), 0o644)
-	out, err := readCommands(dir)
+	out, err := readCommands(cmds, "./.claude/commands")
 	if err != nil {
 		t.Fatal(err)
 	}

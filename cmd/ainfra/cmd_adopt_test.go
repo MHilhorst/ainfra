@@ -154,6 +154,108 @@ func TestAdoptCommandsAndRules(t *testing.T) {
 	}
 }
 
+func TestAdoptUserScopeWritesPersonalManifest(t *testing.T) {
+	home := t.TempDir()
+	xdg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	claude := filepath.Join(home, ".claude")
+	os.MkdirAll(filepath.Join(claude, "commands"), 0o755)
+	os.WriteFile(filepath.Join(claude, "commands", "note.md"), []byte("# note"), 0o644)
+	os.WriteFile(filepath.Join(claude, "CLAUDE.md"), []byte("rules"), 0o644)
+	os.WriteFile(filepath.Join(claude, "settings.json"), []byte(`{
+		"hooks": {"SessionStart":[{"hooks":[{"type":"command","command":"echo hi"}]}]}
+	}`), 0o644)
+
+	repo := t.TempDir()
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", repo, "adopt", "--scope=user"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("adopt --scope=user: code=%d err=%q", code, errOut.String())
+	}
+
+	want := filepath.Join(xdg, "ainfra", "personal.yaml")
+	data, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("expected personal.yaml at %s: %v", want, err)
+	}
+	s := string(data)
+	for _, fragment := range []string{"version: 1", "commands:", "note:", "rules:", "CLAUDE.md", "hooks:"} {
+		if !strings.Contains(s, fragment) {
+			t.Errorf("missing %q in:\n%s", fragment, s)
+		}
+	}
+	if !strings.Contains(s, claude) {
+		t.Errorf("expected absolute ~/.claude source path, got:\n%s", s)
+	}
+	if _, err := os.Stat(filepath.Join(repo, "ainfra.yaml")); err == nil {
+		t.Errorf("user scope should not have written repo ainfra.yaml")
+	}
+}
+
+func TestAdoptUserScopeRefusesToOverwriteWithoutFlag(t *testing.T) {
+	home := t.TempDir()
+	xdg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	dest := filepath.Join(xdg, "ainfra", "personal.yaml")
+	os.MkdirAll(filepath.Dir(dest), 0o755)
+	os.WriteFile(dest, []byte("version: 1\n"), 0o644)
+
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", t.TempDir(), "adopt", "--scope=user"}, &bytes.Buffer{}, &errOut)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	if !strings.Contains(errOut.String(), "personal.yaml exists") {
+		t.Errorf("missing refusal: %s", errOut.String())
+	}
+}
+
+func TestAdoptUserScopeMergePreservesExisting(t *testing.T) {
+	home := t.TempDir()
+	xdg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+
+	dest := filepath.Join(xdg, "ainfra", "personal.yaml")
+	os.MkdirAll(filepath.Dir(dest), 0o755)
+	existing := "version: 1\ncommands:\n  keep:\n    source: ./keep.md\n"
+	os.WriteFile(dest, []byte(existing), 0o644)
+
+	os.MkdirAll(filepath.Join(home, ".claude", "commands"), 0o755)
+	os.WriteFile(filepath.Join(home, ".claude", "commands", "fresh.md"), []byte("# fresh"), 0o644)
+
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", t.TempDir(), "adopt", "--scope=user", "--merge"}, &bytes.Buffer{}, &errOut)
+	if code != 0 {
+		t.Fatalf("merge: code=%d err=%q", code, errOut.String())
+	}
+	data, _ := os.ReadFile(dest)
+	s := string(data)
+	for _, fragment := range []string{"keep:", "fresh:"} {
+		if !strings.Contains(s, fragment) {
+			t.Errorf("missing %q in:\n%s", fragment, s)
+		}
+	}
+	if !strings.Contains(errOut.String(), "adding commands.fresh") {
+		t.Errorf("missing add warning: %s", errOut.String())
+	}
+}
+
+func TestAdoptRejectsUnknownScope(t *testing.T) {
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", t.TempDir(), "adopt", "--scope=team"}, &bytes.Buffer{}, &errOut)
+	if code != 1 {
+		t.Fatalf("expected exit 1, got %d", code)
+	}
+	if !strings.Contains(errOut.String(), "invalid --scope") {
+		t.Errorf("missing scope error: %s", errOut.String())
+	}
+}
+
 func TestAdoptOutputValidates(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{

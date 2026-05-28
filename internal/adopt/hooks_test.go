@@ -8,7 +8,7 @@ import (
 
 func TestReadHooksMissingFile(t *testing.T) {
 	dir := t.TempDir()
-	out, _, err := readHooks(dir)
+	out, _, err := readHooks(filepath.Join(dir, ".claude", "settings.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,7 +27,7 @@ func TestReadHooksMultipleEvents(t *testing.T) {
 			"SessionStart": [{"hooks":[{"type":"command","command":"b"}]}]
 		}
 	}`), 0o644)
-	out, ws, err := readHooks(dir)
+	out, ws, err := readHooks(settings)
 	if err != nil {
 		t.Fatal(err)
 	}

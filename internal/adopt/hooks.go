@@ -7,18 +7,16 @@ import (
 	"fmt"
 	iofs "io/fs"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
-// readHooks scans <dir>/.claude/settings.json for the "hooks" block and
+// readHooks scans the given settings.json for the "hooks" block and
 // synthesizes one manifest.Hook entry per (event, matcher, command) triple it
 // finds. IDs are stable: event + matcher + sha8(command).
-func readHooks(dir string) (map[string]manifest.Hook, []Warning, error) {
-	path := filepath.Join(dir, ".claude", "settings.json")
+func readHooks(path string) (map[string]manifest.Hook, []Warning, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, iofs.ErrNotExist) {
 		return nil, nil, nil
@@ -116,14 +114,6 @@ func slug(s string) string {
 		out = "any"
 	}
 	return out
-}
-
-// hooksDirExists reports whether <dir>/.claude/hooks/ exists; used by the
-// orchestrator to surface a notice that bundled hook scripts may need manual
-// declaration.
-func hooksDirExists(dir string) bool {
-	info, err := os.Stat(filepath.Join(dir, ".claude", "hooks"))
-	return err == nil && info.IsDir()
 }
 
 var _ = iofs.ErrNotExist // keep import in case future readers want it
