@@ -63,22 +63,24 @@ type inspectStats struct {
 func newInspectCommand() *cli.Command {
 	var asJSON bool
 	var includeAll bool
+	var global bool
 	return &cli.Command{
 		Name:      "inspect",
 		Summary:   "Inspect a repo's Claude Code config and what ainfra tracks",
-		UsageLine: "ainfra inspect [--all] [--json]",
-		Example:   "ainfra inspect",
+		UsageLine: "ainfra inspect [--all] [--global] [--json]",
+		Example:   "ainfra inspect --global",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&asJSON, "json", false, "emit a JSON report instead of a table")
 			fs.BoolVar(&includeAll, "all", false, "include personal-layer entries (global, not specific to this repo)")
+			fs.BoolVar(&global, "global", false, "include personal-layer AND every installed Claude Code plugin")
 		},
 		Run: func(ctx cli.Context) int {
-			return runInspect(ctx, asJSON, includeAll)
+			return runInspect(ctx, asJSON, includeAll || global, global)
 		},
 	}
 }
 
-func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
+func runInspect(ctx cli.Context, asJSON, includeAll, includePlugins bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
 	repoScan, _, err := adopt.Scan(ctx.Dir)
@@ -188,6 +190,11 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 	rows := collectInspectRows(repoScan, scanned, layers, lock, scanSources)
 	if !includeAll {
 		rows = filterPersonalOnlyRows(rows, repoLocalIDSet(repoScan))
+	}
+	if includePlugins {
+		if home, herr := os.UserHomeDir(); herr == nil {
+			rows = append(rows, collectPluginRows(home)...)
+		}
 	}
 	stats := summarize(rows)
 
@@ -468,10 +475,12 @@ func channelLabel(ch string) string {
 func statusPhrase(r inspectRow) string {
 	switch r.Status {
 	case statusTracked:
-		switch r.Layer {
-		case string(manifest.LayerPersonal):
+		switch {
+		case strings.HasPrefix(r.Layer, "plugin:"):
+			return "from " + r.Layer
+		case r.Layer == string(manifest.LayerPersonal):
 			return "managed by your personal config"
-		case string(manifest.LayerTeam):
+		case r.Layer == string(manifest.LayerTeam):
 			return "managed by ainfra (team)"
 		default:
 			return "managed by ainfra"
@@ -636,6 +645,99 @@ func repoLocalIDSet(repoScan manifest.Manifest) map[string]bool {
 	}
 	for id := range repoScan.Skills {
 		out["skills:"+id] = true
+	}
+	return out
+}
+
+// collectPluginRows reads ~/.claude/plugins/installed_plugins.json and
+// emits one row per (channel, id) that an installed plugin contributes.
+// Plugins ship commands/, skills/, .mcp.json — same shapes the adopt
+// scanner already understands — so we reuse the readers. The row Layer
+// is set to "plugin:<plugin-id>" and Source points at the plugin's
+// install path, so users can see at a glance which plugin defines what.
+func collectPluginRows(home string) []inspectRow {
+	manifestPath := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
+	raw, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return nil
+	}
+	var doc struct {
+		Plugins map[string][]struct {
+			InstallPath string `json:"installPath"`
+			Version     string `json:"version"`
+		} `json:"plugins"`
+	}
+	if json.Unmarshal(raw, &doc) != nil {
+		return nil
+	}
+
+	type pluginRef struct {
+		id      string
+		path    string
+		version string
+	}
+	var plugins []pluginRef
+	for id, instances := range doc.Plugins {
+		if len(instances) == 0 {
+			continue
+		}
+		// installed_plugins.json may carry multiple historical install
+		// records per plugin; pick the first (newest write order in
+		// Claude Code today).
+		plugins = append(plugins, pluginRef{id: id, path: instances[0].InstallPath, version: instances[0].Version})
+	}
+	sort.Slice(plugins, func(i, j int) bool { return plugins[i].id < plugins[j].id })
+
+	var rows []inspectRow
+	for _, p := range plugins {
+		layer := "plugin:" + p.id
+		// Commands: <path>/commands/<id>.md
+		for id := range readPluginDirIDs(filepath.Join(p.path, "commands"), ".md", true) {
+			rows = append(rows, inspectRow{
+				Channel: "commands", ID: id, Status: statusTracked, Layer: layer,
+				Source: shortenHome(filepath.Join(p.path, "commands", id+".md")),
+			})
+		}
+		// Skills: <path>/skills/<id>/
+		for id := range readPluginDirIDs(filepath.Join(p.path, "skills"), "", false) {
+			rows = append(rows, inspectRow{
+				Channel: "skills", ID: id, Status: statusTracked, Layer: layer,
+				Source: shortenHome(filepath.Join(p.path, "skills", id)),
+			})
+		}
+		// MCP servers: <path>/.mcp.json
+		for id := range readMCPFallback(filepath.Join(p.path, ".mcp.json")) {
+			rows = append(rows, inspectRow{
+				Channel: "mcpServers", ID: id, Status: statusTracked, Layer: layer,
+				Source: shortenHome(filepath.Join(p.path, ".mcp.json")),
+			})
+		}
+	}
+	return rows
+}
+
+// readPluginDirIDs lists entries of a plugin directory and returns their
+// ids. For commands the entries are .md files whose ids are the file name
+// minus extension; for skills the entries are subdirectories whose ids
+// are the directory name.
+func readPluginDirIDs(dir, ext string, files bool) map[string]bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := map[string]bool{}
+	for _, e := range entries {
+		if files {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ext) {
+				continue
+			}
+			out[strings.TrimSuffix(e.Name(), ext)] = true
+		} else {
+			if !e.IsDir() {
+				continue
+			}
+			out[e.Name()] = true
+		}
 	}
 	return out
 }
