@@ -46,9 +46,9 @@ func DiffLine(w io.Writer, c Colorizer, op byte, name, detail string) {
 	fmt.Fprintf(w, "  %s %s%s%s\n", sym, name, pad, c.Dim(detail))
 }
 
-// PlanSummary writes the "Plan: N to add, N to update, N to remove." line.
+// PlanSummary writes the "Plan: N to install, N to update, N to remove." line.
 func PlanSummary(w io.Writer, add, change, remove int) {
-	fmt.Fprintf(w, "Plan: %d to add, %d to update, %d to remove.\n", add, change, remove)
+	fmt.Fprintf(w, "Plan: %d to install, %d to update, %d to remove.\n", add, change, remove)
 }
 
 // Next writes a blank line, then a bold "Next:" prefix and a guidance string.

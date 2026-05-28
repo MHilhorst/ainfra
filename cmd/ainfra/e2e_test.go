@@ -61,9 +61,9 @@ commands:
 		if strings.Contains(combined, "Nothing to do") {
 			t.Errorf("plan (before apply): expected pending changes, got 'Nothing to do': %q", combined)
 		}
-		// Expect at least one "to add" in the summary.
-		if !strings.Contains(combined, "to add") {
-			t.Errorf("plan (before apply): expected 'to add' in output, got: %q", combined)
+		// Expect at least one "to install" in the summary.
+		if !strings.Contains(combined, "to install") {
+			t.Errorf("plan (before apply): expected 'to install' in output, got: %q", combined)
 		}
 	}
 
@@ -319,8 +319,8 @@ func TestE2ERepresentative(t *testing.T) {
 		if strings.Contains(out.String()+errOut.String(), "Nothing to do") {
 			t.Errorf("plan: expected pending changes, got 'Nothing to do'")
 		}
-		if !strings.Contains(out.String()+errOut.String(), "to add") {
-			t.Errorf("plan: expected 'to add' in output")
+		if !strings.Contains(out.String()+errOut.String(), "to install") {
+			t.Errorf("plan: expected 'to install' in output")
 		}
 	}
 	// Step 3: apply --yes --no-install
@@ -445,8 +445,8 @@ rules:
 			t.Fatalf("plan (before apply): code=%d stdout=%q stderr=%q", code, out.String(), errOut.String())
 		}
 		combined := out.String() + errOut.String()
-		if !strings.Contains(combined, "to add") {
-			t.Errorf("plan (before apply): expected 'to add', got: %q", combined)
+		if !strings.Contains(combined, "to install") {
+			t.Errorf("plan (before apply): expected 'to install', got: %q", combined)
 		}
 	}
 

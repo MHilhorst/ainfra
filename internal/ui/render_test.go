@@ -33,7 +33,7 @@ func TestDiffLineRemoveWithoutDetail(t *testing.T) {
 func TestPlanSummary(t *testing.T) {
 	var b bytes.Buffer
 	PlanSummary(&b, 2, 1, 0)
-	want := "Plan: 2 to add, 1 to update, 0 to remove.\n"
+	want := "Plan: 2 to install, 1 to update, 0 to remove.\n"
 	if got := b.String(); got != want {
 		t.Errorf("PlanSummary = %q, want %q", got, want)
 	}
