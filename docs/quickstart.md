@@ -31,12 +31,19 @@ ainfra install --dry-run --strict    # CI gate: exit non-zero on any drift
 Your repo already has a Claude Code setup committed — `.mcp.json`, `.claude/`, `CLAUDE.md` — and you want to put it under ainfra without rewriting it by hand:
 
 ```sh
-ainfra adopt              # draft an ainfra.yaml from the existing files
-ainfra adopt --merge      # add new entries to an existing ainfra.yaml, keep existing keys
-ainfra adopt --force      # overwrite an existing ainfra.yaml
+ainfra init --adopt              # draft an ainfra.yaml from the existing files
+ainfra init --adopt --merge      # add new entries to an existing ainfra.yaml, keep existing keys
+ainfra init --adopt --force      # overwrite an existing ainfra.yaml
 ```
 
-`adopt` reads `.mcp.json`, `.claude/settings.json` hooks, `.claude/commands/*`, and `CLAUDE.md`, and emits a draft `ainfra.yaml`. Literal credentials it recognizes (`ghp_*`, `sk-*`, `xoxb-*`, and generic `token` / `key` / `password` keys) are stripped and replaced with `direct`-mode secret references plus a `TODO` marker for the vault path — nothing sensitive ends up in the manifest. Skills and tool permissions are skipped: skills arrive with `git clone`, and a clean permissions matcher is left for a later iteration.
+Bootstrapping a shared team config repo from your own polished `~/.claude/`:
+
+```sh
+ainfra init team ../claude-config           # scaffold + git init + emit manifest from ~/.claude/
+ainfra init team ../claude-config --empty   # …or scaffold a skeleton instead
+```
+
+`init --adopt` reads `.mcp.json`, `.claude/settings.json` hooks, `.claude/commands/*`, and `CLAUDE.md`, and emits a draft `ainfra.yaml`. Literal credentials it recognizes (`ghp_*`, `sk-*`, `xoxb-*`, and generic `token` / `key` / `password` keys) are stripped and replaced with `direct`-mode secret references plus a `TODO` marker for the vault path — nothing sensitive ends up in the manifest. Skills and tool permissions are skipped: skills arrive with `git clone`, and a clean permissions matcher is left for a later iteration.
 
 ## Authoring a setup from scratch
 
@@ -131,7 +138,8 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | Command | What it does |
 |---|---|
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
-| `ainfra adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
+| `ainfra init --adopt` | Draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--merge`, `--force`) |
+| `ainfra init team <path>` | Scaffold a team config repo at `<path>`, scanning `~/.claude/` by default (`--empty` for a skeleton) |
 | `ainfra install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile |
 | `ainfra remove <ch> <id>` | Remove an entry and reconcile |

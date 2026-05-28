@@ -18,15 +18,10 @@ Or `go install github.com/MHilhorst/ainfra/cmd/ainfra@latest`.
 
 ## Try it
 
-Adopting ainfra into a repo that already has a Claude Code setup committed (`.mcp.json`, `.claude/`, `CLAUDE.md`):
+**Every repo starts the same way:** `ainfra init --adopt` captures whatever Claude Code config the repo already has (`.mcp.json`, `.claude/`, `CLAUDE.md` — or nothing) into `ainfra.yaml`. From there, `ainfra install` reconciles all three layers — team (via `extends:`), repo, and your global personal layer at `~/.config/ainfra/personal.yaml` — into the right places on disk.
 
 ```sh
-ainfra adopt   # bootstrap ainfra.yaml from an existing .mcp.json / .claude/ / CLAUDE.md setup
-```
-
-Joining a team whose repo already has an `ainfra.yaml`:
-
-```sh
+ainfra init --adopt                  # bootstrap ainfra.yaml (works on empty repos too)
 ainfra install                       # reconcile your machine to the manifest
 ainfra install --dry-run --strict    # CI gate: exit non-zero on drift
 ```
@@ -34,9 +29,22 @@ ainfra install --dry-run --strict    # CI gate: exit non-zero on drift
 Authoring a new setup from scratch — most days you work through `add`, never touching YAML by hand:
 
 ```sh
-ainfra init                  # scaffold an ainfra.yaml
-ainfra add mcp github        # add an MCP server (writes the entry + installs)
-ainfra list                  # see what's installed
+ainfra add mcp github                # add an MCP server (writes the entry + installs)
+ainfra list                          # see what's installed
+```
+
+Bootstrapping a shared **team config repo** from a lead engineer's own `~/.claude/`:
+
+```sh
+ainfra init team ../claude-config           # scaffold + git init + emit manifest from ~/.claude/
+ainfra init team ../claude-config --empty   # or scaffold a skeleton manifest
+```
+
+Once a team repo exists, downstream repos pull it in by adding `extends:` to their own `ainfra.yaml`:
+
+```yaml
+extends:
+  - git+https://github.com/<org>/claude-config.git
 ```
 
 Run `ainfra --help` for the full command list. The [quick start](docs/quickstart.md) is the full walkthrough; the [`ainfra.yaml`](ainfra.yaml) at the repo root is a worked example you can read in 30 seconds.
