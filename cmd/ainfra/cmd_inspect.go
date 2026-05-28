@@ -124,7 +124,7 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 		}
 	}
 
-	rows := collectInspectRows(scanned, layers, lock)
+	rows := collectInspectRows(repoScan, scanned, layers, lock)
 	if !includeAll {
 		rows = filterPersonalOnlyRows(rows, repoLocalIDSet(repoScan))
 	}
@@ -152,7 +152,7 @@ func runInspect(ctx cli.Context, asJSON, includeAll bool) int {
 // across all loaded manifest layers; lock is consulted for the layer name
 // when an entry only appears in the lockfile (rare — committed lock with
 // pruned manifest).
-func collectInspectRows(scanned manifest.Manifest, layers map[manifest.Layer]*manifest.Manifest, lock *lockfile.Lock) []inspectRow {
+func collectInspectRows(repoScan, scanned manifest.Manifest, layers map[manifest.Layer]*manifest.Manifest, lock *lockfile.Lock) []inspectRow {
 	var rows []inspectRow
 
 	type channel struct {
@@ -264,6 +264,14 @@ func collectInspectRows(scanned manifest.Manifest, layers map[manifest.Layer]*ma
 			default: // !disk[id] && manifold[id] != ""
 				row.Status = statusMissing
 			}
+			// A repo-local file whose only manifest coverage is the user's
+			// global personal layer is not team-managed by this repo —
+			// re-classify as local-only so the row matches the user's
+			// mental model ("does this repo manage this?" → no).
+			if row.Status == statusTracked && row.Layer == string(manifest.LayerPersonal) && repoFileForChannel(repoScan, ch.name, id) {
+				row.Status = statusUntracked
+				row.Layer = ""
+			}
 			rows = append(rows, row)
 		}
 	}
@@ -344,7 +352,7 @@ func renderInspectTable(w io.Writer, noColor bool, report inspectReport) {
 
 	fmt.Fprintf(w, "Summary: %d managed, %d local-only, %d not installed.\n",
 		report.Summary.Tracked, report.Summary.Untracked, report.Summary.Missing)
-	renderInspectLegend(w, c, report.Summary)
+	renderInspectLegend(w, c, report.Summary, report.HasManifest)
 	renderInspectHints(w, report)
 }
 
@@ -366,33 +374,35 @@ func channelLabel(ch string) string {
 	}
 }
 
-// statusPhrase turns the inspectStatus + layer into one human-readable
-// noun phrase that goes to the right of the id. No imperatives here — the
-// "what to do about it" advice lives in renderInspectHints.
+// statusPhrase turns the inspectStatus + layer into one short noun phrase
+// for the right of the id. No imperatives, no parenthetical — repeated on
+// every row, so kept terse. The Legend block below the table is where the
+// full sentence lives.
 func statusPhrase(r inspectRow) string {
 	switch r.Status {
 	case statusTracked:
 		switch r.Layer {
 		case string(manifest.LayerPersonal):
-			return "managed by your personal config (global)"
+			return "managed by your personal config"
 		case string(manifest.LayerTeam):
-			return "managed by ainfra (team layer)"
+			return "managed by ainfra (team)"
 		default:
 			return "managed by ainfra"
 		}
 	case statusUntracked:
-		return "local-only — not declared in ainfra.yaml"
+		return "local-only"
 	case statusMissing:
-		return "declared in ainfra.yaml but not installed here"
+		return "declared but not installed"
 	default:
 		return ""
 	}
 }
 
 // renderInspectLegend prints a one-time guide to the status markers — only
-// for the statuses that actually appear in this report, so the legend stays
-// tight.
-func renderInspectLegend(w io.Writer, c ui.Colorizer, s inspectStats) {
+// for the statuses that actually appear in this report, with phrasing that
+// adapts to whether the repo has an ainfra.yaml at all (so the legend
+// doesn't tell the user something obvious about a file that doesn't exist).
+func renderInspectLegend(w io.Writer, c ui.Colorizer, s inspectStats, hasManifest bool) {
 	if s.Tracked+s.Untracked+s.Missing == 0 {
 		return
 	}
@@ -401,7 +411,11 @@ func renderInspectLegend(w io.Writer, c ui.Colorizer, s inspectStats) {
 		fmt.Fprintf(w, "  %s  managed by ainfra — kept in sync across machines that run ainfra\n", c.Green("OK"))
 	}
 	if s.Untracked > 0 {
-		fmt.Fprintf(w, "  %s  local-only — present here but ainfra.yaml does not declare it (teammates won't get it)\n", c.Yellow("++"))
+		if hasManifest {
+			fmt.Fprintf(w, "  %s  local-only — present here but ainfra.yaml does not declare it (teammates won't get it)\n", c.Yellow("++"))
+		} else {
+			fmt.Fprintf(w, "  %s  local-only — only here, not shared with teammates (no ainfra.yaml in this repo yet)\n", c.Yellow("++"))
+		}
 	}
 	if s.Missing > 0 {
 		fmt.Fprintf(w, "  %s  declared but not installed — ainfra.yaml expects it, but the file is not here yet\n", c.Red("--"))
@@ -486,6 +500,32 @@ func filterPersonalOnlyRows(rows []inspectRow, repoLocal map[string]bool) []insp
 		}
 	}
 	return out
+}
+
+// repoFileForChannel reports whether a (channel, id) artefact was found
+// inside the repo by the repo-scoped adopt scan (as opposed to the
+// user-scope scan). Used to decide that a row whose manifest layer is
+// personal but whose actual file lives in the repo should be classified
+// as local-only rather than personal-managed.
+func repoFileForChannel(repoScan manifest.Manifest, channel, id string) bool {
+	switch channel {
+	case "mcpServers":
+		_, ok := repoScan.MCPServers[id]
+		return ok
+	case "commands":
+		_, ok := repoScan.Commands[id]
+		return ok
+	case "hooks":
+		_, ok := repoScan.Hooks[id]
+		return ok
+	case "rules":
+		_, ok := repoScan.Rules[id]
+		return ok
+	case "skills":
+		_, ok := repoScan.Skills[id]
+		return ok
+	}
+	return false
 }
 
 // repoLocalIDSet returns the set of (channel, id) keys whose on-disk
