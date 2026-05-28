@@ -14,12 +14,24 @@ import (
 type Layout struct {
 	// MCPFile is the .mcp.json path. Empty means skip MCP scanning entirely.
 	MCPFile string
+	// MCPFileFallback is an alternate MCP file consulted when MCPFile is
+	// missing or yields no servers. Older Claude Code conventions kept this
+	// at <repo>/.claude/mcp.json; the rest of ainfra prefers <repo>/.mcp.json.
+	MCPFileFallback string
 	// SettingsFile is the Claude Code settings.json path containing the
 	// "hooks" block. Empty means skip hook scanning.
 	SettingsFile string
 	// CommandsDir is the directory containing per-command markdown files.
 	// Empty means skip command scanning.
 	CommandsDir string
+	// SkillsDir is the directory containing one skill per subdirectory.
+	// Each subdirectory becomes a Skill entry. Empty means skip skill
+	// scanning.
+	SkillsDir string
+	// SkillsSourceBase is the path prefix written into Skill.Source for
+	// each scanned directory (relative for repo scope, absolute for user
+	// scope).
+	SkillsSourceBase string
 	// CommandsSourceBase is the path prefix written into Command.Source for
 	// each scanned file ("./.claude/commands" for repo scope, an absolute
 	// path for user scope).
@@ -55,9 +67,12 @@ type RuleSource struct {
 func RepoLayout(dir string) Layout {
 	return Layout{
 		MCPFile:            filepath.Join(dir, ".mcp.json"),
+		MCPFileFallback:    filepath.Join(dir, ".claude", "mcp.json"),
 		SettingsFile:       filepath.Join(dir, ".claude", "settings.json"),
 		CommandsDir:        filepath.Join(dir, ".claude", "commands"),
 		CommandsSourceBase: "./.claude/commands",
+		SkillsDir:          filepath.Join(dir, ".claude", "skills"),
+		SkillsSourceBase:   "./.claude/skills",
 		HooksScriptDir:     filepath.Join(dir, ".claude", "hooks"),
 		Rules: []RuleSource{
 			{ID: "claude-md", Path: filepath.Join(dir, "CLAUDE.md"), Source: "./CLAUDE.md", Target: "CLAUDE.md"},
@@ -86,6 +101,8 @@ func UserLayout(home string) Layout {
 		SettingsFile:       filepath.Join(claude, "settings.json"),
 		CommandsDir:        filepath.Join(claude, "commands"),
 		CommandsSourceBase: filepath.Join(claude, "commands"),
+		SkillsDir:          filepath.Join(claude, "skills"),
+		SkillsSourceBase:   filepath.Join(claude, "skills"),
 		HooksScriptDir:     filepath.Join(claude, "hooks"),
 		Rules: []RuleSource{
 			{
@@ -126,6 +143,23 @@ func ScanLayout(layout Layout) (manifest.Manifest, []Warning, error) {
 			m.Secrets = secrets
 		}
 	}
+	// Older Claude Code conventions stored MCP config at .claude/mcp.json
+	// (often with a "servers" key). Read that as a fallback whenever the
+	// primary file produced nothing — so adopt captures these repos out of
+	// the box instead of forcing users to relocate or hand-edit.
+	if layout.MCPFileFallback != "" && len(m.MCPServers) == 0 {
+		mcpServers, secrets, ws, err := readMCP(layout.MCPFileFallback)
+		if err != nil {
+			return manifest.Manifest{}, nil, err
+		}
+		warnings = append(warnings, ws...)
+		if len(mcpServers) > 0 {
+			m.MCPServers = mcpServers
+		}
+		if len(secrets) > 0 {
+			m.Secrets = secrets
+		}
+	}
 
 	if layout.SettingsFile != "" {
 		hooks, ws, err := readHooks(layout.SettingsFile)
@@ -150,6 +184,16 @@ func ScanLayout(layout Layout) (manifest.Manifest, []Warning, error) {
 		}
 		if len(cmds) > 0 {
 			m.Commands = cmds
+		}
+	}
+
+	if layout.SkillsDir != "" {
+		skills, err := readSkills(layout.SkillsDir, layout.SkillsSourceBase)
+		if err != nil {
+			return manifest.Manifest{}, nil, err
+		}
+		if len(skills) > 0 {
+			m.Skills = skills
 		}
 	}
 
