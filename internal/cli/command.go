@@ -152,4 +152,3 @@ func (r *Registry) Dispatch(args []string) int {
 		Identity: *identity,
 	})
 }
-

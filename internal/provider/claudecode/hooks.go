@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/fsmerge"
 )
@@ -29,7 +30,18 @@ func hooksPath(env provider.Env) string {
 // idempotent after an apply. ContentHash is left empty — the orchestrator
 // backfills it from the ledger.
 func (Hooks) Observe(env provider.Env) ([]provider.Resource, error) {
-	applied, err := provider.ReadApplied(env.Root)
+	// User-scope persists the applied ledger under $XDG_CONFIG_HOME, not
+	// under env.Root/.ainfra. Honor the scope flag so Observe finds it; the
+	// orchestrator already dispatches its own readApplied the same way.
+	var (
+		applied *lockfile.Lock
+		err     error
+	)
+	if env.UserScope {
+		applied, err = provider.ReadAppliedUser()
+	} else {
+		applied, err = provider.ReadApplied(env.Root)
+	}
 	if err != nil {
 		return nil, err
 	}

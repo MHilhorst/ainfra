@@ -58,11 +58,11 @@ skills:
 
 // newInitCommand scaffolds an ainfra.yaml in one of several flavors.
 //
-//   ainfra init                  — empty repo manifest
-//   ainfra init --adopt          — import an existing ./.claude/ setup (was `ainfra adopt`)
-//   ainfra init --personal       — empty ainfra.personal.yaml
-//   ainfra init team <path>      — scaffold a team config repo at <path>, scanning
-//                                  ~/.claude/ by default; --empty for a skeleton
+//	ainfra init                  — empty repo manifest
+//	ainfra init --adopt          — import an existing ./.claude/ setup (was `ainfra adopt`)
+//	ainfra init --personal       — empty ainfra.personal.yaml
+//	ainfra init team <path>      — scaffold a team config repo at <path>, scanning
+//	                               ~/.claude/ by default; --empty for a skeleton
 //
 // `--adopt` is bootstrap-only — once a manifest exists, run `ainfra install` to
 // reconcile drift rather than re-adopting. `--force` is the only escape hatch

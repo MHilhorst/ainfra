@@ -52,7 +52,7 @@ type Manifest struct {
 	// SessionStart hook into .claude/settings.json that warns when the
 	// manifest has changed since the last apply. Default (nil) = enabled.
 	// Set explicitly to false to opt out.
-	StalenessWarning *bool `yaml:"stalenessWarning,omitempty"`
+	StalenessWarning   *bool                        `yaml:"stalenessWarning,omitempty"`
 	Extends            []Source                     `yaml:"extends"`
 	Preconditions      map[string]Precondition      `yaml:"preconditions"`
 	CLITools           map[string]CLITool           `yaml:"cliTools"`

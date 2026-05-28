@@ -41,6 +41,12 @@ type Env struct {
 	// and the declare-and-check probe while the file-writing channels still
 	// reconcile. Unlike DryRun it does not suppress file writes.
 	NoInstall bool
+	// UserScope signals to providers that this Env is the user-scope
+	// orchestrator (writes under $HOME/.claude/) rather than the repo-scope
+	// orchestrator. Providers that consult the applied ledger directly need
+	// this to pick the user-scope ledger at $XDG_CONFIG_HOME/ainfra/applied.lock
+	// instead of <root>/.ainfra/applied.lock.
+	UserScope bool
 }
 
 // OSFilesystem is the real-disk Filesystem.

@@ -405,6 +405,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	if herr == nil && (anyResources(userRendered) || userLedgerNonEmpty) {
 		userEnv := env
 		userEnv.Root = home
+		userEnv.UserScope = true
 		userOrch = provider.NewOrchestratorScoped(home, provider.ScopeUser, userEnv, providers)
 		userPlans, err = userOrch.PlanAllRendered(userRendered)
 		if err != nil {
