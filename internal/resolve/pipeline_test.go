@@ -379,6 +379,45 @@ commands:
 	}
 }
 
+func TestLockPipelineCommandWithEmptySourceFileHashesEmptyContent(t *testing.T) {
+	// A command whose source file exists but is empty must hash to the
+	// empty-content hash, not the manifest-shape fallback. Apply writes an
+	// empty file to ~/.claude/commands/<id>.md, Observe re-hashes that empty
+	// file, and the two must agree — otherwise `ainfra update` reports drift
+	// every run and "applies" forever without converging.
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "commands", "drop-me.md"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestYAML := `version: 1
+commands:
+  drop-me:
+    source: ./commands/drop-me.md
+    description: Intentionally empty — provided by a plugin.
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("lockfile.Read: %v", err)
+	}
+	entry, ok := lock.Entries.Commands["drop-me"]
+	if !ok {
+		t.Fatalf("commands.drop-me missing from lock")
+	}
+	want := lockfile.ContentHash("")
+	if entry.ContentHash != want {
+		t.Errorf("contentHash = %q, want empty-content hash %q (drift loop bug)", entry.ContentHash, want)
+	}
+}
+
 func TestLockPipelineResolvesSkillsPluginsRules(t *testing.T) {
 	dir := t.TempDir()
 	manifestYAML := `version: 1

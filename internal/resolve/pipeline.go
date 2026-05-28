@@ -263,14 +263,15 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 			addRequireEdges(g, node, c.Requires)
 			// Hash the materialized content (file bytes) so a hand-edit to the
 			// rendered .claude/commands/<id>.md surfaces as drift. Falls back to
-			// the manifest-shape hash when the source file cannot be read
-			// (remote source not yet supported, broken path, etc.) — that keeps
-			// lock deterministic without claiming false fidelity.
+			// the manifest-shape hash only when the source file cannot be read
+			// (remote source not yet supported, broken path, etc.). A source
+			// file that exists but is empty hashes as empty content — Apply
+			// writes an empty file and Observe re-hashes it identically, so
+			// the next run sees no drift.
 			var contentHash string
-			if content := readSourceForLayer(dir, layerName, c.Source); content != "" {
+			if content, ok := readSourceForLayerExists(dir, layerName, c.Source); ok {
 				contentHash = lockfile.ContentHash(content)
-			}
-			if contentHash == "" {
+			} else {
 				contentHash = lockfile.ContentHash(map[string]any{
 					"source": c.Source, "description": c.Description, "version": c.Version,
 				})
