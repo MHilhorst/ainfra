@@ -136,7 +136,6 @@ func TestAdoptCommandsAndRules(t *testing.T) {
 	}
 }
 
-
 func TestAdoptOutputValidates(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(filepath.Join(dir, ".mcp.json"), []byte(`{
