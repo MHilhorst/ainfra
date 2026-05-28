@@ -3,8 +3,10 @@ package main
 import (
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/adopt"
 	"github.com/MHilhorst/ainfra/internal/cli"
@@ -135,18 +137,96 @@ func runAdopt(ctx cli.Context, scope string, force, merge bool) int {
 		return 1
 	}
 
-	for _, w := range warnings {
-		fmt.Fprintln(ctx.Stderr, w.Message)
-	}
-
 	c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+	errC := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+
 	fmt.Fprintln(ctx.Stdout, "ainfra: wrote "+path)
-	if scope == "user" {
-		ui.Next(ctx.Stdout, c, "review "+filepath.Base(path)+"; entries declared here install to ~/.claude/. For team-shared tooling prefer a team manifest via extends:.")
-	} else {
+	strippedCount := printAdoptWarnings(ctx.Stderr, errC, warnings)
+
+	base := filepath.Base(path)
+	switch {
+	case strippedCount > 0:
+		ui.Next(ctx.Stdout, c, fmt.Sprintf("open %s, replace %d TODO secret ref(s) under 'secrets:', then run 'ainfra validate'.", base, strippedCount))
+	case scope == "user":
+		ui.Next(ctx.Stdout, c, "review "+base+"; entries declared here install to ~/.claude/. For team-shared tooling prefer a team manifest via extends:.")
+	default:
 		ui.Next(ctx.Stdout, c, "review ainfra.yaml, then run 'ainfra validate', 'ainfra lock', and 'ainfra plan'.")
 	}
 	return 0
+}
+
+// printAdoptWarnings groups adopt warnings by Kind and writes a structured
+// summary to w. Returns the number of stripped-credential warnings so the
+// caller can adapt the "Next:" hint.
+//
+// The intent is to give a developer who has never seen this CLI before a clear
+// answer to three questions per section: what happened, why it matters, and
+// what they have to do next.
+func printAdoptWarnings(w io.Writer, c ui.Colorizer, warnings []adopt.Warning) int {
+	if len(warnings) == 0 {
+		return 0
+	}
+	var stripped, merged, review []adopt.Warning
+	for _, x := range warnings {
+		switch x.Kind {
+		case adopt.WarnStripped:
+			stripped = append(stripped, x)
+		case adopt.WarnMergeAdd:
+			merged = append(merged, x)
+		default:
+			review = append(review, x)
+		}
+	}
+
+	if len(stripped) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, c.Bold(c.Yellow(fmt.Sprintf("Secrets stripped (%d)", len(stripped)))))
+		fmt.Fprintln(w, c.Dim("  Your config had plaintext credentials sitting inside it. We rewrote"))
+		fmt.Fprintln(w, c.Dim("  ainfra.yaml so they live as ${secrets.<name>} references instead."))
+		fmt.Fprintln(w, c.Dim("  Before committing, point each one at where the value actually lives"))
+		fmt.Fprintln(w, c.Dim("  (1Password op://, env var, file://, ...). The literals are NOT in the"))
+		fmt.Fprintln(w, c.Dim("  manifest — they were stripped literal credential values, removed at scan time."))
+		fmt.Fprintln(w)
+		width := 0
+		for _, x := range stripped {
+			if len(x.Target) > width {
+				width = len(x.Target)
+			}
+		}
+		for _, x := range stripped {
+			pad := strings.Repeat(" ", width-len(x.Target))
+			fmt.Fprintf(w, "  %s %s%s  %s %s\n",
+				c.Yellow("!"),
+				c.Bold(x.Target),
+				pad,
+				c.Dim("<- was"),
+				c.Dim(x.Origin),
+			)
+		}
+	}
+
+	if len(merged) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, c.Bold(fmt.Sprintf("Merged new entries (%d)", len(merged))))
+		fmt.Fprintln(w, c.Dim("  These keys weren't in your existing manifest, so adopt added them."))
+		fmt.Fprintln(w, c.Dim("  Nothing to fix — listed for awareness."))
+		fmt.Fprintln(w)
+		for _, x := range merged {
+			fmt.Fprintf(w, "  %s %s\n", c.Green("+"), x.Message)
+		}
+	}
+
+	if len(review) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, c.Bold(fmt.Sprintf("Review manually (%d)", len(review))))
+		fmt.Fprintln(w, c.Dim("  Adopt couldn't fully ingest these. Skim them once and decide if you"))
+		fmt.Fprintln(w, c.Dim("  need to add anything to ainfra.yaml by hand."))
+		fmt.Fprintln(w)
+		for _, x := range review {
+			fmt.Fprintf(w, "  %s %s\n", c.Dim("-"), strings.TrimPrefix(x.Message, "adopt: "))
+		}
+	}
+	return len(stripped)
 }
 
 // loadExistingForMerge returns the manifest that --merge should fold the scan
@@ -187,7 +267,7 @@ func addNewMCP(dst, src map[string]manifest.MCPServer, channel string, ws []adop
 			continue
 		}
 		dst[k] = v
-		ws = append(ws, adopt.Warning{Message: fmt.Sprintf("adopt: adding %s.%s (not present in existing manifest)", channel, k)})
+		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
 	}
 	if len(dst) == 0 {
 		return nil, ws
@@ -204,7 +284,7 @@ func addNewSecrets(dst, src map[string]manifest.Secret, channel string, ws []ado
 			continue
 		}
 		dst[k] = v
-		ws = append(ws, adopt.Warning{Message: fmt.Sprintf("adopt: adding %s.%s (not present in existing manifest)", channel, k)})
+		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
 	}
 	if len(dst) == 0 {
 		return nil, ws
@@ -221,7 +301,7 @@ func addNewHooks(dst, src map[string]manifest.Hook, channel string, ws []adopt.W
 			continue
 		}
 		dst[k] = v
-		ws = append(ws, adopt.Warning{Message: fmt.Sprintf("adopt: adding %s.%s (not present in existing manifest)", channel, k)})
+		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
 	}
 	if len(dst) == 0 {
 		return nil, ws
@@ -238,7 +318,7 @@ func addNewCommands(dst, src map[string]manifest.Command, channel string, ws []a
 			continue
 		}
 		dst[k] = v
-		ws = append(ws, adopt.Warning{Message: fmt.Sprintf("adopt: adding %s.%s (not present in existing manifest)", channel, k)})
+		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
 	}
 	if len(dst) == 0 {
 		return nil, ws
@@ -255,7 +335,7 @@ func addNewRules(dst, src map[string]manifest.Rule, channel string, ws []adopt.W
 			continue
 		}
 		dst[k] = v
-		ws = append(ws, adopt.Warning{Message: fmt.Sprintf("adopt: adding %s.%s (not present in existing manifest)", channel, k)})
+		ws = append(ws, adopt.Warning{Kind: adopt.WarnMergeAdd, Target: channel + "." + k, Message: fmt.Sprintf("adding %s.%s", channel, k)})
 	}
 	if len(dst) == 0 {
 		return nil, ws
