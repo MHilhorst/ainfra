@@ -40,3 +40,25 @@ plugin:
 		t.Errorf("got content %v", repo.Plugin.Content)
 	}
 }
+
+func TestValidatePlugin(t *testing.T) {
+	ok := &Manifest{Plugin: &PluginBuild{Name: "tvt-config", Marketplace: "trein-vertraging"}}
+	if err := validatePlugin(ok); err != nil {
+		t.Errorf("valid plugin rejected: %v", err)
+	}
+
+	noName := &Manifest{Plugin: &PluginBuild{Marketplace: "m"}}
+	if err := validatePlugin(noName); err == nil {
+		t.Error("expected error when plugin.name missing")
+	}
+
+	noMarket := &Manifest{Plugin: &PluginBuild{Name: "n"}}
+	if err := validatePlugin(noMarket); err == nil {
+		t.Error("expected error when plugin.marketplace missing")
+	}
+
+	none := &Manifest{}
+	if err := validatePlugin(none); err != nil {
+		t.Errorf("absent plugin block must be valid: %v", err)
+	}
+}

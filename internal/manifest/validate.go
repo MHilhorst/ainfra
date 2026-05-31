@@ -52,6 +52,9 @@ func hasEmbeddedVersion(src string) bool {
 // declared in another layer, the caller (ValidateAll) injects the merged
 // template map before calling Validate.
 func Validate(m *Manifest) error {
+	if err := validatePlugin(m); err != nil {
+		return err
+	}
 	for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
 		srv := m.MCPServers[id]
 		if srv.Template != "" {
@@ -510,6 +513,21 @@ func validateAgentCapabilities(layers map[Layer]*Manifest) error {
 				return d
 			}
 		}
+	}
+	return nil
+}
+
+// validatePlugin checks the optional `plugin:` build block. An absent block is
+// valid; a present block must name the plugin and its target marketplace.
+func validatePlugin(m *Manifest) error {
+	if m.Plugin == nil {
+		return nil
+	}
+	if strings.TrimSpace(m.Plugin.Name) == "" {
+		return fmt.Errorf("plugin.name is required")
+	}
+	if strings.TrimSpace(m.Plugin.Marketplace) == "" {
+		return fmt.Errorf("plugin.marketplace is required")
 	}
 	return nil
 }
