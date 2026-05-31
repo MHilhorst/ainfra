@@ -63,6 +63,10 @@ func TestPlugin_ReleaseDriftGuard(t *testing.T) {
 
 func TestPlugin_ReleasePatch(t *testing.T) {
 	dir := newPluginRepo(t)
+	mkBefore, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "marketplace.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	code := run([]string{"--chdir", dir, "plugin", "release", "--patch"}, &out, &bytes.Buffer{})
 	if code != 0 {
@@ -89,8 +93,11 @@ func TestPlugin_ReleasePatch(t *testing.T) {
 		t.Errorf("lock still has stale hash: %s", lock)
 	}
 
-	mk, _ := os.ReadFile(filepath.Join(dir, ".claude-plugin", "marketplace.json"))
-	if !strings.Contains(string(mk), "Team config") {
-		t.Errorf("marketplace description not synced: %s", mk)
+	mkAfter, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "marketplace.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(mkBefore, mkAfter) {
+		t.Errorf("marketplace.json must be left untouched.\nbefore:\n%s\nafter:\n%s", mkBefore, mkAfter)
 	}
 }

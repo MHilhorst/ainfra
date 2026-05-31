@@ -35,11 +35,15 @@ re-exports.
    `ainfra plugin release --patch|--minor|--major`. ainfra refuses to release if the
    plugin content changed since the last release but no bump flag was given. Semver
    meaning stays under human control.
-2. **Scope: `plugin.json` + own marketplace entry.** ainfra generates
-   `.claude-plugin/plugin.json` and keeps the `tvt-config` entry in
-   `.claude-plugin/marketplace.json` in sync. Third-party entries (`claude-ads`,
-   `expo`, `compound-engineering`, `higgsfield`) are read, preserved, and rewritten
-   untouched. Content directories are never modified.
+2. **Scope: `plugin.json` generated; marketplace entry verified, never edited.**
+   ainfra generates `.claude-plugin/plugin.json`. It reads
+   `.claude-plugin/marketplace.json` only to **verify** a `tvt-config` entry
+   exists (erroring if missing) — it never rewrites the file. The marketplace
+   listing, including its human-authored description, is owned by the maintainer.
+   (Revised from the original "sync the self-entry" design: dogfooding on the real
+   `claude-config` showed the two descriptions are intentionally different, so
+   syncing would clobber the marketplace blurb.) Content directories are never
+   modified.
 3. **Surface: maintainer-only subcommand, not part of `apply`.** Consumers never
    regenerate or rebuild the plugin.
 4. **Build layout: in-place.** The repo *is* the plugin; generate
@@ -50,9 +54,9 @@ re-exports.
 
 New subcommand `ainfra plugin`, run from the plugin repo:
 
-- `ainfra plugin build` — (re)generate `plugin.json` and sync the marketplace entry
-  from the `plugin:` block. No version change, no guard. Safe to run anytime; useful
-  to preview the generated manifest.
+- `ainfra plugin build` — (re)generate `plugin.json` from the `plugin:` block and
+  verify the marketplace self-entry exists. No version change, no guard. Safe to run
+  anytime; useful to preview the generated manifest.
 - `ainfra plugin release [--patch|--minor|--major]` — gated release:
   validate → drift-check → bump → regenerate → record new baseline.
 
@@ -96,14 +100,13 @@ Rendered from the `plugin:` block. Mirrors the current hand-written shape, e.g.:
 }
 ```
 
-### `.claude-plugin/marketplace.json` → `tvt-config` entry only (merge-in-place)
-ainfra reads the whole file, replaces/updates **only** the object in `plugins[]`
-whose `name == <plugin.name>`, and rewrites the file with all other entries
-byte-preserved (2-space indent, matching the existing file, to keep diffs clean).
-Synced fields: `name`, `description`. Preserved if already present, else taken from
-the block: `source`, `author`, `repository`, `license`, `keywords`, `category`,
-`tags`. The marketplace self-entry has **no** `version` field — version lives only in
-`plugin.json` — so version is never written here.
+### `.claude-plugin/marketplace.json` → verify-only (never modified)
+ainfra parses the file solely to confirm a `plugins[]` entry with
+`name == <plugin.name>` exists, and errors if it doesn't. It does **not** write the
+file. Rationale: the marketplace listing (description, keywords, category, tags) is a
+human-authored catalog blurb, distinct from `plugin.json`'s technical description;
+rewriting it would clobber that and produce noisy diffs. `VerifyMarketplaceEntry`
+takes the raw bytes + the plugin name and returns only an error.
 
 ## Drift guard + version flow (core)
 
