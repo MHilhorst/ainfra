@@ -137,7 +137,9 @@ func runPluginRelease(ctx cli.Context, pb manifest.PluginBuild, level string, er
 	return 0
 }
 
-// writePluginFiles renders plugin.json and merges the marketplace self-entry.
+// writePluginFiles renders plugin.json and verifies the marketplace self-entry
+// exists. The marketplace listing is owned by the maintainer, so ainfra checks
+// it but never rewrites it.
 func writePluginFiles(dir string, pb manifest.PluginBuild, version string) error {
 	pjPath := filepath.Join(dir, ".claude-plugin", "plugin.json")
 	if err := os.MkdirAll(filepath.Dir(pjPath), 0o755); err != nil {
@@ -156,11 +158,7 @@ func writePluginFiles(dir string, pb manifest.PluginBuild, version string) error
 	if err != nil {
 		return fmt.Errorf("plugin: read marketplace.json: %w", err)
 	}
-	merged, err := plugin.MergeMarketplaceEntry(existing, pb)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(mkPath, merged, 0o644)
+	return plugin.VerifyMarketplaceEntry(existing, pb.Name)
 }
 
 // currentPluginVersion reads the version from an existing plugin.json, falling
