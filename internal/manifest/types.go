@@ -65,6 +65,7 @@ type Manifest struct {
 	Skills             map[string]Skill             `yaml:"skills"`
 	Marketplaces       map[string]Marketplace       `yaml:"marketplaces"`
 	Plugins            map[string]Plugin            `yaml:"plugins"`
+	Plugin             *PluginBuild                 `yaml:"plugin,omitempty"`
 	Rules              map[string]Rule              `yaml:"rules"`
 	Vars               map[string]Var               `yaml:"vars"`
 	Tools              *Tools                       `yaml:"tools"`
@@ -246,6 +247,34 @@ type Skill struct {
 // Marketplace is a Claude Code plugin marketplace registration (spec §10).
 type Marketplace struct {
 	Source string `yaml:"source"`
+}
+
+// PluginBuild declares how to generate this repo's own Claude Code plugin
+// (the `plugin:` block). It drives `ainfra plugin build|release` only; it is
+// not part of apply. Distinct from the consumer-side Plugin install type.
+type PluginBuild struct {
+	Name        string       `yaml:"name"`
+	Description string       `yaml:"description"`
+	Marketplace string       `yaml:"marketplace"`
+	Author      PluginAuthor `yaml:"author"`
+	Repository  string       `yaml:"repository,omitempty"`
+	License     string       `yaml:"license,omitempty"`
+	Content     []string     `yaml:"content,omitempty"`
+}
+
+// PluginAuthor is the author metadata written into plugin.json.
+type PluginAuthor struct {
+	Name string `yaml:"name" json:"name"`
+	URL  string `yaml:"url" json:"url,omitempty"`
+}
+
+// ContentPaths returns the drift-hash inputs, defaulting to the standard
+// plugin payload directories when none are declared.
+func (p PluginBuild) ContentPaths() []string {
+	if len(p.Content) > 0 {
+		return p.Content
+	}
+	return []string{"skills/", "commands/", "hooks/", ".mcp.json"}
 }
 
 // Plugin is an installable plugin bundle (spec §10).
