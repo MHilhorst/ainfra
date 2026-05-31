@@ -97,7 +97,7 @@ func runPluginRelease(ctx cli.Context, pb manifest.PluginBuild, level string, er
 		fmt.Fprintln(ctx.Stderr, warn)
 	}
 
-	hash, err := plugin.ContentHash(ctx.Dir, pb.ContentPaths())
+	hash, err := plugin.ReleaseHash(ctx.Dir, pb)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1

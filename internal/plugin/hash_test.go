@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 func writeFile(t *testing.T, root, rel, body string) {
@@ -95,5 +97,40 @@ func TestContentHash_MissingPathIgnored(t *testing.T) {
 	writeFile(t, root, ".mcp.json", "{}")
 	if _, err := ContentHash(root, []string{"skills/", ".mcp.json"}); err != nil {
 		t.Errorf("missing dir should be ignored, got %v", err)
+	}
+}
+
+func TestReleaseHash_ContentAndMetadataSensitive(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/a/SKILL.md", "x")
+	base := manifest.PluginBuild{
+		Name: "p", Description: "one", Marketplace: "m",
+		Content: []string{"skills/"},
+	}
+	h1, err := ReleaseHash(root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Metadata-only change must change the hash.
+	meta := base
+	meta.Description = "two"
+	h2, err := ReleaseHash(root, meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h1 == h2 {
+		t.Error("metadata change must change the release hash")
+	}
+
+	// Version is NOT part of the drift hash (it's the bumped value).
+	// Content change must change the hash.
+	writeFile(t, root, "skills/a/SKILL.md", "y")
+	h3, err := ReleaseHash(root, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if h1 == h3 {
+		t.Error("content change must change the release hash")
 	}
 }

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/MHilhorst/ainfra/internal/manifest"
 )
 
 // ContentHash returns a deterministic hash over the files under the given
@@ -56,6 +58,28 @@ func ContentHash(root string, paths []string) (string, error) {
 		io.WriteString(h, e.rel)
 		h.Write([]byte{0})
 		h.Write(e.sum[:])
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// ReleaseHash is the drift-detection hash for a release: the content hash over
+// the plugin's content paths combined with the consumer-visible metadata
+// fields from the plugin block. Version is intentionally excluded — it is the
+// value a release bumps, not an input to drift detection.
+func ReleaseHash(root string, pb manifest.PluginBuild) (string, error) {
+	ch, err := ContentHash(root, pb.ContentPaths())
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	io.WriteString(h, ch)
+	h.Write([]byte{0})
+	for _, field := range []string{
+		pb.Name, pb.Description, pb.Marketplace,
+		pb.Repository, pb.License, pb.Author.Name, pb.Author.URL,
+	} {
+		io.WriteString(h, field)
+		h.Write([]byte{0})
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
