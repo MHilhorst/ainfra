@@ -26,6 +26,7 @@ func run(args []string, stdout, stderr io.Writer) int {
 	reg.Add(newInspectCommand())
 	reg.Add(newOutdatedCommand())
 	reg.Add(newVersionCommand())
+	reg.Add(newPluginCommand())
 	// Hidden helpers — still callable but omitted from `ainfra --help`.
 	reg.Add(newLockCommand())
 	reg.Add(newPublishCommand())
