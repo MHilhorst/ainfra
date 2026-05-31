@@ -7,6 +7,7 @@ type Lock struct {
 	ManifestHash string               `yaml:"manifestHash,omitempty"`
 	Entries      Entries              `yaml:"entries"`
 	Secrets      map[string]SecretRef `yaml:"secrets,omitempty"`
+	Plugin       *PluginBaseline      `yaml:"plugin,omitempty"`
 }
 
 // Entries groups lock entries by channel.
@@ -49,6 +50,15 @@ type LockedTool struct {
 	Name            string `yaml:"name"`
 	DescriptionHash string `yaml:"descriptionHash,omitempty"`
 	InputSchemaHash string `yaml:"inputSchemaHash,omitempty"`
+}
+
+// PluginBaseline records the last released state of this repo's own plugin so
+// `ainfra plugin release` can detect content drift. Written only by
+// `ainfra plugin`; preserved untouched by lock/apply.
+type PluginBaseline struct {
+	Name        string `yaml:"name"`
+	Version     string `yaml:"version"`
+	ContentHash string `yaml:"contentHash"`
 }
 
 // SecretRef is a resolved secret placeholder recorded in the lockfile. It
