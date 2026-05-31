@@ -254,8 +254,47 @@ None of these tools produces a reproducible, lockfile-backed snapshot of a team'
 
 ---
 
+## Primary Evidence: A Team-Transition Thread (March 2026)
+
+A March 2026 r/ClaudeCode thread — a solo power-user told to "make this work for a 5-person team" (51 upvotes, 42 comments) — is unusually clean primary evidence for this problem space, because it is practitioners describing what they actually built, not vendors or analysts describing what they sell.
+
+> "How are you actually using Claude Code as a team? … if I learn something important in my Claude Code session, how does that knowledge get to everyone else? … How do you keep things consistent? Like making sure Claude gives similar quality output for everyone on the team and not just the one person who knows how to prompt it well."
+> — u/Azrael_666 (OP)
+> https://www.reddit.com/r/ClaudeCode/comments/1rhswxk/how_are_you_actually_using_claude_code_as_a_team/
+
+**What it confirms.** The single most-repeated answer in the thread is ainfra's pain point 6 (team-scoped skills/commands distribution with versioning). Multiple teams describe independently hand-building a subset of ainfra:
+
+> "We built an internal Claude plugin based on our development standards docs + a few popular plugins (eg superpowers), and accept PRs to it for adding new skills for workflows, and also keep a Claude.md alongside the readme.md for all repos."
+> — u/boatsnbros
+
+> "A single skills.md repo with 'this is how we do auth', 'this is how you should write test reports' etc., and a sync script helps enforce consistency across the sdlc."
+> — u/italian-sausage-nerd
+
+> "Push plugins out onto the private marketplace you have available on the Team account. Plugins combine commands, skills, and hooks as needed and can be versioned by the admin."
+> — u/mbcoalson
+
+The thread also independently surfaces the personal-vs-team layer split (an ainfra feature not currently itemized as a pain point above):
+
+> "Isolating personal preferences from project level architecture… maintain a CLAUDE.local.md for your personal preferences while having the versioned Claude.md for the team."
+> — u/HaagNDaazer
+
+**What it challenges in this document.** Two of our framings look weaker against this evidence:
+
+- The "What Is NOT a Real Problem Yet" section calls skills/persona drift "a forward-looking risk, not a current pain." The thread shows multiple teams distributing and version-reviewing skills *today* and treating consistency across that distribution as their primary problem. The distribution half of this is a current pain, not a forward-looking one; only the "personas silently diverge and burn someone" failure mode is still forward-looking.
+- Pain point 2 (onboarding) is framed here as machine provisioning ("2 hours → 15 minutes"). The thread's dominant onboarding answer is human pairing ("pair sessions beat docs… watching, not reading"). ainfra reproduces a machine in one command but does not address the teaching half — this is a scope boundary worth stating explicitly rather than implying onboarding is solved.
+
+**What it surfaces that this document does not cover.** Two pains appear in the thread that are absent from the twelve above:
+
+- *Decision history vs. standing rules.* "A skill encodes the current right answer but doesn't tell you it used to be a different answer six weeks ago, or which work was built on the old assumption. Most teams I've seen … hit that wall around month three." — u/Substantial_Doubt139. A content-hashed lockfile versions config *state*, not the *rationale and dependency trail* behind a changed decision. Currently unaddressed by ainfra.
+- *Multi-agent runtime coordination.* "The bottleneck shifted from 'how fast can one person code' to 'how do multiple agents stay coherent' … git conflicts and deploy races when multiple agents pushed to main." — u/ultrathink-art. This document already disclaims orchestration as "premature scope"; the thread confirms it is a live, upvoted pain, so the disclaimer is a deliberate boundary, not an evidence gap.
+
+**Emphasis note.** Notably, *none* of the thread's 42 comments mentions MCP supply-chain attacks, secret leakage, or version-pinning (pain points 3, 4, 8 — the "Critical" severity items here). This audience asks for team enablement (sharing, consistency, onboarding, coordination); the security pains are real and well-sourced but are not what this persona leads with. The two framings meet at pain point 6.
+
+---
+
 ## Sources
 
+- https://www.reddit.com/r/ClaudeCode/comments/1rhswxk/how_are_you_actually_using_claude_code_as_a_team/
 - https://www.iamraghuveer.com/posts/shared-claude-settings-across-repos/
 - https://github.com/anthropics/claude-code/issues/59368
 - https://github.com/anthropics/claude-code/issues/13106

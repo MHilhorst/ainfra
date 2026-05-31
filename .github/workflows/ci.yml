@@ -34,11 +34,10 @@ jobs:
         run: go test ./...
 
       # Dogfood: ainfra's own validation gate must pass on the manifests this
-      # repo ships. The showcase and the multi-database example are both
-      # validated, and the example is resolved end to end.
-      - name: validate and lock the example manifests
+      # repo ships. The showcase manifest and the multi-database example are
+      # both resolved end to end via `lock` (which validates and pins).
+      - name: lock the example manifests
         run: |
           go build -o ainfra ./cmd/ainfra
-          ./ainfra validate
-          ./ainfra --chdir examples/multi-database validate
+          ./ainfra lock
           ./ainfra --chdir examples/multi-database lock
