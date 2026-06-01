@@ -138,8 +138,16 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 				continue
 			}
 			srv := m.MCPServers[id]
-			// A server with enabled: false is omitted from .mcp.json.
+			// A server with enabled: false is a tombstone: rather than merely
+			// omitting it, ainfra removes it from .mcp.json if present. This lets
+			// the team retire a server (e.g. linear-server) and have apply clean
+			// it off machines that still carry it.
 			if srv.Enabled != nil && !*srv.Enabled {
+				result["mcpServers"] = append(result["mcpServers"], provider.Resource{
+					ID:        id,
+					Channel:   "mcpServers",
+					Tombstone: true,
+				})
 				continue
 			}
 			if !SelectorMatches(srv.Scope, ctx) {

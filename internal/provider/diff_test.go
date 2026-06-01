@@ -41,6 +41,50 @@ func TestDiffResources(t *testing.T) {
 	}
 }
 
+func TestDiffResourcesTombstoneDeletesForeignServer(t *testing.T) {
+	// A tombstone (enabled: false) must remove a matching resource from the
+	// machine even when ainfra never installed it — i.e. it is in observed but
+	// not in prior. This is the "retire a server everywhere" case.
+	desired := []Resource{{ID: "linear-server", Channel: "mcpServers", Tombstone: true}}
+	observed := []Resource{res("linear-server", "hX")}
+	prior := []Resource{}
+
+	p := DiffResources("mcpServers", desired, observed, prior)
+
+	c, ok := find(p, "linear-server")
+	if !ok {
+		t.Fatal("tombstone for a present server must emit a delete")
+	}
+	if c.Kind != ChangeDelete {
+		t.Errorf("kind = %v, want ChangeDelete", c.Kind)
+	}
+}
+
+func TestDiffResourcesTombstoneAbsentIsNoop(t *testing.T) {
+	// A tombstone for a server that is not on the machine must do nothing —
+	// not a delete, not a create.
+	desired := []Resource{{ID: "linear-server", Channel: "mcpServers", Tombstone: true}}
+	observed := []Resource{res("keep", "h1")}
+	prior := []Resource{}
+
+	p := DiffResources("mcpServers", desired, observed, prior)
+
+	if c, ok := find(p, "linear-server"); ok {
+		t.Errorf("tombstone for an absent server must emit no change, got %v", c.Kind)
+	}
+}
+
+func TestDiffResourcesTombstoneNeverCreates(t *testing.T) {
+	// A tombstone must never be installed, even if absent from the machine.
+	desired := []Resource{{ID: "linear-server", Channel: "mcpServers", Tombstone: true}}
+	p := DiffResources("mcpServers", desired, []Resource{}, []Resource{})
+	for _, c := range p.Changes {
+		if c.ID == "linear-server" && c.Kind == ChangeCreate {
+			t.Fatal("tombstone must never produce a create")
+		}
+	}
+}
+
 func TestDiffResourcesCarriesResource(t *testing.T) {
 	desiredNew := Resource{ID: "new", Channel: "skills", ContentHash: "h3", Payload: map[string]any{"k": "v"}}
 	priorGone := Resource{ID: "gone", Channel: "skills", ContentHash: "h4"}

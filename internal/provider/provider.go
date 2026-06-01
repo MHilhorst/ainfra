@@ -37,6 +37,12 @@ type Resource struct {
 	ContentHash string
 	Requires    []string
 	Payload     map[string]any
+	// Tombstone marks a desired resource as "ensure absent": an explicit
+	// instruction (enabled: false in the manifest) to remove it from the
+	// machine if present, distinct from a resource the manifest simply does
+	// not mention (which is left untouched). DiffResources never creates or
+	// updates a tombstone.
+	Tombstone bool
 }
 
 // Change is one planned mutation of a single resource.
