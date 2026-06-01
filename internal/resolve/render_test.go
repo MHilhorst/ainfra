@@ -354,15 +354,31 @@ mcpServers:
 	}
 
 	mcp := resources["mcpServers"]
-	if len(mcp) != 1 {
-		t.Fatalf("got %d mcpServers, want 1 (disabled one omitted)", len(mcp))
+	byID := map[string]provider.Resource{}
+	for _, r := range mcp {
+		byID[r.ID] = r
 	}
-	if mcp[0].ID != "active-server" {
-		t.Errorf("rendered server = %q, want active-server", mcp[0].ID)
+
+	// The active server is rendered live, with its pinned version in the args.
+	active, ok := byID["active-server"]
+	if !ok {
+		t.Fatal("active-server not rendered")
 	}
-	// The pinned version must be applied to the launch args.
-	args, ok := mcp[0].Payload["args"].([]string)
+	if active.Tombstone {
+		t.Error("active-server must not be a tombstone")
+	}
+	args, ok := active.Payload["args"].([]string)
 	if !ok || !slices.Equal(args, []string{"-y", "pkg@1.0.0"}) {
-		t.Errorf("active-server args = %v, want [-y pkg@1.0.0]", mcp[0].Payload["args"])
+		t.Errorf("active-server args = %v, want [-y pkg@1.0.0]", active.Payload["args"])
+	}
+
+	// The disabled server is rendered as a tombstone so apply removes it from
+	// machines that still carry it, rather than being silently omitted.
+	disabled, ok := byID["disabled-server"]
+	if !ok {
+		t.Fatal("disabled-server must be rendered as a tombstone, not omitted")
+	}
+	if !disabled.Tombstone {
+		t.Error("disabled-server must be a tombstone")
 	}
 }

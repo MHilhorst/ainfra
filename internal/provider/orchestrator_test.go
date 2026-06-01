@@ -129,6 +129,36 @@ func TestOrchestratorBackfillsObservedHash(t *testing.T) {
 	}
 }
 
+func TestPlanAllRenderedTombstoneRemovesForeignServer(t *testing.T) {
+	root := t.TempDir() // no applied ledger -> prior is empty
+
+	// The machine carries a server ainfra never installed (e.g. a teammate ran
+	// `claude mcp add` for it back when it was the team default).
+	mcp := &stubProvider{
+		channel:  "mcpServers",
+		observed: []Resource{{ID: "linear-server", Channel: "mcpServers", ContentHash: "hX"}},
+	}
+	o := NewOrchestrator(root, Env{}, []Provider{mcp})
+
+	// Desired state declares it disabled -> a tombstone.
+	rendered := map[string][]Resource{
+		"mcpServers": {{ID: "linear-server", Channel: "mcpServers", Tombstone: true}},
+	}
+
+	plans, err := o.PlanAllRendered(rendered)
+	if err != nil {
+		t.Fatalf("PlanAllRendered: %v", err)
+	}
+
+	c, ok := find(plans["mcpServers"], "linear-server")
+	if !ok {
+		t.Fatal("a disabled server present on the machine must be scheduled for removal")
+	}
+	if c.Kind != ChangeDelete {
+		t.Errorf("kind = %v, want ChangeDelete", c.Kind)
+	}
+}
+
 func TestApplyAllRenderedDryRunSkipsLedger(t *testing.T) {
 	root := t.TempDir()
 	skills := &stubProvider{channel: "skills"} // observes nothing -> "s" is a create
