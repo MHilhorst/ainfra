@@ -81,6 +81,42 @@ mcpServers:
 	}
 }
 
+func TestLockPreservesPluginBaseline(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+plugin:
+  name: tvt-config
+  marketplace: trein-vertraging
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Seed an existing lock that already carries a released plugin baseline,
+	// as `ainfra plugin release` would have written.
+	seeded := &lockfile.Lock{
+		Version: 1,
+		Plugin:  &lockfile.PluginBaseline{Name: "tvt-config", Version: "2.11.3", ContentHash: "abc123"},
+	}
+	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), seeded); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+
+	got, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Plugin == nil {
+		t.Fatal("plugin baseline dropped by re-resolve")
+	}
+	if got.Plugin.Version != "2.11.3" || got.Plugin.ContentHash != "abc123" {
+		t.Errorf("plugin baseline altered: got %+v", got.Plugin)
+	}
+}
+
 func TestLockPipelineDistinctToolsetsHashDifferently(t *testing.T) {
 	// Two servers with the same command path but different scripted tool
 	// lists must end up with different ToolsetHashes. FakeRunner shares

@@ -441,6 +441,13 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 	committed, personal := splitByLayer(lock)
 	committed.ManifestHash = manifestHash(layers, manifest.LayerTeam, manifest.LayerRepo)
 	personal.ManifestHash = manifestHash(layers, manifest.LayerPersonal)
+	// Preserve the plugin baseline across a re-resolve. It is derived from a
+	// release (written only by `ainfra plugin release`), not from resolving
+	// ainfra.yaml, so a fresh lock has no baseline. Carry the existing one
+	// forward; otherwise `ainfra lock`/`update` would silently drop it.
+	if existing, err := lockfile.Read(filepath.Join(dir, "ainfra.lock")); err == nil {
+		committed.Plugin = existing.Plugin
+	}
 	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
 		return nil, err
 	}

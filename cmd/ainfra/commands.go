@@ -193,7 +193,7 @@ func warnIfStale(ctx cli.Context, dir string, committed *lockfile.Lock) {
 	}
 	if current != committed.ManifestHash {
 		c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
-		fmt.Fprintln(ctx.Stderr, c.Yellow("warning: ainfra.yaml has changed since the last `ainfra lock` — the lockfile is stale. Run `ainfra lock` to refresh it."))
+		fmt.Fprintln(ctx.Stderr, c.Yellow("warning: ainfra.yaml has changed since ainfra.lock was generated — the lockfile is stale. A maintainer should refresh it with `ainfra update` and commit the result."))
 	}
 }
 
