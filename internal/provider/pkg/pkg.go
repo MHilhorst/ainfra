@@ -4,6 +4,7 @@ package pkg
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
 )
@@ -169,10 +170,70 @@ func (ComposerAdapter) Install(env provider.Env, spec map[string]any) error {
 	return err
 }
 
+// UvAdapter installs Python CLI tools via `uv tool install`.
+type UvAdapter struct{}
+
+// Name returns the adapter identifier.
+func (UvAdapter) Name() string { return "uv" }
+
+// uvSpec derives the package name and optional Python version from a uv install
+// spec. The spec must have a "package" key; "python" is optional.
+func uvSpec(spec map[string]any) (pkg string, python string, err error) {
+	v, ok := spec["package"]
+	if !ok {
+		return "", "", fmt.Errorf("uv spec: must have a package key")
+	}
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return "", "", fmt.Errorf("uv spec: package value must be a non-empty string")
+	}
+	if p, ok := spec["python"]; ok {
+		if ps, ok := p.(string); ok {
+			python = ps
+		}
+	}
+	return s, python, nil
+}
+
+// IsInstalled reports whether the package is installed as a uv tool. `uv tool
+// list` always exits zero, so the package name is matched against the first
+// field of each output line (the tool entries are "<package> v<version>").
+func (UvAdapter) IsInstalled(env provider.Env, spec map[string]any) (bool, error) {
+	name, _, err := uvSpec(spec)
+	if err != nil {
+		return false, err
+	}
+	out, runErr := env.Runner.Run("uv", "tool", "list")
+	if runErr != nil {
+		return false, nil
+	}
+	for _, line := range strings.Split(string(out), "\n") {
+		if fields := strings.Fields(line); len(fields) > 0 && fields[0] == name {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Install installs the package as a uv tool via `uv tool install`, pinning the
+// interpreter with --python when the spec declares one.
+func (UvAdapter) Install(env provider.Env, spec map[string]any) error {
+	name, python, err := uvSpec(spec)
+	if err != nil {
+		return err
+	}
+	args := []string{"tool", "install", name}
+	if python != "" {
+		args = append(args, "--python", python)
+	}
+	_, err = env.Runner.Run("uv", args...)
+	return err
+}
+
 // Methods returns the sorted set of install-method names Select recognises.
 // It is the single source of truth for "which methods ainfra can automate".
 func Methods() []string {
-	ms := []string{"brew", "npm", "npm-g", "composer"}
+	ms := []string{"brew", "npm", "npm-g", "composer", "uv"}
 	sort.Strings(ms)
 	return ms
 }
@@ -187,6 +248,8 @@ func Select(method string) (Adapter, bool) {
 		return NpmAdapter{}, true
 	case "composer":
 		return ComposerAdapter{}, true
+	case "uv":
+		return UvAdapter{}, true
 	default:
 		return nil, false
 	}

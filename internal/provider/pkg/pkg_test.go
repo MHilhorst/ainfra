@@ -260,6 +260,80 @@ func TestComposerAdapter_MissingPackage(t *testing.T) {
 	}
 }
 
+func TestUvAdapterName(t *testing.T) {
+	var a pkg.UvAdapter
+	if got := a.Name(); got != "uv" {
+		t.Errorf("UvAdapter.Name() = %q, want uv", got)
+	}
+}
+
+func TestUvAdapterIsInstalled_true(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["uv tool list"] = provider.FakeResult{Output: []byte("meta-ads v1.0.1\n- meta\nother-tool v2.0.0\n")}
+	env := provider.Env{Runner: runner}
+
+	ok, err := pkg.UvAdapter{}.IsInstalled(env, map[string]any{"package": "meta-ads"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("expected IsInstalled = true")
+	}
+}
+
+func TestUvAdapterIsInstalled_false(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	// A substring of an installed executable must not count as installed.
+	runner.Script["uv tool list"] = provider.FakeResult{Output: []byte("other-tool v2.0.0\n- meta\n")}
+	env := provider.Env{Runner: runner}
+
+	ok, err := pkg.UvAdapter{}.IsInstalled(env, map[string]any{"package": "meta-ads"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if ok {
+		t.Error("expected IsInstalled = false")
+	}
+}
+
+func TestUvAdapterInstall_WithPython(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["uv tool install meta-ads --python 3.13"] = provider.FakeResult{}
+	env := provider.Env{Runner: runner}
+
+	if err := (pkg.UvAdapter{}).Install(env, map[string]any{"package": "meta-ads", "python": "3.13"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "uv tool install meta-ads --python 3.13" {
+		t.Errorf("unexpected calls: %v", runner.Calls)
+	}
+}
+
+func TestUvAdapterInstall_WithoutPython(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["uv tool install meta-ads"] = provider.FakeResult{}
+	env := provider.Env{Runner: runner}
+
+	if err := (pkg.UvAdapter{}).Install(env, map[string]any{"package": "meta-ads"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "uv tool install meta-ads" {
+		t.Errorf("unexpected calls: %v", runner.Calls)
+	}
+}
+
+func TestUvAdapter_MissingPackage(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	env := provider.Env{Runner: runner}
+
+	if _, err := (pkg.UvAdapter{}).IsInstalled(env, map[string]any{}); err == nil {
+		t.Error("expected error for missing package in spec")
+	}
+	if err := (pkg.UvAdapter{}).Install(env, map[string]any{}); err == nil {
+		t.Error("expected error for missing package in spec")
+	}
+}
+
 func TestSelectKnownAdapters(t *testing.T) {
 	cases := []struct {
 		method string
@@ -269,6 +343,7 @@ func TestSelectKnownAdapters(t *testing.T) {
 		{"npm", "npm"},
 		{"npm-g", "npm"},
 		{"composer", "composer"},
+		{"uv", "uv"},
 	}
 	for _, c := range cases {
 		a, ok := pkg.Select(c.method)
@@ -298,7 +373,7 @@ func TestSelectUnknownAdapter(t *testing.T) {
 
 func TestMethods(t *testing.T) {
 	got := pkg.Methods()
-	for _, want := range []string{"brew", "npm", "npm-g", "composer"} {
+	for _, want := range []string{"brew", "npm", "npm-g", "composer", "uv"} {
 		found := false
 		for _, m := range got {
 			if m == want {
