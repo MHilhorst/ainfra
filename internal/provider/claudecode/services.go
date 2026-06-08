@@ -102,12 +102,9 @@ func (Services) Apply(env provider.Env, plan provider.ChannelPlan) (provider.App
 func buildStartScript(id, kind string, spec map[string]any) string {
 	s := "#!/bin/sh\n"
 	s += fmt.Sprintf("# ainfra-generated start script for service %s (kind %s)\n", id, kind)
-	switch {
-	case kind == "ssh-tunnel":
-		s += sshTunnelStart(spec)
-	case spec["command"] != nil:
+	if spec["command"] != nil {
 		s += specString(spec, "command") + "\n"
-	default:
+	} else {
 		s += "# TODO: add start command\n"
 	}
 	return s
@@ -116,46 +113,12 @@ func buildStartScript(id, kind string, spec map[string]any) string {
 func buildStopScript(id, kind string, spec map[string]any) string {
 	s := "#!/bin/sh\n"
 	s += fmt.Sprintf("# ainfra-generated stop script for service %s (kind %s)\n", id, kind)
-	switch {
-	case kind == "ssh-tunnel":
-		s += sshTunnelStop(spec)
-	case spec["stopCommand"] != nil:
+	if spec["stopCommand"] != nil {
 		s += specString(spec, "stopCommand") + "\n"
-	default:
+	} else {
 		s += "# TODO: add stop command\n"
 	}
 	return s
-}
-
-// sshTunnelForward renders the "<localPort>:<remoteHost>:<remotePort>" -L
-// argument shared by the start and stop scripts so they match exactly.
-func sshTunnelForward(spec map[string]any) string {
-	return fmt.Sprintf("%s:%s:%s",
-		specString(spec, "localPort"),
-		specString(spec, "remoteHost"),
-		specString(spec, "remotePort"))
-}
-
-// sshTunnelStart renders an idempotent local-forward tunnel: if the local port
-// is already listening the script exits 0 (so a SessionStart hook re-running it
-// is a no-op and self-heals after a VPN drop), otherwise it opens the tunnel in
-// the background with `ssh -f -N`.
-func sshTunnelStart(spec map[string]any) string {
-	forward := sshTunnelForward(spec)
-	dest := specString(spec, "sshUser") + "@" + specString(spec, "sshHost")
-	local := specString(spec, "localPort")
-	return fmt.Sprintf(
-		"if nc -z 127.0.0.1 %s >/dev/null 2>&1; then exit 0; fi\n"+
-			"ssh -f -N -L %s %s\n",
-		local, forward, dest)
-}
-
-// sshTunnelStop kills the background tunnel by matching its exact -L forward and
-// destination, so it never touches an unrelated ssh process.
-func sshTunnelStop(spec map[string]any) string {
-	forward := sshTunnelForward(spec)
-	dest := specString(spec, "sshUser") + "@" + specString(spec, "sshHost")
-	return fmt.Sprintf("pkill -f \"ssh -f -N -L %s %s\" 2>/dev/null || true\n", forward, dest)
 }
 
 // specString coerces a spec value to a string. Spec values arrive as `any`

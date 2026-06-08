@@ -521,12 +521,12 @@ func markSeen(seen map[string]map[string]bool, channel, id string) bool {
 }
 
 // serviceScriptGen versions the generated start.sh/stop.sh format. A background
-// service's content hash folds it in so that improving the generator (e.g.
-// teaching it to render real ssh-tunnel commands) changes the hash and forces
-// existing installs to rewrite their service scripts on the next apply, even
-// though the service spec is unchanged. Bump this whenever the script output
-// changes.
-const serviceScriptGen = 2
+// service's content hash folds it in so that changing the generator (e.g. moving
+// from a baked-in ssh-tunnel command to the generic spec.command) changes the
+// hash and forces existing installs to rewrite their service scripts on the next
+// apply, even though the service spec is unchanged. Bump this whenever the script
+// output changes.
+const serviceScriptGen = 3
 
 // serviceContentHash derives a background service's content hash from its kind,
 // spec, and the script-generator version. The Services provider generates the

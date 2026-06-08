@@ -36,11 +36,7 @@ templates:
         id: "${instance.id}-tunnel"
         kind: ssh-tunnel
         spec:
-          localPort: "${resolved.tunnelPort}"
-          remoteHost: "127.0.0.1"
-          remotePort: 3306
-          sshUser: deploy
-          sshHost: "${params.sshHost}"
+          command: 'nc -z 127.0.0.1 ${resolved.tunnelPort} 2>/dev/null || ssh -f -N -L ${resolved.tunnelPort}:127.0.0.1:3306 ${params.sshHost}'
         lifecycle:
           generateHook: SessionStart
 mcpServers:
@@ -86,8 +82,13 @@ mcpServers:
 	if strings.Contains(string(start), "TODO") {
 		t.Errorf("start.sh is still a stub:\n%s", start)
 	}
-	if !strings.Contains(string(start), "ssh -f -N -L") || !strings.Contains(string(start), "deploy@example-prod") {
-		t.Errorf("start.sh missing real tunnel command:\n%s", start)
+	// The command comes verbatim from the config's spec.command (ainfra adds no
+	// ssh knowledge): bare ssh-config alias, no forced sshUser.
+	if !strings.Contains(string(start), "ssh -f -N -L") || !strings.Contains(string(start), "example-prod") {
+		t.Errorf("start.sh missing the configured tunnel command:\n%s", start)
+	}
+	if strings.Contains(string(start), "deploy@") {
+		t.Errorf("start.sh must not force a user; the command should use the bare alias:\n%s", start)
 	}
 
 	settings, err := mem.ReadFile("/repo/.claude/settings.json")
