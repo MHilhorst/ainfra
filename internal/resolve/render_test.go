@@ -240,6 +240,72 @@ rules:
 	}
 }
 
+func TestRenderResourcesDerivesSessionStartHookForTunnel(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+cliTools:
+  ssh: { versionConstraint: ">=8" }
+templates:
+  tun:
+    params: { host: { type: string, required: true } }
+    resolved: { tunnelPort: { kind: allocated-port } }
+    produces:
+      mcpServer:
+        command: npx
+        version: "1.0.0"
+        requires: [ { service: "${instance.id}-tunnel" } ]
+      backgroundService:
+        id: "${instance.id}-tunnel"
+        kind: ssh-tunnel
+        spec:
+          localPort: "${resolved.tunnelPort}"
+          remoteHost: "127.0.0.1"
+          remotePort: 3306
+          sshHost: "platform-prod"
+        requires: [ { cliTool: ssh } ]
+        lifecycle: { generateHook: SessionStart }
+mcpServers:
+  db-a: { template: tun, params: { host: a.example } }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+
+	// The background service itself is still emitted.
+	var svc *provider.Resource
+	for i, r := range resources["backgroundServices"] {
+		if r.ID == "db-a-tunnel" {
+			svc = &resources["backgroundServices"][i]
+		}
+	}
+	if svc == nil {
+		t.Fatalf("missing backgroundServices resource db-a-tunnel; got %v", resources["backgroundServices"])
+	}
+
+	// A SessionStart hook is derived to run the service's start script.
+	var hook *provider.Resource
+	for i, r := range resources["hooks"] {
+		if r.ID == "db-a-tunnel-start" {
+			hook = &resources["hooks"][i]
+		}
+	}
+	if hook == nil {
+		t.Fatalf("missing derived hook db-a-tunnel-start; got hooks %v", resources["hooks"])
+	}
+	if hook.Payload["event"] != "SessionStart" {
+		t.Errorf("hook event = %v, want SessionStart", hook.Payload["event"])
+	}
+	cmd, _ := hook.Payload["command"].(string)
+	if !strings.Contains(cmd, ".ainfra/services/db-a-tunnel/start.sh") {
+		t.Errorf("hook command = %q, want it to run the service start script", cmd)
+	}
+}
+
 func TestPinPackageVersion(t *testing.T) {
 	cases := []struct {
 		name    string

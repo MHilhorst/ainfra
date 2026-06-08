@@ -232,6 +232,20 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 				ContentHash: lockfile.ContentHash(out.Service.Spec),
 			}
 			addRequireEdges(g, "svc:"+out.Service.ID, out.Service.Requires)
+
+			// A service may ask ainfra to wire a Claude Code hook that runs its
+			// start script on a lifecycle event (design §7). The hook depends on
+			// the service entry so the start script exists before it fires.
+			if hookID, event := derivedServiceHook(out.Service); hookID != "" {
+				g.AddNode("hook:" + hookID)
+				svcRef := "svc:" + out.Service.ID
+				lock.Entries.Hooks[hookID] = lockfile.Entry{
+					Layer:       string(ti.layer),
+					Requires:    []string{svcRef},
+					ContentHash: lockfile.ContentHash(serviceHookCommand(out.Service.ID) + "\x00" + event),
+				}
+				g.AddEdge("hook:"+hookID, svcRef)
+			}
 		}
 	}
 	// Resolve the hooks and commands channels. Neither is templated: each entry

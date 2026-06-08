@@ -694,6 +694,53 @@ mcpServers:
 	}
 }
 
+func TestLockPipelineDerivesSessionStartHookForBackgroundService(t *testing.T) {
+	dir := t.TempDir()
+	manifestYAML := `version: 1
+cliTools:
+  ssh: { versionConstraint: ">=8" }
+templates:
+  tun:
+    params: { host: { type: string, required: true } }
+    resolved: { tunnelPort: { kind: allocated-port } }
+    produces:
+      mcpServer:
+        command: npx
+        version: "1.0.0"
+        requires: [ { service: "${instance.id}-tunnel" } ]
+      backgroundService:
+        id: "${instance.id}-tunnel"
+        kind: ssh-tunnel
+        requires: [ { cliTool: ssh } ]
+        lifecycle: { generateHook: SessionStart }
+mcpServers:
+  db-a: { template: tun, params: { host: a.example } }
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("read lock: %v", err)
+	}
+
+	hook, ok := lock.Entries.Hooks["db-a-tunnel-start"]
+	if !ok {
+		t.Fatalf("expected derived SessionStart hook 'db-a-tunnel-start'; hooks = %v", lock.Entries.Hooks)
+	}
+	// The hook must run only after the service it starts has been reconciled.
+	if len(hook.Requires) != 1 || hook.Requires[0] != "svc:db-a-tunnel" {
+		t.Errorf("derived hook requires = %v, want [svc:db-a-tunnel]", hook.Requires)
+	}
+	// A service without generateHook must not derive a hook.
+	if _, ok := lock.Entries.Hooks["db-a-tunnel"]; ok {
+		t.Error("did not expect a hook keyed by the bare service id")
+	}
+}
+
 func TestLockPipelineRecordsRequiresOnExistingChannels(t *testing.T) {
 	dir := t.TempDir()
 	manifestYAML := `version: 1

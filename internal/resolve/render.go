@@ -196,6 +196,23 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 								"spec": inst.Service.Spec,
 							},
 						})
+						// When the service asks for a lifecycle hook, emit a hooks
+						// resource that runs its start script; the hooks channel
+						// materializes it into settings.json.
+						if hookID, event := derivedServiceHook(inst.Service); hookID != "" && markSeen(seen, "hooks", hookID) {
+							hEntry := merged.hooks[hookID]
+							result["hooks"] = append(result["hooks"], provider.Resource{
+								ID:          hookID,
+								Channel:     "hooks",
+								Layer:       hEntry.Layer,
+								ContentHash: hEntry.ContentHash,
+								Requires:    hEntry.Requires,
+								Payload: map[string]any{
+									"event":   event,
+									"command": serviceHookCommand(sid),
+								},
+							})
+						}
 					}
 				}
 			} else {
@@ -482,6 +499,30 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 	}
 
 	return result, nil
+}
+
+// derivedServiceHook reports the hook id and Claude Code event for a background
+// service that asks ainfra to wire a start hook via lifecycle.generateHook (for
+// example an SSH tunnel that should open on SessionStart). It returns "", ""
+// when the service declares no generateHook. The hook id is the service id
+// suffixed with "-start" so it is stable and cannot collide with a real hook.
+func derivedServiceHook(svc *manifest.BackgroundService) (id, event string) {
+	if svc == nil {
+		return "", ""
+	}
+	event, _ = svc.Lifecycle["generateHook"].(string)
+	if event == "" {
+		return "", ""
+	}
+	return svc.ID + "-start", event
+}
+
+// serviceHookCommand is the shell command a derived service hook runs: the
+// service's generated start script, located relative to the project root Claude
+// Code exposes as $CLAUDE_PROJECT_DIR. The start script is idempotent, so the
+// hook firing on every session is a no-op once the service is already up.
+func serviceHookCommand(serviceID string) string {
+	return fmt.Sprintf(`sh "$CLAUDE_PROJECT_DIR/.ainfra/services/%s/start.sh"`, serviceID)
 }
 
 // markSeen records that id has been seen for a channel and returns true if it
