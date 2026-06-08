@@ -104,10 +104,10 @@ func buildMCPServerObject(payload map[string]any) map[string]any {
 	if cmd, ok := payload["command"]; ok && cmd != nil && cmd != "" {
 		obj["command"] = cmd
 	}
-	if args, ok := payload["args"]; ok && args != nil {
+	if args, ok := payload["args"]; ok && !isEmpty(args) {
 		obj["args"] = args
 	}
-	if env, ok := payload["env"]; ok && env != nil {
+	if env, ok := payload["env"]; ok && !isEmpty(env) {
 		obj["env"] = env
 	}
 	if transport, ok := payload["transport"]; ok && transport != nil && transport != "" {
@@ -116,7 +116,7 @@ func buildMCPServerObject(payload map[string]any) map[string]any {
 	if url, ok := payload["url"]; ok && url != nil && url != "" {
 		obj["url"] = url
 	}
-	if headers, ok := payload["headers"]; ok && headers != nil {
+	if headers, ok := payload["headers"]; ok && !isEmpty(headers) {
 		obj["headers"] = headers
 	}
 
