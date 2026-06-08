@@ -189,13 +189,36 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 							ID:          sid,
 							Channel:     "backgroundServices",
 							Layer:       sEntry.Layer,
-							ContentHash: sEntry.ContentHash,
+							ContentHash: serviceContentHash(inst.Service.Kind, inst.Service.Spec),
 							Requires:    sEntry.Requires,
 							Payload: map[string]any{
 								"kind": inst.Service.Kind,
 								"spec": inst.Service.Spec,
 							},
 						})
+
+						// A service may ask for a lifecycle hook that runs its
+						// generated start script. Without this the start.sh is
+						// written but never executed, so the service (e.g. an
+						// SSH tunnel an MCP server depends on) never comes up.
+						if ev, ok := inst.Service.Lifecycle["generateHook"].(string); ok && ev != "" {
+							hookID := sid + "-" + strings.ToLower(ev)
+							if markSeen(seen, "hooks", hookID) {
+								hookPayload := map[string]any{
+									"event":   ev,
+									"matcher": "",
+									"command": fmt.Sprintf("sh \"$CLAUDE_PROJECT_DIR/.ainfra/services/%s/start.sh\"", sid),
+									"timeout": 0,
+								}
+								result["hooks"] = append(result["hooks"], provider.Resource{
+									ID:          hookID,
+									Channel:     "hooks",
+									Layer:       sEntry.Layer,
+									ContentHash: lockfile.ContentHash(hookPayload),
+									Payload:     hookPayload,
+								})
+							}
+						}
 					}
 				}
 			} else {
@@ -495,6 +518,26 @@ func markSeen(seen map[string]map[string]bool, channel, id string) bool {
 	}
 	seen[channel][id] = true
 	return true
+}
+
+// serviceScriptGen versions the generated start.sh/stop.sh format. A background
+// service's content hash folds it in so that improving the generator (e.g.
+// teaching it to render real ssh-tunnel commands) changes the hash and forces
+// existing installs to rewrite their service scripts on the next apply, even
+// though the service spec is unchanged. Bump this whenever the script output
+// changes.
+const serviceScriptGen = 2
+
+// serviceContentHash derives a background service's content hash from its kind,
+// spec, and the script-generator version. The Services provider generates the
+// start/stop scripts deterministically from kind+spec, so this hash tracks both
+// what the service is and how its scripts are rendered.
+func serviceContentHash(kind string, spec map[string]any) string {
+	return lockfile.ContentHash(map[string]any{
+		"kind":      kind,
+		"spec":      spec,
+		"scriptGen": serviceScriptGen,
+	})
 }
 
 // isRemoteSource reports whether a source string refers to a remote location
