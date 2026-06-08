@@ -73,6 +73,26 @@ func TestWriteSettingsEnv_FilePermissions(t *testing.T) {
 	}
 }
 
+// Claude Code creates settings.local.json at 0644 before ainfra ever writes it.
+// os.WriteFile does not change an existing file's mode, so without an explicit
+// chmod the secrets we merge in would sit world-readable. Tighten on every write.
+func TestWriteSettingsEnv_TightensExistingLoosePermissions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "settings.local.json")
+	if err := os.WriteFile(path, []byte(`{"env":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeSettingsEnv(path, map[string]string{"FLARE_API_TOKEN": "tok"}); err != nil {
+		t.Fatalf("writeSettingsEnv: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("file mode = %o, want 600 (a pre-existing loose file must be tightened)", perm)
+	}
+}
+
 func TestParseEnvBlob(t *testing.T) {
 	blob := `# a comment
 FLARE_API_TOKEN=tok-123

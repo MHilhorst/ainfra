@@ -191,5 +191,11 @@ func writeSettingsEnv(path string, env map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(path, append(out, '\n'), 0o600)
+	if err := os.WriteFile(path, append(out, '\n'), 0o600); err != nil {
+		return err
+	}
+	// WriteFile's mode only applies when creating the file. Claude Code may have
+	// created settings.local.json at 0644 first, so chmod explicitly — it holds
+	// credential values and must not be world-readable.
+	return os.Chmod(path, 0o600)
 }
