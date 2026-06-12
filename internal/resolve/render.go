@@ -94,24 +94,27 @@ func RenderResources(dir string, runner provider.CommandRunner) (map[string][]pr
 // scope selector is evaluated against ctx; entries whose selector does not
 // match are filtered out of the rendered set (they are still in the lockfile,
 // but this invocation neither plans nor applies them).
-//
-// It calls RunLock(dir, runner) to write current lockfiles, then reads them to
-// obtain each entry's ContentHash, Layer, and Requires. The manifest is re-read
-// from the layers to build Payload fields. The function therefore relies on a
-// writable working directory; callers should treat the resulting lockfiles as
-// the source of truth for content hashes.
 func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx ResolutionContext) (map[string][]provider.Resource, error) {
-	if err := RunLock(dir, runner); err != nil {
-		return nil, err
-	}
+	rendered, _, _, err := RenderResourcesAndLocksFor(dir, runner, ctx)
+	return rendered, err
+}
 
-	committed, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+// RenderResourcesAndLocksFor renders resources from an in-memory resolve of
+// the manifest layers and returns the resolved committed and personal locks
+// alongside them. The resolve provides each entry's ContentHash, Layer,
+// Resolved fields (sticky ports come from the existing ainfra.lock), and
+// Requires; the manifest is re-read from the layers to build Payload fields.
+//
+// Nothing is written: the on-disk lockfiles are inputs only. Refreshing them
+// is the job of the lock-writing verbs (`ainfra lock`, `update`, `add`), so
+// `ainfra install` never churns the committed lock as a side effect. MCP
+// introspection is skipped — rendering never reads toolset data, and probing
+// from an arbitrary machine would fold its environment (VPN state, npx cache)
+// into the result.
+func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx ResolutionContext) (map[string][]provider.Resource, *lockfile.Lock, *lockfile.Lock, error) {
+	_, committed, personal, err := resolveLocks(dir, runner, false)
 	if err != nil {
-		return nil, err
-	}
-	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
-	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	// Merge both locks into one index keyed by channel+id.
@@ -119,7 +122,7 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	result := map[string][]provider.Resource{}
@@ -233,7 +236,7 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 
 			secSrv := &manifest.MCPServer{Env: envMap, Headers: headersMap, URL: url}
 			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers)); err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			envMap, headersMap, url = secSrv.Env, secSrv.Headers, secSrv.URL
 
@@ -338,11 +341,11 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 			if r.Template && content != "" {
 				rv, err := getResolvedVars()
 				if err != nil {
-					return nil, err
+					return nil, nil, nil, err
 				}
 				substituted, err := substituteVars(content, rv)
 				if err != nil {
-					return nil, fmt.Errorf("rule %q: %w", id, err)
+					return nil, nil, nil, fmt.Errorf("rule %q: %w", id, err)
 				}
 				content = substituted
 			}
@@ -504,7 +507,7 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 		})
 	}
 
-	return result, nil
+	return result, committed, personal, nil
 }
 
 // markSeen records that id has been seen for a channel and returns true if it

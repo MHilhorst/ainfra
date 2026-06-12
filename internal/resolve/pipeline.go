@@ -69,6 +69,11 @@ const portBase = 13306
 // ainfra.lock (team+repo entries) and ainfra.personal.lock (personal). Any
 // introspection warnings are discarded; callers that need them should use
 // RunLockWithResult.
+//
+// RunLock is the lock-writing path, reserved for the verbs whose purpose is
+// refreshing the lockfiles (`ainfra lock`, `update`, `add`). Consumers that
+// only need resolved state (install, render, publish) go through resolveLocks
+// so they never rewrite the committed lock as a side effect.
 func RunLock(dir string, runner provider.CommandRunner) error {
 	_, err := RunLockWithResult(dir, runner)
 	return err
@@ -77,10 +82,31 @@ func RunLock(dir string, runner provider.CommandRunner) error {
 // RunLockWithResult is RunLock plus a RunLockResult capturing per-server
 // ToolsetHash warnings.
 func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResult, error) {
+	result, committed, personal, err := resolveLocks(dir, runner, true)
+	if err != nil {
+		return nil, err
+	}
+	if err := lockfile.WriteStable(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
+		return nil, err
+	}
+	if err := lockfile.WriteStable(filepath.Join(dir, "ainfra.personal.lock"), personal); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+// resolveLocks runs the resolve pipeline in memory and returns the committed
+// and personal locks without writing them. introspect controls whether stdio
+// MCP servers are probed for their toolsets: lock-writing verbs introspect so
+// drift detection has fingerprints to compare against; the render/install
+// path skips it because rendering never reads toolset data and probing is
+// slow and environment-sensitive (a VPN-down probe must not strip toolsets
+// from the committed lock).
+func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*RunLockResult, *lockfile.Lock, *lockfile.Lock, error) {
 	result := &RunLockResult{}
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	// Merge templates across layers, so a lower layer can reference a template
 	// declared higher up. The resolve phase below reuses this map.
@@ -111,12 +137,12 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 	// tags each diagnostic with its source file — the same check
 	// `ainfra validate` runs.
 	if err := manifest.ValidateAll(layers); err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	prior, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 	priorPorts := portsFromLock(prior)
 
@@ -155,7 +181,7 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 
 	ports, err := AllocatePorts(portReqs, priorPorts, portBase)
 	if err != nil {
-		return nil, err
+		return nil, nil, nil, err
 	}
 
 	g := graph.New()
@@ -190,14 +216,14 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 		}
 		out, err := Instantiate(ti.id, ti.inst, ti.tmpl, resolved)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, err
 		}
 		g.AddNode("mcp:" + ti.id)
 		entry := lockfile.Entry{Layer: string(ti.layer), FromTemplate: ti.inst.Template, Resolved: resolved}
 		if out.MCPServer != nil {
 			refs, err := substituteSecrets(out.MCPServer, "mcpServers", ti.id, ti.layer, ti.inst.Secret, allSecrets)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			for v, sr := range refs {
 				lock.Secrets[v] = sr
@@ -213,14 +239,16 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 			}))
 			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
-			if hash, tools, warn := introspectMCPServer(ti.id, out.MCPServer.Transport, out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Env); warn != nil {
-				result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
-			} else {
-				entry.ToolsetHash = hash
-				entry.LockedTools = tools
-				entry.Command = out.MCPServer.Command
-				entry.Args = append([]string(nil), out.MCPServer.Args...)
-				entry.Env = copyStringMap(out.MCPServer.Env)
+			if introspect {
+				if hash, tools, warn := introspectMCPServer(ti.id, out.MCPServer.Transport, out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Env); warn != nil {
+					result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
+				} else {
+					entry.ToolsetHash = hash
+					entry.LockedTools = tools
+					entry.Command = out.MCPServer.Command
+					entry.Args = append([]string(nil), out.MCPServer.Args...)
+					entry.Env = copyStringMap(out.MCPServer.Env)
+				}
 			}
 		}
 		lock.Entries.MCPServers[ti.id] = entry
@@ -293,7 +321,7 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 			}
 			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets)
 			if err != nil {
-				return nil, err
+				return nil, nil, nil, err
 			}
 			for v, sr := range refs {
 				lock.Secrets[v] = sr
@@ -314,14 +342,16 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 					"headers":   toAnyMap(srv.Headers),
 				})),
 			}
-			if hash, tools, warn := introspectMCPServer(id, srv.Transport, srv.Command, srv.Args, srv.Env); warn != nil {
-				result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
-			} else {
-				inlineEntry.ToolsetHash = hash
-				inlineEntry.LockedTools = tools
-				inlineEntry.Command = srv.Command
-				inlineEntry.Args = append([]string(nil), srv.Args...)
-				inlineEntry.Env = copyStringMap(srv.Env)
+			if introspect {
+				if hash, tools, warn := introspectMCPServer(id, srv.Transport, srv.Command, srv.Args, srv.Env); warn != nil {
+					result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
+				} else {
+					inlineEntry.ToolsetHash = hash
+					inlineEntry.LockedTools = tools
+					inlineEntry.Command = srv.Command
+					inlineEntry.Args = append([]string(nil), srv.Args...)
+					inlineEntry.Env = copyStringMap(srv.Env)
+				}
 			}
 			lock.Entries.MCPServers[id] = inlineEntry
 		}
@@ -374,11 +404,11 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 					allVars := collectVars(layers)
 					resolved, resolveErr := resolveVars(allVars, runner)
 					if resolveErr != nil {
-						return nil, resolveErr
+						return nil, nil, nil, resolveErr
 					}
 					rendered, subErr := substituteVars(string(raw), resolved)
 					if subErr != nil {
-						return nil, fmt.Errorf("rule %q: %w", id, subErr)
+						return nil, nil, nil, fmt.Errorf("rule %q: %w", id, subErr)
 					}
 					contentHash = lockfile.ContentHash(rendered)
 				}
@@ -415,7 +445,7 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 			if len(t.Secret) > 0 {
 				refs, _, err := collectSecretRefs("cliTools", id, layerName, t.Secret, allSecrets)
 				if err != nil {
-					return nil, err
+					return nil, nil, nil, err
 				}
 				for v, sr := range refs {
 					lock.Secrets[v] = sr
@@ -435,7 +465,7 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 	}
 
 	if _, err := g.TopoSort(); err != nil {
-		return nil, fmt.Errorf("dependency graph invalid: %w", err)
+		return nil, nil, nil, fmt.Errorf("dependency graph invalid: %w", err)
 	}
 
 	committed, personal := splitByLayer(lock)
@@ -448,16 +478,10 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 	if existing, err := lockfile.Read(filepath.Join(dir, "ainfra.lock")); err == nil {
 		committed.Plugin = existing.Plugin
 	}
-	if err := lockfile.Write(filepath.Join(dir, "ainfra.lock"), committed); err != nil {
-		return nil, err
-	}
-	if err := lockfile.Write(filepath.Join(dir, "ainfra.personal.lock"), personal); err != nil {
-		return nil, err
-	}
 	sort.Slice(result.ToolsetWarnings, func(i, j int) bool {
 		return result.ToolsetWarnings[i].ServerID < result.ToolsetWarnings[j].ServerID
 	})
-	return result, nil
+	return result, committed, personal, nil
 }
 
 // introspectMCPServer runs tools/list against a stdio MCP server and returns

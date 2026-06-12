@@ -374,9 +374,13 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	warnIfStale(ctx, dir, committed)
 	warnIfAinfraVersionMismatch(ctx, dir)
 
-	// Render resources with Payload so providers can write file content.
+	// Render resources with Payload so providers can write file content. The
+	// render resolves ainfra.yaml in memory and never rewrites the lockfiles
+	// — those only change via `ainfra lock`/`update`/`add`. The resolved
+	// locks carry the secret refs for the manifest as it is now, so secrets
+	// added after the last lock refresh still sync below.
 	rctx := resolve.NewContextFromEnv(ctx.Identity, dir, dir)
-	rendered, err := resolve.RenderResourcesFor(dir, provider.ExecRunner{}, rctx)
+	rendered, resolvedCommitted, resolvedPersonal, err := resolve.RenderResourcesAndLocksFor(dir, provider.ExecRunner{}, rctx)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
@@ -525,7 +529,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	// Final step: resolve the manifest's secrets and write them into the
 	// Claude Code settings env block, so a normally-launched Claude has them.
 	// This makes `ainfra apply` a complete setup — config and credentials.
-	res, serr := syncSecrets(dir, secret.DefaultRegistry())
+	res, serr := syncSecrets(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal)
 	if serr != nil {
 		ui.RenderError(ctx.Stderr, errColor, serr)
 		return 1
