@@ -21,28 +21,17 @@ type syncResult struct {
 	Files        []string // credential files written, by path
 }
 
-// syncSecrets resolves every secret referenced by the lockfiles and manifest
-// at dir and materializes it. It runs as the final step of `ainfra install`.
+// syncSecrets resolves every secret referenced by the resolved locks and the
+// manifest at dir and materializes it. It runs as the final step of
+// `ainfra install`, which passes the in-memory resolved locks so a secret
+// added to ainfra.yaml syncs even while the committed lockfile is stale.
 //
 // A secret is materialized by its destination:
-//   - a single-value secret (lockfile) -> one env var in the settings file
+//   - a single-value secret (lock)     -> one env var in the settings file
 //   - envFile: true                    -> a .env blob expanded into many env vars
 //   - path: <file>                     -> the resolved value written to that file
-func syncSecrets(dir string, reg *secret.Registry) (syncResult, error) {
-	lockPath := filepath.Join(dir, "ainfra.lock")
-	if !fileExists(lockPath) {
-		return syncResult{}, fmt.Errorf("ainfra.lock not found — run `ainfra lock` first")
-	}
-	committed, err := lockfile.Read(lockPath)
-	if err != nil {
-		return syncResult{}, err
-	}
-	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
-	if err != nil {
-		personal = &lockfile.Lock{}
-	}
-
-	// The single-value secret set is the union of both lockfiles.
+func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) (syncResult, error) {
+	// The single-value secret set is the union of both locks.
 	refs := map[string]lockfile.SecretRef{}
 	maps.Copy(refs, committed.Secrets)
 	maps.Copy(refs, personal.Secrets)
