@@ -443,7 +443,7 @@ func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*
 		for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {
 			t := m.CLITools[id]
 			if len(t.Secret) > 0 {
-				refs, _, err := collectSecretRefs("cliTools", id, layerName, t.Secret, allSecrets)
+				refs, _, _, err := collectSecretRefs("cliTools", id, layerName, t.Secret, allSecrets)
 				if err != nil {
 					return nil, nil, nil, err
 				}

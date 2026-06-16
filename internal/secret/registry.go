@@ -19,6 +19,14 @@ type Resolver interface {
 	Check(ref string) error
 }
 
+// Availabler is an optional Resolver capability: a backend that can verify it
+// is ready (CLI installed, session valid) without resolving a specific ref.
+// Used as an up-front preflight so an unusable backend fails before any config
+// is written, instead of mid-apply on the first ref it cannot resolve.
+type Availabler interface {
+	Available() error
+}
+
 // Registry dispatches a ref to the Resolver registered for its scheme.
 type Registry struct {
 	resolvers map[string]Resolver
@@ -78,4 +86,19 @@ func (reg *Registry) Check(ref string) error {
 		return err
 	}
 	return r.Check(ref)
+}
+
+// CheckBackend verifies the backend for scheme is ready, when its resolver
+// supports a readiness probe (implements Availabler). A scheme with no probe,
+// or an unregistered scheme, returns nil — readiness is unknowable, so it is
+// not treated as a failure.
+func (reg *Registry) CheckBackend(scheme string) error {
+	r, ok := reg.resolvers[scheme]
+	if !ok {
+		return nil
+	}
+	if a, ok := r.(Availabler); ok {
+		return a.Available()
+	}
+	return nil
 }

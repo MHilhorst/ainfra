@@ -14,6 +14,55 @@ import (
 	"github.com/MHilhorst/ainfra/internal/secret"
 )
 
+// secretSchemesUsed returns the distinct ref schemes (e.g. "op", "env") every
+// secret in the resolved locks and the manifest's envFile/path secrets resolves
+// through. It is the input to the backend preflight: which credential backends
+// must be ready for this install to materialize secrets.
+func secretSchemesUsed(dir string, committed, personal *lockfile.Lock) []string {
+	set := map[string]bool{}
+	for _, l := range []*lockfile.Lock{committed, personal} {
+		if l == nil {
+			continue
+		}
+		for _, sr := range l.Secrets {
+			if sr.Scheme != "" {
+				set[sr.Scheme] = true
+			}
+		}
+	}
+	// envFile/path secrets live in the manifest, not the lockfile.
+	if layers, err := manifest.LoadLayers(dir); err == nil {
+		for _, m := range layers {
+			if m == nil {
+				continue
+			}
+			for _, sec := range m.Secrets {
+				if !sec.EnvFile && sec.Path == "" {
+					continue
+				}
+				if scheme, err := secret.SchemeOf(expandUser(sec.Ref)); err == nil {
+					set[scheme] = true
+				}
+			}
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
+}
+
+// preflightSecretBackends verifies every credential backend a secret resolves
+// through is ready (e.g. the 1Password CLI is installed and signed in) before
+// apply writes any config, so an unusable backend fails fast instead of leaving
+// a half-configured repo. Backends with no readiness probe are skipped.
+func preflightSecretBackends(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) []string {
+	var failures []string
+	for _, scheme := range secretSchemesUsed(dir, committed, personal) {
+		if err := reg.CheckBackend(scheme); err != nil {
+			failures = append(failures, err.Error())
+		}
+	}
+	return failures
+}
+
 // syncResult reports what syncSecrets materialized.
 type syncResult struct {
 	EnvCount     int      // environment variables written to the settings file

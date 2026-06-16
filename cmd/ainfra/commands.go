@@ -470,6 +470,20 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 		return 1
 	}
 
+	// Verify the credential backends the manifest's secrets resolve through
+	// (e.g. the 1Password CLI) are ready before writing anything. Skipped on a
+	// dry run, which never resolves secrets — so `install --dry-run --strict`
+	// stays usable in CI where no vault is signed in.
+	if !dryRun {
+		if failures := preflightSecretBackends(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal); len(failures) > 0 {
+			fmt.Fprintln(ctx.Stderr, "Secret backend not ready — fix this before applying:")
+			for _, f := range failures {
+				fmt.Fprintf(ctx.Stderr, "  %s\n", f)
+			}
+			return 1
+		}
+	}
+
 	// Confirm unless --yes or --dry-run (a dry run changes nothing).
 	if !yes && !dryRun {
 		ok, err := ui.Confirm(ctx.Stdin, ctx.Stdout, "Apply these changes? (yes/no): ")
