@@ -68,8 +68,10 @@ mcpServers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-github"]
     version: "0.6.2"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${secret.token}"   # wire the secret into the env var the server reads
     secret:
-      token: github-token                  # references the github-token secret
+      token: github-token                  # binds the name `token` to the github-token secret
 
 # --- Hooks: automation bound to Claude Code lifecycle events -----------------
 hooks:

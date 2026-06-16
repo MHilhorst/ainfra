@@ -1,9 +1,12 @@
 package secret
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
+
+var errNotReady = errors.New("backend not ready")
 
 // fakeResolver is a Resolver returning a fixed value, for tests.
 type fakeResolver struct{ scheme, value string }
@@ -35,6 +38,34 @@ func TestRegistryUnknownSchemeErrors(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "vault") || !strings.Contains(err.Error(), "op") {
 		t.Errorf("error %q should name the bad scheme and the registered schemes", err)
+	}
+}
+
+// availableResolver is a Resolver that also reports backend readiness.
+type availableResolver struct {
+	fakeResolver
+	avail error
+}
+
+func (a availableResolver) Available() error { return a.avail }
+
+func TestRegistryCheckBackend(t *testing.T) {
+	reg := NewRegistry()
+	reg.Add(fakeResolver{scheme: "env"})                                 // no Availabler
+	reg.Add(availableResolver{fakeResolver: fakeResolver{scheme: "op"}}) // ready
+	reg.Add(availableResolver{fakeResolver: fakeResolver{scheme: "vault"}, avail: errNotReady})
+
+	if err := reg.CheckBackend("env"); err != nil {
+		t.Errorf("scheme without a probe should pass: %v", err)
+	}
+	if err := reg.CheckBackend("op"); err != nil {
+		t.Errorf("ready backend: %v", err)
+	}
+	if err := reg.CheckBackend("vault"); err == nil {
+		t.Error("unready backend: want error, got nil")
+	}
+	if err := reg.CheckBackend("missing"); err != nil {
+		t.Errorf("unregistered scheme should pass (unknowable): %v", err)
 	}
 }
 

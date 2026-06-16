@@ -55,16 +55,52 @@ func (o OpResolver) Check(ref string) error {
 	return nil
 }
 
-// opError maps a raw `op` CLI failure to an actionable message. It never
-// includes a secret value.
-func opError(ref string, err error) error {
-	msg := err.Error()
+// Available reports whether the 1Password CLI is installed and has a usable
+// session, without resolving any specific reference. It is the up-front
+// readiness probe so `ainfra install` can fail fast — before writing any
+// config — when op cannot resolve op:// references at all. `op whoami` is the
+// cheapest call that exercises both the binary and the active session (it works
+// with the desktop-app integration, a service-account token, or a Connect
+// server), so any error from it means op is not ready.
+func (o OpResolver) Available() error {
+	if _, err := o.Runner.Run("op", "whoami"); err != nil {
+		if hint := opUnavailableHint(err); hint != "" {
+			return fmt.Errorf("1Password: %s", hint)
+		}
+		return fmt.Errorf("1Password CLI is not ready (`op whoami` failed): %s", strings.TrimSpace(err.Error()))
+	}
+	return nil
+}
+
+// opUnavailableHint maps a raw `op` CLI failure to an actionable remediation,
+// or "" when the failure is not a recognizable CLI-readiness problem. The op
+// CLI phrases the "not usable yet" state several ways depending on how the user
+// authenticates (no account added, app integration locked, expired session),
+// so all of them collapse to the same advice. Matching is case-insensitive
+// because op capitalizes some of these messages (e.g. "No accounts configured").
+func opUnavailableHint(err error) string {
+	msg := strings.ToLower(err.Error())
 	switch {
 	case strings.Contains(msg, "executable file not found"):
-		return fmt.Errorf("secret %q: the 1Password CLI is not installed — see https://developer.1password.com/docs/cli/get-started/", ref)
-	case strings.Contains(msg, "not currently signed in"), strings.Contains(msg, "no active session"):
-		return fmt.Errorf("secret %q: not signed in to 1Password — run: op signin", ref)
+		return "the 1Password CLI is not installed — see https://developer.1password.com/docs/cli/get-started/"
+	case strings.Contains(msg, "no accounts configured"),
+		strings.Contains(msg, "no account found"),
+		strings.Contains(msg, "not currently signed in"),
+		strings.Contains(msg, "no active session"),
+		strings.Contains(msg, "not signed in"),
+		strings.Contains(msg, "session expired"),
+		strings.Contains(msg, "error initializing client"):
+		return "not signed in to 1Password — run `op signin`, or enable the 1Password app integration: https://developer.1password.com/docs/cli/app-integration/"
 	default:
-		return fmt.Errorf("secret %q: %s", ref, msg)
+		return ""
 	}
+}
+
+// opError maps a raw `op` CLI failure for a specific ref to an actionable
+// message. It never includes a secret value.
+func opError(ref string, err error) error {
+	if hint := opUnavailableHint(err); hint != "" {
+		return fmt.Errorf("secret %q: %s", ref, hint)
+	}
+	return fmt.Errorf("secret %q: %s", ref, strings.TrimSpace(err.Error()))
 }
