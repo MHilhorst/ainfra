@@ -23,31 +23,27 @@ The server uses "stealth mode" — it extracts your personal Slack browser sessi
    ```
 6. **Copy the value** after `d=` (including the URL-encoded characters)
 
-### 2. Store It in 1Password
+### 2. Set Environment Variable
 
-1. Open **1Password**
-2. Create a new **Secure Note** in your **Private** vault
-3. **Title:** `Slack session token`
-4. **Content:** Paste the full token (xoxd-...)
-5. Save it
-6. Copy the reference: Right-click → **Copy Item Link** (e.g., `op://Private/Slack/session-token`)
+**Option A: Shell Profile (Recommended)**
 
-### 3. Update ainfra Config
+Add to `~/.zshrc` or `~/.bashrc`:
+```bash
+export SLACK_MCP_XOXD_TOKEN="xoxd-YxEZwglt0y2IFsUnLssPw3pP6bsJRtFGL76BrLc6VvHP5xuFcjqFJz%2FFgb9JN0LpweJSggE3hg7zMeG0Av8IzRzzIlhBzRMgOSQSKIVteixGV69wJfEhboeUe0yptvlME6EBek4tPGLqWz%2FuetH%2BxeS3nRj%2BIaSaP%2BIXBDUhZ1q7I%2BHL7X7CMlEvd6oUaGyOxlpti5wBwfFA8NknVLdsNSQGSItWJQ%3D%3D"
+```
+Then reload: `source ~/.zshrc`
 
-1. Run: `ainfra config`
-2. Update the reference to match your 1Password item:
-   ```yaml
-   secrets:
-     slack-mcp-xoxd-token:
-       mode: direct
-       scope: personal
-       ref: "op://Private/Slack/session-token"  # Update this path
-   ```
+**Option B: 1Password (Optional)**
 
-### 4. Apply Changes
+If you prefer 1Password instead:
+1. Create a **Secure Note** in your **Private** vault
+2. **Title:** `Slack session token`
+3. **Content:** Paste the full token (xoxd-...)
+4. Then use: `export SLACK_MCP_XOXD_TOKEN="$(op read 'op://Private/Slack session token')"`
+
+### 3. Apply Changes
 
 ```bash
-ainfra install --dry-run
 ainfra install
 ```
 
