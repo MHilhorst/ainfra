@@ -48,7 +48,7 @@ secrets:
   slack-session-token:
     mode: direct
     scope: personal                       # each developer supplies their own
-    ref: "op://Private/Slack/session-token"
+    ref: "op://Private/Slack session token/notesPlain"
 
 # --- Templates: define one MCP server shape, instantiate it many times -------
 # `${params.*}` substitutes into args, command, url, env, and headers. This is
