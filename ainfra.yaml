@@ -29,6 +29,15 @@ cliTools:
     check:
       command: "rg --version"
       versionRegex: 'ripgrep (\d+\.\d+\.\d+)'
+  slack-mcp-server:
+    versionConstraint: ">=1.3.0"
+    install:
+      github-release:
+        owner: korotovsky
+        repo: slack-mcp-server
+        assetPattern: "slack-mcp-server-{os}-{arch}"
+    check:
+      command: "slack-mcp-server"
 
 # --- Secrets: references only — ainfra never stores a credential value -------
 secrets:
@@ -36,6 +45,10 @@ secrets:
     mode: direct
     scope: personal                       # each developer supplies their own
     ref: "op://Private/github/personal-access-token"
+  slack-mcp-xoxd-token:
+    mode: direct
+    scope: personal                       # each developer supplies their own
+    ref: "op://Private/Slack/session-token"
 
 # --- Templates: define one MCP server shape, instantiate it many times -------
 # `${params.*}` substitutes into args, command, url, env, and headers. This is
@@ -70,6 +83,14 @@ mcpServers:
     version: "0.6.2"
     secret:
       token: github-token                  # references the github-token secret
+
+  # Slack MCP server — search/read messages from Slack, no auth scopes needed
+  slack:
+    transport: stdio
+    command: slack-mcp-server
+    args: ["-transport", "stdio"]
+    env:
+      SLACK_MCP_XOXD_TOKEN: "${secrets.slack-mcp-xoxd-token}"
 
 # --- Hooks: automation bound to Claude Code lifecycle events -----------------
 hooks:
