@@ -344,6 +344,7 @@ func TestSelectKnownAdapters(t *testing.T) {
 		{"npm-g", "npm"},
 		{"composer", "composer"},
 		{"uv", "uv"},
+		{"github-release", "github-release"},
 	}
 	for _, c := range cases {
 		a, ok := pkg.Select(c.method)
@@ -373,7 +374,7 @@ func TestSelectUnknownAdapter(t *testing.T) {
 
 func TestMethods(t *testing.T) {
 	got := pkg.Methods()
-	for _, want := range []string{"brew", "npm", "npm-g", "composer", "uv"} {
+	for _, want := range []string{"brew", "npm", "npm-g", "composer", "uv", "github-release"} {
 		found := false
 		for _, m := range got {
 			if m == want {

@@ -233,7 +233,7 @@ func (UvAdapter) Install(env provider.Env, spec map[string]any) error {
 // Methods returns the sorted set of install-method names Select recognises.
 // It is the single source of truth for "which methods ainfra can automate".
 func Methods() []string {
-	ms := []string{"brew", "npm", "npm-g", "composer", "uv"}
+	ms := []string{"brew", "npm", "npm-g", "composer", "uv", "github-release"}
 	sort.Strings(ms)
 	return ms
 }
@@ -250,6 +250,8 @@ func Select(method string) (Adapter, bool) {
 		return ComposerAdapter{}, true
 	case "uv":
 		return UvAdapter{}, true
+	case "github-release":
+		return GitHubReleaseAdapter{}, true
 	default:
 		return nil, false
 	}
