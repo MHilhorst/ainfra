@@ -23,23 +23,18 @@ The server uses "stealth mode" — it extracts your personal Slack browser sessi
    ```
 6. **Copy the value** after `d=` (including the URL-encoded characters)
 
-### 2. Set Environment Variable
+### 2. Store in Your 1Password Private Vault
 
-**Option A: Shell Profile (Recommended)**
+Each team member does this in **their own vault**:
 
-Add to `~/.zshrc` or `~/.bashrc`:
-```bash
-export SLACK_MCP_XOXD_TOKEN="xoxd-YxEZwglt0y2IFsUnLssPw3pP6bsJRtFGL76BrLc6VvHP5xuFcjqFJz%2FFgb9JN0LpweJSggE3hg7zMeG0Av8IzRzzIlhBzRMgOSQSKIVteixGV69wJfEhboeUe0yptvlME6EBek4tPGLqWz%2FuetH%2BxeS3nRj%2BIaSaP%2BIXBDUhZ1q7I%2BHL7X7CMlEvd6oUaGyOxlpti5wBwfFA8NknVLdsNSQGSItWJQ%3D%3D"
-```
-Then reload: `source ~/.zshrc`
+1. Open **1Password**
+2. Go to your **Private** vault
+3. Create a new **Secure Note**
+4. **Title:** `Slack session token`
+5. **Content:** Paste the full token (xoxd-...)
+6. **Save**
 
-**Option B: 1Password (Optional)**
-
-If you prefer 1Password instead:
-1. Create a **Secure Note** in your **Private** vault
-2. **Title:** `Slack session token`
-3. **Content:** Paste the full token (xoxd-...)
-4. Then use: `export SLACK_MCP_XOXD_TOKEN="$(op read 'op://Private/Slack session token')"`
+That's it! ainfra will automatically fetch it from your vault when you run `ainfra install`.
 
 ### 3. Apply Changes
 
@@ -47,7 +42,13 @@ If you prefer 1Password instead:
 ainfra install
 ```
 
-That's it! The Slack MCP server is now active in Claude Code.
+The Slack MCP server is now active in Claude Code. Each developer's own 1Password vault supplies their own token — **no sharing, no accidents**.
+
+### Security Notes
+
+- Your token is **encrypted in 1Password** — never stored in shell profiles or git
+- ainfra uses your local `op` CLI to fetch the token — **you control the auth**
+- Each developer's vault is separate — tokens are never mixed up
 
 ## Using It
 
