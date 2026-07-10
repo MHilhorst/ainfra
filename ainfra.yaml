@@ -77,18 +77,8 @@ mcpServers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-github"]
     version: "0.6.2"
-    env:
-      GITHUB_PERSONAL_ACCESS_TOKEN: "${secret.token}"   # wire the secret into the env var the server reads
     secret:
-      token: github-token                  # binds the name `token` to the github-token secret
-
-  # Slack MCP server — search/read messages from Slack, no auth scopes needed
-  slack:
-    transport: stdio
-    command: slack-mcp-server
-    args: ["-transport", "stdio"]
-    env:
-      SLACK_MCP_XOXD_TOKEN: "${secrets.slack-mcp-xoxd-token}"
+      token: github-token                  # references the github-token secret
 
   # Slack MCP server — search/read messages from Slack, no auth scopes needed
   # Each developer must set SLACK_MCP_XOXD_TOKEN in their environment.
