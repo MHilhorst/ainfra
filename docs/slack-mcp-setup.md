@@ -36,13 +36,24 @@ Each team member does this in **their own vault**:
 
 That's it! ainfra will automatically fetch it from your vault when you run `ainfra install`.
 
-### 3. Apply Changes
+### 3. Install & Wire Into Claude Code
 
 ```bash
+# Step 1: Install binary and tools
 ainfra install
+
+# Step 2: Wire slack-mcp-server into Claude Code's config
+./scripts/setup-claude-mcp.sh
+
+# Step 3: Restart Claude Code
 ```
 
-The Slack MCP server is now active in Claude Code. Each developer's own 1Password vault supplies their own token — **no sharing, no accidents**.
+The setup script will:
+- Read your Slack token from 1Password
+- Add slack-mcp-server to your `~/.claude.json` (Claude Code's MCP config)
+- Disable the old OAuth Slack plugin to avoid conflicts
+
+Each developer's own 1Password vault supplies their own token — **no sharing, no accidents**.
 
 ### Security Notes
 
