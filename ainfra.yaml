@@ -85,6 +85,7 @@ mcpServers:
       token: github-token                  # references the github-token secret
 
   # Slack MCP server — search/read messages from Slack, no auth scopes needed
+  # Token comes from 1Password via the setup script (scripts/setup-claude-mcp.sh)
   slack:
     transport: stdio
     command: slack-mcp-server
@@ -93,14 +94,6 @@ mcpServers:
       SLACK_MCP_XOXD_TOKEN: "${secrets.slack-session-token}"
     secret:
       slack-session-token: slack-session-token
-
-  # Slack MCP server — search/read messages from Slack, no auth scopes needed
-  # Each developer must set SLACK_MCP_XOXD_TOKEN in their environment.
-  # See docs/slack-mcp-setup.md for instructions.
-  slack:
-    transport: stdio
-    command: slack-mcp-server
-    args: ["-transport", "stdio"]
 
 # --- Hooks: automation bound to Claude Code lifecycle events -----------------
 hooks:
