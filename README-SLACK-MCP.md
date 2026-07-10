@@ -30,19 +30,22 @@ ainfra install
 ./scripts/setup-claude-mcp.sh
 ```
 
-## Real fix (needed)
+## Known gap (by ainfra team)
 
-Add to ainfra's `secrets sync` (or new `mcp sync`) command:
-1. Read `ainfra.yaml` mcpServers
-2. Resolve secrets (from 1Password)
-3. Update user's `~/.claude.json`
+From `cmd/ainfra/commands.go`:
+```
+"User-scope MCP (~/.claude.json) is a follow-up; the server will only be visible in this repo."
+```
 
-This would make it: `ainfra install && ainfra secrets sync`
+**Status**: ainfra team knows this feature is missing and has it planned ("follow-up").
 
-Or better: `ainfra install` does everything (requires ainfra core changes).
+Currently: MCP servers go to `.mcp.json` (repo-level), not `~/.claude.json` (user-level).
 
-## TODO
+## When ainfra adds ~/.claude.json sync
 
-- [ ] Propose MCP sync feature to ainfra maintainers
-- [ ] OR: Fork ainfra and add MCP syncing ourselves
-- [ ] OR: Build standalone tool that syncs ainfra MCP servers to Claude Code
+Once ainfra ships user-scope MCP support, it will be:
+```bash
+ainfra install  # that's it
+```
+
+Until then: workaround is `ainfra install && ./scripts/setup-claude-mcp.sh`
