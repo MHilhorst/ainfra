@@ -81,6 +81,8 @@ mcpServers:
     command: npx
     args: ["-y", "@modelcontextprotocol/server-github"]
     version: "0.6.2"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${secret.token}"
     secret:
       token: github-token                  # references the github-token secret
 
@@ -91,7 +93,7 @@ mcpServers:
     command: slack-mcp-server
     args: ["-transport", "stdio"]
     env:
-      SLACK_MCP_XOXD_TOKEN: "${secrets.slack-session-token}"
+      SLACK_MCP_XOXD_TOKEN: "${secret.slack-session-token}"
     secret:
       slack-session-token: slack-session-token
 

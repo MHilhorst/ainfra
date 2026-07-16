@@ -78,7 +78,7 @@ func TestSubstituteSecretsReplacesTokensInHeaders(t *testing.T) {
 	raw := map[string]any{
 		"token": map[string]any{"mode": "direct", "ref": "op://Eng/linear/mcp"},
 	}
-	refs, err := substituteSecrets(srv, "mcpServers", "linear", manifest.LayerRepo, raw, nil)
+	refs, err := substituteSecrets(srv, "mcpServers", "linear", manifest.LayerRepo, raw, nil, nil)
 	if err != nil {
 		t.Fatalf("substituteSecrets: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestSubstituteSecretsRejectsBoundButUnusedSecret(t *testing.T) {
 	raw := map[string]any{
 		"token": map[string]any{"mode": "direct", "ref": "op://Eng/github/pat"},
 	}
-	_, err := substituteSecrets(srv, "mcpServers", "github", manifest.LayerRepo, raw, nil)
+	_, err := substituteSecrets(srv, "mcpServers", "github", manifest.LayerRepo, raw, nil, nil)
 	if err == nil {
 		t.Fatal("want error for a bound-but-unused secret, got nil")
 	}
@@ -116,7 +116,7 @@ func TestSubstituteSecretsAllowsBindingWiredIntoEnv(t *testing.T) {
 	raw := map[string]any{
 		"token": map[string]any{"mode": "direct", "ref": "op://Eng/github/pat"},
 	}
-	if _, err := substituteSecrets(srv, "mcpServers", "github", manifest.LayerRepo, raw, nil); err != nil {
+	if _, err := substituteSecrets(srv, "mcpServers", "github", manifest.LayerRepo, raw, nil, nil); err != nil {
 		t.Fatalf("substituteSecrets: %v", err)
 	}
 	if got := srv.Env["GITHUB_PERSONAL_ACCESS_TOKEN"]; got != "${AINFRA_SECRET_MCPSERVERS_GITHUB_TOKEN}" {
@@ -134,7 +134,7 @@ func TestSubstituteSecretsWiresSecretInArgs(t *testing.T) {
 	raw := map[string]any{
 		"token": map[string]any{"mode": "direct", "ref": "op://Eng/svc/key"},
 	}
-	if _, err := substituteSecrets(srv, "mcpServers", "svc", manifest.LayerRepo, raw, nil); err != nil {
+	if _, err := substituteSecrets(srv, "mcpServers", "svc", manifest.LayerRepo, raw, nil, nil); err != nil {
 		t.Fatalf("substituteSecrets: %v", err)
 	}
 	if got := srv.Args[0]; got != "--api-key=${AINFRA_SECRET_MCPSERVERS_SVC_TOKEN}" {
@@ -150,7 +150,30 @@ func TestSubstituteSecretsAllowsBindingWithEnvExportTarget(t *testing.T) {
 	}
 	srv := &manifest.MCPServer{Command: "npx"}
 	raw := map[string]any{"token": "github-token"}
-	if _, err := substituteSecrets(srv, "mcpServers", "github", manifest.LayerRepo, raw, top); err != nil {
+	if _, err := substituteSecrets(srv, "mcpServers", "github", manifest.LayerRepo, raw, top, nil); err != nil {
+		t.Fatalf("substituteSecrets: %v", err)
+	}
+}
+
+func TestSubstituteSecretsAllowsSecretConsumedByProducedService(t *testing.T) {
+	// A template-produced background service consumes the secret (e.g. an SSH
+	// tunnel identity); the MCP server itself never references it. That is a
+	// valid wiring, not a bound-but-unused error.
+	svc := &manifest.BackgroundService{
+		Spec: map[string]any{
+			"identity": "<secret:analytics-db.sshKey>",
+			"nested":   map[string]any{"cmd": []any{"ssh", "-i", "<secret:analytics-db.sshKey>"}},
+		},
+	}
+	used := serviceSecretUses("analytics-db", svc)
+	if !used["sshKey"] {
+		t.Fatalf("serviceSecretUses = %v, want sshKey marked used", used)
+	}
+	srv := &manifest.MCPServer{Command: "mysql"}
+	raw := map[string]any{
+		"sshKey": map[string]any{"mode": "direct", "ref": "op://Eng/bastion/ssh-key"},
+	}
+	if _, err := substituteSecrets(srv, "mcpServers", "analytics-db", manifest.LayerRepo, raw, nil, used); err != nil {
 		t.Fatalf("substituteSecrets: %v", err)
 	}
 }

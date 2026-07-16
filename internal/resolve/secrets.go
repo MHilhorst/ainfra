@@ -109,12 +109,60 @@ func boundButUnused(channel, owner, name string, sec manifest.Secret, used map[s
 		"or give the secret an `env:` name so it is exported to the environment", channel, owner, name, name)
 }
 
+// serviceSecretUses walks a template-produced background service and records
+// which secret bindings its spec, lifecycle, and check consume. Instantiate
+// rewrites ${secret.<name>} to the interim <secret:<owner>.<name>> form, so
+// that marker is what identifies usage here. Without this, a secret consumed
+// only by the produced service (e.g. an SSH tunnel identity) is falsely
+// rejected as bound-but-unused.
+func serviceSecretUses(owner string, svc *manifest.BackgroundService) map[string]bool {
+	used := map[string]bool{}
+	if svc == nil {
+		return used
+	}
+	var walk func(v any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case string:
+			rest := t
+			prefix := "<secret:" + owner + "."
+			for {
+				i := strings.Index(rest, prefix)
+				if i < 0 {
+					return
+				}
+				rest = rest[i+len(prefix):]
+				if j := strings.Index(rest, ">"); j >= 0 {
+					used[rest[:j]] = true
+					rest = rest[j+1:]
+				} else {
+					return
+				}
+			}
+		case map[string]any:
+			for _, mv := range t {
+				walk(mv)
+			}
+		case []any:
+			for _, sv := range t {
+				walk(sv)
+			}
+		}
+	}
+	walk(map[string]any(svc.Spec))
+	walk(map[string]any(svc.Lifecycle))
+	walk(map[string]any(svc.Check))
+	return used
+}
+
 // substituteSecrets replaces secret tokens in srv's env, headers, and url with
 // their final value: a literal, or an ${AINFRA_SECRET_*} placeholder. It
 // recognises both the raw ${secret.<name>} form used by inline servers and the
 // <secret:<owner>.<name>> interim form emitted by Instantiate for templated
-// servers. It returns the lockfile SecretRefs for every ref-mode secret.
-func substituteSecrets(srv *manifest.MCPServer, channel, owner string, layer manifest.Layer, raw map[string]any, topLevel map[string]manifest.Secret) (map[string]lockfile.SecretRef, error) {
+// servers. preUsed marks bindings already consumed elsewhere (a produced
+// background service), exempting them from the bound-but-unused check. It
+// returns the lockfile SecretRefs for every ref-mode secret.
+func substituteSecrets(srv *manifest.MCPServer, channel, owner string, layer manifest.Layer, raw map[string]any, topLevel map[string]manifest.Secret, preUsed map[string]bool) (map[string]lockfile.SecretRef, error) {
 	if len(raw) == 0 {
 		return nil, nil
 	}
@@ -123,6 +171,9 @@ func substituteSecrets(srv *manifest.MCPServer, channel, owner string, layer man
 		return nil, err
 	}
 	used := map[string]bool{}
+	for name := range preUsed {
+		used[name] = true
+	}
 	replace := func(s string) string {
 		for name, val := range vals {
 			tok := "${secret." + name + "}"
