@@ -274,7 +274,7 @@ func (p PluginBuild) ContentPaths() []string {
 	if len(p.Content) > 0 {
 		return p.Content
 	}
-	return []string{"skills/", "commands/", "hooks/", ".mcp.json"}
+	return []string{"skills/", "commands/", "hooks/", "agents/", ".mcp.json"}
 }
 
 // Plugin is an installable plugin bundle (spec §10).
