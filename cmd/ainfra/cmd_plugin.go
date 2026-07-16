@@ -145,7 +145,7 @@ func writePluginFiles(dir string, pb manifest.PluginBuild, version string) error
 	if err := os.MkdirAll(filepath.Dir(pjPath), 0o755); err != nil {
 		return err
 	}
-	pj, err := plugin.RenderPluginJSON(pb, version)
+	pj, err := plugin.RenderPluginJSON(pb, version, plugin.AgentsRefs(dir, pb))
 	if err != nil {
 		return err
 	}

@@ -235,7 +235,7 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 			args = pinPackageVersion(cmd, args, version)
 
 			secSrv := &manifest.MCPServer{Env: envMap, Headers: headersMap, URL: url}
-			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers)); err != nil {
+			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers), nil); err != nil {
 				return nil, nil, nil, err
 			}
 			envMap, headersMap, url = secSrv.Env, secSrv.Headers, secSrv.URL

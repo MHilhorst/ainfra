@@ -221,7 +221,7 @@ func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*
 		g.AddNode("mcp:" + ti.id)
 		entry := lockfile.Entry{Layer: string(ti.layer), FromTemplate: ti.inst.Template, Resolved: resolved}
 		if out.MCPServer != nil {
-			refs, err := substituteSecrets(out.MCPServer, "mcpServers", ti.id, ti.layer, ti.inst.Secret, allSecrets)
+			refs, err := substituteSecrets(out.MCPServer, "mcpServers", ti.id, ti.layer, ti.inst.Secret, allSecrets, serviceSecretUses(ti.id, out.Service))
 			if err != nil {
 				return nil, nil, nil, err
 			}
@@ -319,7 +319,7 @@ func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*
 			if srv.Enabled != nil && !*srv.Enabled {
 				continue // disabled servers are not locked
 			}
-			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets)
+			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets, nil)
 			if err != nil {
 				return nil, nil, nil, err
 			}

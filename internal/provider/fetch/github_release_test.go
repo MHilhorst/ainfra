@@ -33,8 +33,8 @@ func newGitHubReleaseFakeServer(t *testing.T, opts ...func(*githubReleaseFakeOpt
 			}
 			for name := range o.assets {
 				rel["assets"] = append(rel["assets"].([]map[string]string), map[string]string{
-					"name":                   name,
-					"browser_download_url":   "https://github.com/test/repo/releases/download/v1.0/" + name,
+					"name":                 name,
+					"browser_download_url": "https://github.com/test/repo/releases/download/v1.0/" + name,
 				})
 			}
 			_ = json.NewEncoder(w).Encode(rel)
@@ -44,8 +44,8 @@ func newGitHubReleaseFakeServer(t *testing.T, opts ...func(*githubReleaseFakeOpt
 			}
 			for name := range o.assets {
 				rel["assets"] = append(rel["assets"].([]map[string]string), map[string]string{
-					"name":                   name,
-					"browser_download_url":   "https://github.com/test/repo/releases/download/v1.2.3/" + name,
+					"name":                 name,
+					"browser_download_url": "https://github.com/test/repo/releases/download/v1.2.3/" + name,
 				})
 			}
 			_ = json.NewEncoder(w).Encode(rel)
