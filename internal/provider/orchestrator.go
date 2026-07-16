@@ -23,10 +23,10 @@ type Scope int
 
 const (
 	// ScopeRepo is the historical orchestrator behavior: write to env.Root/.claude/
-	// and persist the applied ledger to env.Root/.ainfra/applied.lock.
+	// and persist the applied ledger to env.Root/.ainfra/applied*.lock.
 	ScopeRepo Scope = iota
 	// ScopeUser writes to $HOME/.claude/ and persists the applied ledger to
-	// $XDG_CONFIG_HOME/ainfra/applied.lock. Personal-layer entries from the
+	// $XDG_CONFIG_HOME/ainfra/applied*.lock. Personal-layer entries from the
 	// global ainfra config land here.
 	ScopeUser
 )
@@ -61,17 +61,17 @@ func NewOrchestratorScoped(root string, scope Scope, env Env, ps []Provider) *Or
 // readApplied dispatches the ledger read to the right scope.
 func (o *Orchestrator) readApplied() (*lockfile.Lock, error) {
 	if o.scope == ScopeUser {
-		return ReadAppliedUser()
+		return ReadAppliedUserForAgent(o.env.Agent)
 	}
-	return ReadApplied(o.root)
+	return ReadAppliedForAgent(o.root, o.env.Agent)
 }
 
 // writeApplied dispatches the ledger write to the right scope.
 func (o *Orchestrator) writeApplied(l *lockfile.Lock) error {
 	if o.scope == ScopeUser {
-		return WriteAppliedUser(l)
+		return WriteAppliedUserForAgent(o.env.Agent, l)
 	}
-	return WriteApplied(o.root, l)
+	return WriteAppliedForAgent(o.root, o.env.Agent, l)
 }
 
 // PlanAll reads the applied ledger, computes observed state via each provider's

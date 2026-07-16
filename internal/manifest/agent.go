@@ -16,3 +16,13 @@ func ResolveAgent(layers map[Layer]*Manifest) (id string, layer Layer, explicit 
 	}
 	return string(agent.Default), "", false
 }
+
+// ResolveAgentWithOverride is ResolveAgent plus a per-invocation override.
+// The override is intentionally not written back into any manifest layer; it
+// exists so commands can target multiple agents side by side from one config.
+func ResolveAgentWithOverride(layers map[Layer]*Manifest, override string) (id string, layer Layer, explicit bool) {
+	if override != "" {
+		return override, "", true
+	}
+	return ResolveAgent(layers)
+}

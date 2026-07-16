@@ -5,8 +5,10 @@ package codex
 
 import (
 	"errors"
+	"fmt"
 	iofs "io/fs"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/MHilhorst/ainfra/internal/provider"
@@ -69,7 +71,7 @@ func (MCP) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyRes
 		ownedKeys = append(ownedKeys, c.ID)
 		applied = append(applied, c)
 		if c.Kind == provider.ChangeCreate || c.Kind == provider.ChangeUpdate {
-			desired[c.ID] = buildCodexServerTable(c.Resource.Payload)
+			desired[c.ID] = buildCodexServerTable(env.Root, c.Resource.Payload, c.Resource.Requires)
 		}
 		// ChangeDelete: in ownedKeys, not in desired — the merge removes it.
 	}
@@ -88,18 +90,116 @@ func (MCP) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyRes
 }
 
 // buildCodexServerTable constructs the [mcp_servers.<id>] table from a resource
-// payload. Codex MCP servers are command-launched; the payload's transport
-// field is not written. Nil or missing optional fields are omitted.
-func buildCodexServerTable(payload map[string]any) map[string]any {
+// payload. Codex supports command-launched stdio servers and streamable HTTP
+// servers. Nil or missing optional fields are omitted.
+func buildCodexServerTable(root string, payload map[string]any, requires []string) map[string]any {
 	table := map[string]any{}
+	if url, ok := payload["url"]; ok && url != nil && url != "" {
+		table["url"] = url
+		if tokenEnv := bearerTokenEnvVar(payload["headers"]); tokenEnv != "" {
+			table["bearer_token_env_var"] = tokenEnv
+		}
+		httpHeaders, envHTTPHeaders := codexHTTPHeaders(payload["headers"])
+		if len(httpHeaders) > 0 {
+			table["http_headers"] = httpHeaders
+		}
+		if len(envHTTPHeaders) > 0 {
+			table["env_http_headers"] = envHTTPHeaders
+		}
+		return table
+	}
 	if cmd, ok := payload["command"]; ok && cmd != nil && cmd != "" {
 		table["command"] = cmd
 	}
 	if args, ok := payload["args"]; ok && args != nil {
 		table["args"] = args
 	}
+	if serviceID := firstRequiredService(requires); serviceID != "" {
+		if wrappedCommand, wrappedArgs := wrapWithServiceStart(root, serviceID, table["command"], table["args"]); wrappedCommand != "" {
+			table["command"] = wrappedCommand
+			table["args"] = wrappedArgs
+		}
+	}
 	if env, ok := payload["env"]; ok && env != nil {
 		table["env"] = env
 	}
 	return table
+}
+
+func bearerTokenEnvVar(headers any) string {
+	headerMap, ok := headers.(map[string]string)
+	if !ok {
+		return ""
+	}
+	auth := strings.TrimSpace(headerMap["Authorization"])
+	if !strings.HasPrefix(auth, "Bearer ${") || !strings.HasSuffix(auth, "}") {
+		return ""
+	}
+	return strings.TrimSuffix(strings.TrimPrefix(auth, "Bearer ${"), "}")
+}
+
+func codexHTTPHeaders(headers any) (map[string]string, map[string]string) {
+	headerMap, ok := headers.(map[string]string)
+	if !ok {
+		return nil, nil
+	}
+	httpHeaders := map[string]string{}
+	envHTTPHeaders := map[string]string{}
+	for key, value := range headerMap {
+		trimmed := strings.TrimSpace(value)
+		if key == "Authorization" && bearerTokenEnvVar(headers) != "" && strings.HasPrefix(trimmed, "Bearer ${") {
+			continue
+		}
+		if envVar := envPlaceholder(trimmed); envVar != "" {
+			envHTTPHeaders[key] = envVar
+			continue
+		}
+		httpHeaders[key] = value
+	}
+	return httpHeaders, envHTTPHeaders
+}
+
+func envPlaceholder(value string) string {
+	if strings.HasPrefix(value, "${") && strings.HasSuffix(value, "}") {
+		return strings.TrimSuffix(strings.TrimPrefix(value, "${"), "}")
+	}
+	return ""
+}
+
+func firstRequiredService(requires []string) string {
+	for _, req := range requires {
+		if strings.HasPrefix(req, "svc:") {
+			return strings.TrimPrefix(req, "svc:")
+		}
+	}
+	return ""
+}
+
+func wrapWithServiceStart(root, serviceID string, command any, args any) (string, []any) {
+	cmd, ok := command.(string)
+	if !ok || cmd == "" {
+		return "", nil
+	}
+	startPath := filepath.Join(root, ".ainfra", "services", serviceID, "start.sh")
+	line := fmt.Sprintf("sh %s && exec %s", shellQuote(startPath), shellCommand(cmd, args))
+	return "sh", []any{"-c", line}
+}
+
+func shellCommand(command string, args any) string {
+	parts := []string{shellQuote(command)}
+	switch values := args.(type) {
+	case []string:
+		for _, arg := range values {
+			parts = append(parts, shellQuote(arg))
+		}
+	case []any:
+		for _, arg := range values {
+			parts = append(parts, shellQuote(fmt.Sprint(arg)))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\\''") + "'"
 }

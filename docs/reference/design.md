@@ -255,16 +255,17 @@ There are two separate concerns:
   format, and how to read current state. A renderer is the agent-specific
   component that writes one agent's files; there is one renderer per agent.
 
-A manifest names its target with the scalar (single-value) `agent` field —
-`claude-code`, the default, or `codex`. Because it is a scalar, Option C's
-`overridable` mechanism does not apply: the highest-authority layer that
-declares a non-empty `agent` wins. Not every channel exists for every agent —
-Codex has no skills, plugins, hooks, built-in toggles, or slash commands. Any
-entry may carry an `agents:` list to scope it to specific agents. An entry in a
-channel the resolved agent cannot render is a hard validation error *unless* its
-`agents:` list gates it away. The `ainfra.lock` file stays target-neutral — it
-pins inputs, and each renderer derives its own agent's artifacts from the same
-locked state.
+A manifest names its default target with the scalar (single-value) `agent`
+field — `claude-code`, the default, or `codex`. `ainfra install --agent <id>`
+can override that target for one invocation, so teams can keep Claude Code and
+Codex installed side by side from the same manifest. Not every channel exists
+for every agent — Codex has no skills, plugins, hooks, built-in toggles, or
+slash commands. Any entry may carry an `agents:` list to scope it to specific
+agents. An entry in a channel the resolved agent cannot render is a hard
+validation error *unless* its `agents:` list gates it away. The `ainfra.lock`
+file stays target-neutral — it pins inputs, and each renderer derives its own
+agent's artifacts from the same locked state. Applied ledgers are per target
+agent, so one renderer does not plan removals for another renderer's resources.
 
 **Current state.** The `agent` field, capability registry, and gating
 validation are implemented, and both the Claude Code and Codex provider sets

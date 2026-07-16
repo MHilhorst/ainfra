@@ -246,7 +246,9 @@ type Skill struct {
 
 // Marketplace is a Claude Code plugin marketplace registration (spec §10).
 type Marketplace struct {
-	Source string `yaml:"source"`
+	Source string    `yaml:"source"`
+	Agents []string  `yaml:"agents,omitempty"`
+	Scope  *Selector `yaml:"scope,omitempty"`
 }
 
 // PluginBuild declares how to generate this repo's own Claude Code plugin

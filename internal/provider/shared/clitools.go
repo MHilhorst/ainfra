@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/pkg"
 )
@@ -28,7 +29,15 @@ func (CLITools) Channel() string { return "cliTools" }
 // empty — the orchestrator backfills it from the ledger. (A tool removed from
 // the machine by hand after an apply is not detected here.)
 func (CLITools) Observe(env provider.Env) ([]provider.Resource, error) {
-	applied, err := provider.ReadApplied(env.Root)
+	var (
+		applied *lockfile.Lock
+		err     error
+	)
+	if env.UserScope {
+		applied, err = provider.ReadAppliedUserForAgent(env.Agent)
+	} else {
+		applied, err = provider.ReadAppliedForAgent(env.Root, env.Agent)
+	}
 	if err != nil {
 		return nil, err
 	}

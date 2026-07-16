@@ -162,6 +162,40 @@ func hasAnyEntry(l *lockfile.Lock) bool {
 		len(e.Marketplaces)+len(e.Plugins)+len(e.Rules)+len(e.Tools) > 0
 }
 
+func filterLockToRendered(l *lockfile.Lock, rendered map[string][]provider.Resource) *lockfile.Lock {
+	if l == nil {
+		return l
+	}
+	return &lockfile.Lock{
+		Version:      l.Version,
+		GeneratedAt:  l.GeneratedAt,
+		ManifestHash: l.ManifestHash,
+		Secrets:      l.Secrets,
+		Entries: lockfile.Entries{
+			MCPServers:         filterEntries(l.Entries.MCPServers, rendered["mcpServers"]),
+			BackgroundServices: filterEntries(l.Entries.BackgroundServices, rendered["backgroundServices"]),
+			Hooks:              filterEntries(l.Entries.Hooks, rendered["hooks"]),
+			Commands:           filterEntries(l.Entries.Commands, rendered["commands"]),
+			CLITools:           filterEntries(l.Entries.CLITools, rendered["cliTools"]),
+			Skills:             filterEntries(l.Entries.Skills, rendered["skills"]),
+			Marketplaces:       filterEntries(l.Entries.Marketplaces, rendered["marketplaces"]),
+			Plugins:            filterEntries(l.Entries.Plugins, rendered["plugins"]),
+			Rules:              filterEntries(l.Entries.Rules, rendered["rules"]),
+			Tools:              filterEntries(l.Entries.Tools, rendered["tools"]),
+		},
+	}
+}
+
+func filterEntries(entries map[string]lockfile.Entry, resources []provider.Resource) map[string]lockfile.Entry {
+	out := map[string]lockfile.Entry{}
+	for _, r := range resources {
+		if e, ok := entries[r.ID]; ok {
+			out[r.ID] = e
+		}
+	}
+	return out
+}
+
 // anyResources reports whether a rendered map has at least one resource.
 func anyResources(rendered map[string][]provider.Resource) bool {
 	for _, rs := range rendered {
@@ -260,13 +294,14 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 // syncs secrets in one pass; --dry-run + --strict gives the CI drift shape.
 func newInstallCommand() *cli.Command {
 	var yes, dryRun, noInstall, strict, printSchema bool
-	var from string
+	var from, agentOverride string
 	return &cli.Command{
 		Name:      "install",
 		Summary:   "Install/update everything in ainfra.yaml (writes config files, installs CLI tools)",
-		UsageLine: "ainfra install [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>] [--print-schema]",
+		UsageLine: "ainfra install [--agent <agent>] [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>] [--print-schema]",
 		Example:   "ainfra install --yes",
 		SetFlags: func(fs *flag.FlagSet) {
+			fs.StringVar(&agentOverride, "agent", "", "target agent for this install (claude-code, codex, claude-desktop)")
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
 			fs.BoolVar(&dryRun, "dry-run", false, "preview without writing (replaces 'ainfra plan')")
 			fs.BoolVar(&strict, "strict", false, "with --dry-run, exit non-zero on any drift (CI shape; replaces 'ainfra check')")
@@ -281,7 +316,7 @@ func newInstallCommand() *cli.Command {
 			if from != "" {
 				return runApplyFrom(ctx, from, yes)
 			}
-			return runApply(ctx, yes, dryRun, noInstall, strict)
+			return runApply(ctx, yes, dryRun, noInstall, strict, agentOverride)
 		},
 	}
 }
@@ -351,9 +386,15 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 	return 0
 }
 
-func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
+func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverride string) int {
 	dir := ctx.Dir
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+
+	layers, lerr := manifest.LoadLayers(dir)
+	effectiveAgent := ""
+	if lerr == nil {
+		effectiveAgent, _, _ = manifest.ResolveAgentWithOverride(layers, agentOverride)
+	}
 
 	lockPath := filepath.Join(dir, "ainfra.lock")
 	if !fileExists(lockPath) {
@@ -380,6 +421,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	// locks carry the secret refs for the manifest as it is now, so secrets
 	// added after the last lock refresh still sync below.
 	rctx := resolve.NewContextFromEnv(ctx.Identity, dir, dir)
+	rctx.Agent = agentOverride
 	rendered, resolvedCommitted, resolvedPersonal, err := resolve.RenderResourcesAndLocksFor(dir, provider.ExecRunner{}, rctx)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -390,14 +432,14 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	// and hasn't opted out. The hook is infra plumbing, not a manifest entry —
 	// it stays out of `ainfra.yaml`, the persisted lockfile, and `ainfra list`.
 	// The orchestrator and applied ledger treat it like any other hook.
-	injectStalenessHook(dir, rendered, merged)
+	injectStalenessHook(dir, rendered, merged, agentOverride)
 
-	providers, err := providersForDir(dir)
+	providers, err := providersForDir(dir, agentOverride)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
-	env := buildEnv(dir)
+	env := buildEnv(dir, effectiveAgent)
 	env.DryRun = dryRun
 	env.NoInstall = noInstall
 
@@ -433,7 +475,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	var userOrch *provider.Orchestrator
 	var userPlans map[string]provider.ChannelPlan
 	home, herr := os.UserHomeDir()
-	priorUser, _ := provider.ReadAppliedUser()
+	priorUser, _ := provider.ReadAppliedUserForAgent(effectiveAgent)
 	userLedgerNonEmpty := priorUser != nil && hasAnyEntry(priorUser)
 	if herr == nil && (anyResources(userRendered) || userLedgerNonEmpty) {
 		userEnv := env
@@ -498,6 +540,8 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 	}
 
 	repoLock, userLock := partitionLockByLayer(merged)
+	repoLock = filterLockToRendered(repoLock, repoRendered)
+	userLock = filterLockToRendered(userLock, userRendered)
 
 	results, err := orch.ApplyAllRendered(repoRendered, repoLock)
 	if !dryRun {
@@ -533,12 +577,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool) int {
 
 	// Record apply history for Govern groundwork. Failures here are reported
 	// but never fail the apply — history is observational.
-	layers, lerr := manifest.LoadLayers(dir)
-	agentID := ""
-	if lerr == nil {
-		agentID, _, _ = manifest.ResolveAgent(layers)
-	}
-	appendApplyHistory(dir, "apply", agentID, merged.ManifestHash, results, ctx.Stderr)
+	appendApplyHistory(dir, "apply", effectiveAgent, merged.ManifestHash, results, ctx.Stderr)
 
 	// Final step: resolve the manifest's secrets and write them into the
 	// Claude Code settings env block, so a normally-launched Claude has them.

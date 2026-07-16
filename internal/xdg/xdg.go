@@ -43,3 +43,17 @@ func AppliedLedgerPath() (string, error) {
 	}
 	return filepath.Join(dir, "applied.lock"), nil
 }
+
+// AppliedLedgerPathForAgent returns the user-scope applied ledger for one
+// target agent. The historical Claude/default path remains applied.lock; other
+// agents get their own file so side-by-side installs do not clean each other.
+func AppliedLedgerPathForAgent(agentID string) (string, error) {
+	dir, err := ConfigHome()
+	if err != nil {
+		return "", err
+	}
+	if agentID == "" || agentID == "claude-code" {
+		return filepath.Join(dir, "applied.lock"), nil
+	}
+	return filepath.Join(dir, "applied."+agentID+".lock"), nil
+}

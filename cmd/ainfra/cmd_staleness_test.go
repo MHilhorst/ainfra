@@ -63,6 +63,28 @@ func TestStalenessHook_OptOut(t *testing.T) {
 	}
 }
 
+func TestStalenessHook_NotEmittedForCodex(t *testing.T) {
+	dir := t.TempDir()
+	yaml := "version: 1\nagent: codex\n"
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	var out bytes.Buffer
+	if code := run([]string{"--chdir", dir, "install", "--yes"}, &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("install failed: %s", out.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(dir, ".claude", "settings.json")); err == nil {
+		raw, _ := os.ReadFile(filepath.Join(dir, ".claude", "settings.json"))
+		if strings.Contains(string(raw), "_staleness-check") {
+			t.Errorf("codex repo got the Claude staleness hook: %s", raw)
+		}
+	}
+}
+
 // TestStalenessHook_HiddenFromList: `ainfra list` never shows the synthetic
 // hook entry.
 func TestStalenessHook_HiddenFromList(t *testing.T) {

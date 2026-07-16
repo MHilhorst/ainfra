@@ -36,6 +36,7 @@ type Env struct {
 	Fetch  fetch.Fetcher
 	Home   string // Claude Code config root (e.g. the user's home directory)
 	Root   string // the repo root the manifest was resolved from
+	Agent  string // target agent for this reconcile pass (e.g. claude-code, codex)
 	DryRun bool
 	// NoInstall, when set, makes the cliTools provider skip package installs
 	// and the declare-and-check probe while the file-writing channels still
@@ -44,8 +45,8 @@ type Env struct {
 	// UserScope signals to providers that this Env is the user-scope
 	// orchestrator (writes under $HOME/.claude/) rather than the repo-scope
 	// orchestrator. Providers that consult the applied ledger directly need
-	// this to pick the user-scope ledger at $XDG_CONFIG_HOME/ainfra/applied.lock
-	// instead of <root>/.ainfra/applied.lock.
+	// this to pick the user-scope, agent-specific ledger under
+	// $XDG_CONFIG_HOME/ainfra instead of <root>/.ainfra.
 	UserScope bool
 }
 

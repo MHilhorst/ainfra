@@ -459,6 +459,18 @@ func TestValidateAllAcceptsChannelGatedAwayFromAgent(t *testing.T) {
 	}
 }
 
+func TestValidateAllAcceptsMarketplaceGatedAwayFromAgent(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1, Agent: "codex",
+			Marketplaces: map[string]Marketplace{
+				"team": {Source: "Acme/claude-config", Agents: []string{"claude-code"}},
+			}},
+	}
+	if err := ValidateAll(layers); err != nil {
+		t.Fatalf("a marketplace gated to claude-code only must validate under agent codex: %v", err)
+	}
+}
+
 func TestValidateAllRejectsUngatedChannelUnsupportedByAgent(t *testing.T) {
 	layers := map[Layer]*Manifest{
 		LayerRepo: {Version: 1, Agent: "codex",
@@ -478,6 +490,18 @@ func TestValidateAllRejectsUngatedChannelUnsupportedByAgent(t *testing.T) {
 	}
 	if d.Hint == "" {
 		t.Error("expected a hint suggesting agents: gating")
+	}
+}
+
+func TestValidateAllForAgentSkipsUngatedUnsupportedChannelOnOverride(t *testing.T) {
+	layers := map[Layer]*Manifest{
+		LayerRepo: {Version: 1,
+			Hooks: map[string]Hook{
+				"gofmt": {Event: "PostToolUse", Command: "gofmt -w ."},
+			}},
+	}
+	if err := ValidateAllForAgent(layers, "codex"); err != nil {
+		t.Fatalf("explicit codex override should skip ungated unsupported hooks: %v", err)
 	}
 }
 

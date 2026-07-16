@@ -32,7 +32,7 @@ func TestRenderChannelContract(t *testing.T) {
 		t.Fatalf("RenderResources: %v", err)
 	}
 
-	providers, err := providersForDir(dir)
+	providers, err := providersForDir(dir, "")
 	if err != nil {
 		t.Fatalf("providersForDir: %v", err)
 	}

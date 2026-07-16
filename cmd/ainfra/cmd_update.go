@@ -63,5 +63,5 @@ func runUpdate(ctx cli.Context, noInstall bool) int {
 		ui.Next(ctx.Stdout, c, "run `ainfra install` to apply the updated lockfile.")
 		return 0
 	}
-	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/)
+	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/, "")
 }

@@ -11,7 +11,7 @@ func TestProvidersForDir_DefaultsToClaudeCode(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	providers, err := providersForDir(dir)
+	providers, err := providersForDir(dir, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -22,7 +22,7 @@ func TestProvidersForDir_DefaultsToClaudeCode(t *testing.T) {
 
 func TestBuildEnv_Fields(t *testing.T) {
 	dir := t.TempDir()
-	env := buildEnv(dir)
+	env := buildEnv(dir, "")
 
 	if env.Root != dir {
 		t.Errorf("Root = %q, want %q", env.Root, dir)

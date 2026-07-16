@@ -113,6 +113,74 @@ func TestInstallDryRun(t *testing.T) {
 	}
 }
 
+func TestInstallAgentOverrideKeepsLedgersSeparate(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	if err := os.WriteFile(filepath.Join(dir, "claude.md"), []byte("Claude team rules.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "codex.md"), []byte("Codex team rules.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	yaml := `version: 1
+rules:
+  claude-team:
+    target: CLAUDE.md
+    source: claude.md
+    agents: [claude-code]
+  codex-team:
+    target: AGENTS.md
+    source: codex.md
+    agents: [codex]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	if code := run([]string{"--chdir", dir, "install", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("claude install failed")
+	}
+
+	var codexOut, codexErr bytes.Buffer
+	code := run([]string{"--chdir", dir, "install", "--agent", "codex", "--dry-run"}, &codexOut, &codexErr)
+	if code != 0 {
+		t.Fatalf("codex dry-run: code=%d out=%q err=%q", code, codexOut.String(), codexErr.String())
+	}
+	combined := codexOut.String() + codexErr.String()
+	if strings.Contains(combined, "claude-team") {
+		t.Fatalf("codex dry-run planned against Claude-owned rule: %q", combined)
+	}
+	if !strings.Contains(combined, "codex-team") {
+		t.Fatalf("codex dry-run should plan the Codex rule: %q", combined)
+	}
+
+	if code := run([]string{"--chdir", dir, "install", "--agent", "codex", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("codex install failed")
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".ainfra", "applied.lock")); err != nil {
+		t.Fatalf("claude applied ledger missing: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".ainfra", "applied.codex.lock")); err != nil {
+		t.Fatalf("codex applied ledger missing: %v", err)
+	}
+
+	var claudeOut, claudeErr bytes.Buffer
+	code = run([]string{"--chdir", dir, "install", "--dry-run"}, &claudeOut, &claudeErr)
+	if code != 0 {
+		t.Fatalf("claude dry-run: code=%d out=%q err=%q", code, claudeOut.String(), claudeErr.String())
+	}
+	if combined := claudeOut.String() + claudeErr.String(); strings.Contains(combined, "codex-team") {
+		t.Fatalf("claude dry-run planned against Codex-owned rule: %q", combined)
+	}
+}
+
 func TestInstallNoInstall(t *testing.T) {
 	dir := t.TempDir()
 

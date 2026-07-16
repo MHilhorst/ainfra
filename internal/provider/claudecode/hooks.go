@@ -38,9 +38,9 @@ func (Hooks) Observe(env provider.Env) ([]provider.Resource, error) {
 		err     error
 	)
 	if env.UserScope {
-		applied, err = provider.ReadAppliedUser()
+		applied, err = provider.ReadAppliedUserForAgent(env.Agent)
 	} else {
-		applied, err = provider.ReadApplied(env.Root)
+		applied, err = provider.ReadAppliedForAgent(env.Root, env.Agent)
 	}
 	if err != nil {
 		return nil, err

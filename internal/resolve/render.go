@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/agent"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/provider"
@@ -112,7 +113,7 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 // from an arbitrary machine would fold its environment (VPN state, npx cache)
 // into the result.
 func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx ResolutionContext) (map[string][]provider.Resource, *lockfile.Lock, *lockfile.Lock, error) {
-	_, committed, personal, err := resolveLocks(dir, runner, false)
+	_, committed, personal, err := resolveLocksForAgent(dir, runner, false, ctx.Agent)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -124,6 +125,7 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 	if err != nil {
 		return nil, nil, nil, err
 	}
+	targetAgent, _, _ := manifest.ResolveAgentWithOverride(layers, ctx.Agent)
 
 	result := map[string][]provider.Resource{}
 
@@ -137,10 +139,13 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// mcpServers
 		for _, id := range slices.Sorted(maps.Keys(m.MCPServers)) {
+			srv := m.MCPServers[id]
+			if !rendersForAgent(agent.ChannelMCPServers, srv.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "mcpServers", id) {
 				continue
 			}
-			srv := m.MCPServers[id]
 			// A server with enabled: false is a tombstone: rather than merely
 			// omitting it, ainfra removes it from .mcp.json if present. This lets
 			// the team retire a server (e.g. linear-server) and have apply clean
@@ -204,7 +209,7 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 						// generated start script. Without this the start.sh is
 						// written but never executed, so the service (e.g. an
 						// SSH tunnel an MCP server depends on) never comes up.
-						if ev, ok := inst.Service.Lifecycle["generateHook"].(string); ok && ev != "" {
+						if ev, ok := inst.Service.Lifecycle["generateHook"].(string); ok && ev != "" && targetAgent == string(agent.ClaudeCode) {
 							hookID := sid + "-" + strings.ToLower(ev)
 							if markSeen(seen, "hooks", hookID) {
 								hookPayload := map[string]any{
@@ -268,10 +273,13 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// hooks
 		for _, id := range slices.Sorted(maps.Keys(m.Hooks)) {
+			h := m.Hooks[id]
+			if !rendersForAgent(agent.ChannelHooks, h.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "hooks", id) {
 				continue
 			}
-			h := m.Hooks[id]
 			if !SelectorMatches(h.Scope, ctx) {
 				continue
 			}
@@ -302,10 +310,13 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// commands
 		for _, id := range slices.Sorted(maps.Keys(m.Commands)) {
+			c := m.Commands[id]
+			if !rendersForAgent(agent.ChannelCommands, c.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "commands", id) {
 				continue
 			}
-			c := m.Commands[id]
 			if !SelectorMatches(c.Scope, ctx) {
 				continue
 			}
@@ -337,10 +348,13 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 			return resolvedVars, resolvedVarsErr
 		}
 		for _, id := range slices.Sorted(maps.Keys(m.Rules)) {
+			r := m.Rules[id]
+			if !rendersForAgent(agent.ChannelRules, r.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "rules", id) {
 				continue
 			}
-			r := m.Rules[id]
 			if !SelectorMatches(r.Scope, ctx) {
 				continue
 			}
@@ -376,10 +390,13 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// skills
 		for _, id := range slices.Sorted(maps.Keys(m.Skills)) {
+			s := m.Skills[id]
+			if !rendersForAgent(agent.ChannelSkills, s.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "skills", id) {
 				continue
 			}
-			s := m.Skills[id]
 			if !SelectorMatches(s.Scope, ctx) {
 				continue
 			}
@@ -399,10 +416,16 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// marketplaces
 		for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
+			mp := m.Marketplaces[id]
+			if !rendersForAgent(agent.ChannelMarketplaces, mp.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "marketplaces", id) {
 				continue
 			}
-			mp := m.Marketplaces[id]
+			if !SelectorMatches(mp.Scope, ctx) {
+				continue
+			}
 			entry := merged.marketplaces[id]
 			result["marketplaces"] = append(result["marketplaces"], provider.Resource{
 				ID:          id,
@@ -418,10 +441,13 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// plugins
 		for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
+			p := m.Plugins[id]
+			if !rendersForAgent(agent.ChannelPlugins, p.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "plugins", id) {
 				continue
 			}
-			p := m.Plugins[id]
 			if !SelectorMatches(p.Scope, ctx) {
 				continue
 			}
@@ -441,35 +467,37 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 
 		// tools (fixed ID "tools" so desired matches the ID Observe returns)
 		if m.Tools != nil {
-			if !markSeen(seen, "tools", "tools") {
-				continue
+			if rendersForAgent(agent.ChannelTools, m.Tools.Agents, targetAgent, ctx.Agent != "") && markSeen(seen, "tools", "tools") {
+				entry := merged.tools["tools"]
+				toolsPayload := map[string]any{}
+				if m.Tools.Builtins != nil {
+					toolsPayload["disabled"] = m.Tools.Builtins.Disabled
+				}
+				if m.Tools.Permissions != nil {
+					toolsPayload["allow"] = m.Tools.Permissions.Allow
+					toolsPayload["ask"] = m.Tools.Permissions.Ask
+					toolsPayload["deny"] = m.Tools.Permissions.Deny
+				}
+				result["tools"] = append(result["tools"], provider.Resource{
+					ID:          "tools",
+					Channel:     "tools",
+					Layer:       entry.Layer,
+					ContentHash: entry.ContentHash,
+					Requires:    entry.Requires,
+					Payload:     toolsPayload,
+				})
 			}
-			entry := merged.tools["tools"]
-			toolsPayload := map[string]any{}
-			if m.Tools.Builtins != nil {
-				toolsPayload["disabled"] = m.Tools.Builtins.Disabled
-			}
-			if m.Tools.Permissions != nil {
-				toolsPayload["allow"] = m.Tools.Permissions.Allow
-				toolsPayload["ask"] = m.Tools.Permissions.Ask
-				toolsPayload["deny"] = m.Tools.Permissions.Deny
-			}
-			result["tools"] = append(result["tools"], provider.Resource{
-				ID:          "tools",
-				Channel:     "tools",
-				Layer:       entry.Layer,
-				ContentHash: entry.ContentHash,
-				Requires:    entry.Requires,
-				Payload:     toolsPayload,
-			})
 		}
 
 		// cliTools
 		for _, id := range slices.Sorted(maps.Keys(m.CLITools)) {
+			t := m.CLITools[id]
+			if !rendersForAgent(agent.ChannelCLITools, t.Agents, targetAgent, ctx.Agent != "") {
+				continue
+			}
 			if !markSeen(seen, "cliTools", id) {
 				continue
 			}
-			t := m.CLITools[id]
 			if !SelectorMatches(t.Scope, ctx) {
 				continue
 			}
@@ -632,6 +660,20 @@ func mergeLockEntries(committed, personal *lockfile.Lock) mergedEntries {
 		rules:              merge(committed.Entries.Rules, personal.Entries.Rules),
 		tools:              merge(committed.Entries.Tools, personal.Entries.Tools),
 	}
+}
+
+func agentsMatch(agents []string, target string) bool {
+	return len(agents) == 0 || slices.Contains(agents, target)
+}
+
+func rendersForAgent(channel string, agents []string, target string, explicitOverride bool) bool {
+	if !agentsMatch(agents, target) {
+		return false
+	}
+	if agent.Supports(agent.ID(target), channel) {
+		return true
+	}
+	return false
 }
 
 // collectSecrets merges top-level secrets: from all layers; higher layers take

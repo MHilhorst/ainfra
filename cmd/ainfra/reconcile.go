@@ -17,17 +17,17 @@ import (
 
 // providersForDir resolves the target agent from the manifest layers at dir
 // and returns the channel provider set that reconciles config for that agent.
-func providersForDir(dir string) ([]provider.Provider, error) {
+func providersForDir(dir string, agentOverride string) ([]provider.Provider, error) {
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
 		return nil, err
 	}
-	id, _, _ := manifest.ResolveAgent(layers)
+	id, _, _ := manifest.ResolveAgentWithOverride(layers, agentOverride)
 	return agentset.ForAgent(agent.ID(id))
 }
 
 // buildEnv constructs the provider.Env for a given repo root directory.
-func buildEnv(dir string) provider.Env {
+func buildEnv(dir string, agentID string) provider.Env {
 	home, _ := os.UserHomeDir()
 	cache, _ := fetch.NewCache()
 	return provider.Env{
@@ -36,6 +36,7 @@ func buildEnv(dir string) provider.Env {
 		Fetch:  fetch.NewMultiSchemeFetcher(dir, cache),
 		Root:   dir,
 		Home:   home,
+		Agent:  agentID,
 	}
 }
 

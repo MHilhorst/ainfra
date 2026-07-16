@@ -103,6 +103,10 @@ func RunLockWithResult(dir string, runner provider.CommandRunner) (*RunLockResul
 // slow and environment-sensitive (a VPN-down probe must not strip toolsets
 // from the committed lock).
 func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*RunLockResult, *lockfile.Lock, *lockfile.Lock, error) {
+	return resolveLocksForAgent(dir, runner, introspect, "")
+}
+
+func resolveLocksForAgent(dir string, runner provider.CommandRunner, introspect bool, agentOverride string) (*RunLockResult, *lockfile.Lock, *lockfile.Lock, error) {
 	result := &RunLockResult{}
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
@@ -136,7 +140,7 @@ func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*
 	// Validate every layer. ValidateAll merges templates across layers and
 	// tags each diagnostic with its source file — the same check
 	// `ainfra validate` runs.
-	if err := manifest.ValidateAll(layers); err != nil {
+	if err := manifest.ValidateAllForAgent(layers, agentOverride); err != nil {
 		return nil, nil, nil, err
 	}
 

@@ -53,3 +53,15 @@ func TestAppliedLedgerPath(t *testing.T) {
 		t.Errorf("AppliedLedgerPath: want %q, got %q", want, got)
 	}
 }
+
+func TestAppliedLedgerPathForAgent(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	got, err := AppliedLedgerPathForAgent("codex")
+	if err != nil {
+		t.Fatalf("AppliedLedgerPathForAgent: %v", err)
+	}
+	want := "/tmp/xdg/ainfra/applied.codex.lock"
+	if got != want {
+		t.Errorf("AppliedLedgerPathForAgent: want %q, got %q", want, got)
+	}
+}

@@ -14,9 +14,8 @@ import (
 const DefaultIdentity = "human"
 
 // ResolutionContext carries the per-invocation inputs the resolve pipeline
-// uses to gate entries. It is intentionally small: identity for who-am-I
-// gates, invocation path for where-am-I gates. Agent gating lives in
-// manifest.ValidateAll, which has its own resolution.
+// uses to gate entries: identity for who-am-I gates, invocation path for
+// where-am-I gates, and an optional agent override for side-by-side installs.
 type ResolutionContext struct {
 	// Identity is the caller identity an entry's scope.identities matches
 	// against. The empty string is treated as DefaultIdentity.
@@ -25,6 +24,10 @@ type ResolutionContext struct {
 	// repo-relative slash-path. "." when run at the repo root. Used to match
 	// against entry scope.paths globs (path.Match syntax).
 	InvocationPath string
+	// Agent, when non-empty, overrides the manifest's top-level agent for this
+	// invocation. This lets `ainfra install --agent codex` coexist with the
+	// default Claude install from the same manifests and locks.
+	Agent string
 }
 
 // NewContextFromEnv builds a ResolutionContext from a flag value (which wins

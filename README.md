@@ -19,6 +19,7 @@ Or `go install github.com/MHilhorst/ainfra/cmd/ainfra@latest`.
 ```sh
 ainfra init --adopt    # capture whatever this repo already has into ainfra.yaml
 ainfra install         # reconcile your machine to ainfra.yaml
+ainfra install --agent codex  # also render the Codex view side-by-side
 ainfra add mcp github  # add something (writes the entry + installs it)
 ```
 
@@ -80,7 +81,7 @@ extends:
 | Command | What it does |
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` (`--adopt`, `--personal`, `--with-skill`, `--force`) |
-| `install` | Reconcile your machine to the manifest (`--dry-run`, `--strict`, `--from <url>`) |
+| `install` | Reconcile your machine to the manifest (`--agent`, `--dry-run`, `--strict`, `--from <url>`) |
 | `add` / `remove` | Add or remove an entry and reconcile |
 | `update` | Re-resolve the lockfile and reinstall |
 | `list` / `inspect` | See what's installed |

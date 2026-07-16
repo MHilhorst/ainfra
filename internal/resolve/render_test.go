@@ -330,6 +330,107 @@ plugins:
 	}
 }
 
+func TestRenderResourcesFiltersByResolvedAgent(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "claude.md"), []byte("Claude only."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "codex.md"), []byte("Codex only."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestYAML := `version: 1
+agent: codex
+mcpServers:
+  shared:
+    command: npx
+    args: ["-y", "shared-mcp"]
+    version: "1.0.0"
+cliTools:
+  node:
+    check:
+      command: "node --version"
+marketplaces:
+  claude-team:
+    source: "Acme/claude-config"
+    agents: [claude-code]
+plugins:
+  claude-plugin:
+    marketplace: claude-team
+    agents: [claude-code]
+rules:
+  claude-rule:
+    source: ./claude.md
+    agents: [claude-code]
+  codex-rule:
+    source: ./codex.md
+    agents: [codex]
+tools:
+  permissions:
+    allow: ["Bash(go test *)"]
+  agents: [claude-code]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := RenderResources(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("RenderResources: %v", err)
+	}
+
+	if len(resources["marketplaces"]) != 0 {
+		t.Fatalf("codex render must not include claude-only marketplaces: %v", resources["marketplaces"])
+	}
+	if len(resources["plugins"]) != 0 {
+		t.Fatalf("codex render must not include claude-only plugins: %v", resources["plugins"])
+	}
+	if len(resources["tools"]) != 0 {
+		t.Fatalf("codex render must not include claude-only tools: %v", resources["tools"])
+	}
+	if ids := idsOf(resources["rules"]); !slices.Equal(ids, []string{"codex-rule"}) {
+		t.Fatalf("rules = %v, want [codex-rule]", ids)
+	}
+	if ids := idsOf(resources["mcpServers"]); !slices.Equal(ids, []string{"shared"}) {
+		t.Fatalf("mcpServers = %v, want [shared]", ids)
+	}
+	if ids := idsOf(resources["cliTools"]); !slices.Equal(ids, []string{"node"}) {
+		t.Fatalf("cliTools = %v, want [node]", ids)
+	}
+}
+
+func TestRenderResourcesAgentOverrideSkipsUnsupportedUngatedChannels(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "team.md"), []byte("Codex rules."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestYAML := `version: 1
+hooks:
+  claude-hook:
+    event: PostToolUse
+    command: gofmt -w .
+rules:
+  team:
+    target: AGENTS.md
+    source: ./team.md
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := DefaultContext()
+	ctx.Agent = "codex"
+	resources, err := RenderResourcesFor(dir, provider.ExecRunner{}, ctx)
+	if err != nil {
+		t.Fatalf("RenderResourcesFor: %v", err)
+	}
+	if len(resources["hooks"]) != 0 {
+		t.Fatalf("codex override must skip unsupported hooks: %v", resources["hooks"])
+	}
+	if ids := idsOf(resources["rules"]); !slices.Equal(ids, []string{"team"}) {
+		t.Fatalf("codex override should still render rules, got %v", ids)
+	}
+}
+
 func TestRenderResources_EnabledFalse(t *testing.T) {
 	dir := t.TempDir()
 	manifestYAML := `version: 1

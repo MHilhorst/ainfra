@@ -263,6 +263,10 @@ mcpServers:
     args: ["-y", "@modelcontextprotocol/server-github"]
     version: "0.6.2"
     agents: [claude-code, codex]
+marketplaces:
+  team:
+    source: "Acme/claude-config"
+    agents: [claude-code]
 hooks:
   gofmt:
     event: PostToolUse
@@ -281,6 +285,9 @@ tools:
 	}
 	if got := m.MCPServers["github"].Agents; len(got) != 2 {
 		t.Errorf("mcpServers.github.agents = %v, want 2 entries", got)
+	}
+	if got := m.Marketplaces["team"].Agents; len(got) != 1 || got[0] != "claude-code" {
+		t.Errorf("marketplaces.team.agents = %v, want [claude-code]", got)
 	}
 	if got := m.Hooks["gofmt"].Agents; len(got) != 1 || got[0] != "claude-code" {
 		t.Errorf("hooks.gofmt.agents = %v, want [claude-code]", got)

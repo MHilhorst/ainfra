@@ -426,7 +426,7 @@ func collectEntries(m *Manifest) []channelEntry {
 		out = append(out, channelEntry{agent.ChannelSkills, id, m.Skills[id].Agents})
 	}
 	for _, id := range slices.Sorted(maps.Keys(m.Marketplaces)) {
-		out = append(out, channelEntry{agent.ChannelMarketplaces, id, nil})
+		out = append(out, channelEntry{agent.ChannelMarketplaces, id, m.Marketplaces[id].Agents})
 	}
 	for _, id := range slices.Sorted(maps.Keys(m.Plugins)) {
 		out = append(out, channelEntry{agent.ChannelPlugins, id, m.Plugins[id].Agents})
@@ -451,7 +451,7 @@ func collectEntries(m *Manifest) []channelEntry {
 
 // checkEntryAgent applies the spec §3.2 gating rules to one entry against the
 // resolved target agent. It returns nil when the entry is acceptable.
-func checkEntryAgent(e channelEntry, target agent.ID) *diag.Diagnostic {
+func checkEntryAgent(e channelEntry, target agent.ID, explicitOverride bool) *diag.Diagnostic {
 	for _, a := range e.agents {
 		if !agent.Known(a) {
 			return &diag.Diagnostic{
@@ -468,6 +468,9 @@ func checkEntryAgent(e channelEntry, target agent.ID) *diag.Diagnostic {
 		return nil
 	}
 	if agent.Supports(target, e.channel) {
+		return nil
+	}
+	if explicitOverride && len(e.agents) == 0 {
 		return nil
 	}
 	if len(e.agents) > 0 {
@@ -491,7 +494,11 @@ func checkEntryAgent(e channelEntry, target agent.ID) *diag.Diagnostic {
 // agent id, and checks every channel entry against the agent's capabilities
 // (spec §3.1, §3.2).
 func validateAgentCapabilities(layers map[Layer]*Manifest) error {
-	id, setLayer, _ := ResolveAgent(layers)
+	return validateAgentCapabilitiesFor(layers, "")
+}
+
+func validateAgentCapabilitiesFor(layers map[Layer]*Manifest, agentOverride string) error {
+	id, setLayer, _ := ResolveAgentWithOverride(layers, agentOverride)
 	if !agent.Known(id) {
 		return &diag.Diagnostic{
 			Summary: fmt.Sprintf("unknown agent %q", id),
@@ -508,7 +515,7 @@ func validateAgentCapabilities(layers map[Layer]*Manifest) error {
 			continue
 		}
 		for _, e := range collectEntries(m) {
-			if d := checkEntryAgent(e, target); d != nil {
+			if d := checkEntryAgent(e, target, agentOverride != ""); d != nil {
 				d.File = agentFileFor[ln]
 				return d
 			}
@@ -537,6 +544,13 @@ func validatePlugin(m *Manifest) error {
 // marketplace defined in a higher one, then tags each diagnostic with the
 // offending layer's file name.
 func ValidateAll(layers map[Layer]*Manifest) error {
+	return ValidateAllForAgent(layers, "")
+}
+
+// ValidateAllForAgent is ValidateAll with a per-invocation target agent
+// override. It keeps layer-local validation unchanged, then checks channel
+// capability compatibility against the requested renderer.
+func ValidateAllForAgent(layers map[Layer]*Manifest, agentOverride string) error {
 	order := []Layer{LayerTeam, LayerRepo, LayerPersonal}
 	allTemplates := map[string]Template{}
 	for _, ln := range order {
@@ -578,5 +592,5 @@ func ValidateAll(layers map[Layer]*Manifest) error {
 			return err
 		}
 	}
-	return validateAgentCapabilities(layers)
+	return validateAgentCapabilitiesFor(layers, agentOverride)
 }

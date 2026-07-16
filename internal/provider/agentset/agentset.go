@@ -46,6 +46,7 @@ func ForAgent(id agent.ID) ([]provider.Provider, error) {
 		return append([]provider.Provider{
 			codex.MCP{},
 			codex.Rules{},
+			claudecode.Services{},
 		}, sharedProviders()...), nil
 	default:
 		return nil, fmt.Errorf("no provider set for agent %q", id)

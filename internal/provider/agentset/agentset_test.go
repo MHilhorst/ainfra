@@ -40,7 +40,7 @@ func TestForAgentCodexReturnsItsChannels(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	want := map[string]bool{"mcpServers": true, "rules": true, "cliTools": true}
+	want := map[string]bool{"mcpServers": true, "rules": true, "backgroundServices": true, "cliTools": true}
 	got := map[string]bool{}
 	for _, p := range ps {
 		got[p.Channel()] = true

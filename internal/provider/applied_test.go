@@ -30,6 +30,36 @@ func TestAppliedLedgerRoundTrip(t *testing.T) {
 	}
 }
 
+func TestAppliedLedgerForAgentIsSeparate(t *testing.T) {
+	root := t.TempDir()
+	claudeLock := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Rules: map[string]lockfile.Entry{"claude": {Layer: "repo", ContentHash: "sha256:c"}},
+	}}
+	codexLock := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Rules: map[string]lockfile.Entry{"codex": {Layer: "repo", ContentHash: "sha256:x"}},
+	}}
+	if err := WriteAppliedForAgent(root, "claude-code", claudeLock); err != nil {
+		t.Fatalf("WriteAppliedForAgent claude-code: %v", err)
+	}
+	if err := WriteAppliedForAgent(root, "codex", codexLock); err != nil {
+		t.Fatalf("WriteAppliedForAgent codex: %v", err)
+	}
+	claudeBack, err := ReadAppliedForAgent(root, "claude-code")
+	if err != nil {
+		t.Fatal(err)
+	}
+	codexBack, err := ReadAppliedForAgent(root, "codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := claudeBack.Entries.Rules["codex"]; ok {
+		t.Errorf("claude ledger leaked codex entry: %+v", claudeBack.Entries.Rules)
+	}
+	if _, ok := codexBack.Entries.Rules["claude"]; ok {
+		t.Errorf("codex ledger leaked claude entry: %+v", codexBack.Entries.Rules)
+	}
+}
+
 // TestUserAppliedLedgerRoundTrip covers the user-scope ledger that lives at
 // $XDG_CONFIG_HOME/ainfra/applied.lock — same on-disk format as the repo-scope
 // ledger, just at a per-user path.

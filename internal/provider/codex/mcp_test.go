@@ -91,6 +91,115 @@ func TestMCPApply_Create(t *testing.T) {
 	}
 }
 
+func TestMCPApply_CreateHTTP(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Home: "/home"}
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{{
+			Kind: provider.ChangeCreate,
+			ID:   "flare",
+			Resource: provider.Resource{
+				ID:      "flare",
+				Channel: "mcpServers",
+				Payload: map[string]any{
+					"url":     "https://flareapp.io/mcp",
+					"headers": map[string]string{"Authorization": "Bearer ${FLARE_API_TOKEN}"},
+				},
+			},
+		}},
+	}
+	if _, err := (codex.MCP{}).Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	out := string(mem.Files["/home/.codex/config.toml"])
+	if !strings.Contains(out, "[mcp_servers.flare]") {
+		t.Errorf("missing table:\n%s", out)
+	}
+	if !strings.Contains(out, `url = "https://flareapp.io/mcp"`) {
+		t.Errorf("missing url:\n%s", out)
+	}
+	if !strings.Contains(out, `bearer_token_env_var = "FLARE_API_TOKEN"`) {
+		t.Errorf("missing bearer token env var:\n%s", out)
+	}
+	if strings.Contains(out, "headers") || strings.Contains(out, "Authorization") {
+		t.Errorf("headers must not be written for codex:\n%s", out)
+	}
+}
+
+func TestMCPApply_CreateHTTPHeaders(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Home: "/home"}
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{{
+			Kind: provider.ChangeCreate,
+			ID:   "stape",
+			Resource: provider.Resource{
+				ID:      "stape",
+				Channel: "mcpServers",
+				Payload: map[string]any{
+					"url": "https://mcp.stape.ai/mcp",
+					"headers": map[string]string{
+						"Authorization":  "${STAPE_API_KEY}",
+						"X-Stape-Region": "EU",
+					},
+				},
+			},
+		}},
+	}
+	if _, err := (codex.MCP{}).Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	out := string(mem.Files["/home/.codex/config.toml"])
+	if !strings.Contains(out, "[mcp_servers.stape.env_http_headers]") {
+		t.Errorf("missing env_http_headers table:\n%s", out)
+	}
+	if !strings.Contains(out, `Authorization = "STAPE_API_KEY"`) {
+		t.Errorf("missing env-backed Authorization header:\n%s", out)
+	}
+	if !strings.Contains(out, "[mcp_servers.stape.http_headers]") {
+		t.Errorf("missing http_headers table:\n%s", out)
+	}
+	if !strings.Contains(out, `X-Stape-Region = "EU"`) {
+		t.Errorf("missing literal region header:\n%s", out)
+	}
+}
+
+func TestMCPApply_WrapsRequiredService(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Home: "/home", Root: "/repo"}
+	plan := provider.ChannelPlan{
+		Channel: "mcpServers",
+		Changes: []provider.Change{{
+			Kind: provider.ChangeCreate,
+			ID:   "db-prod",
+			Resource: provider.Resource{
+				ID:       "db-prod",
+				Channel:  "mcpServers",
+				Requires: []string{"svc:db-prod-tunnel"},
+				Payload: map[string]any{
+					"command": "npx",
+					"args":    []any{"-y", "@benborla29/mcp-server-mysql@2.0.8"},
+				},
+			},
+		}},
+	}
+	if _, err := (codex.MCP{}).Apply(env, plan); err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	out := string(mem.Files["/home/.codex/config.toml"])
+	if !strings.Contains(out, `command = "sh"`) {
+		t.Errorf("command should be wrapped with sh:\n%s", out)
+	}
+	if !strings.Contains(out, "/repo/.ainfra/services/db-prod-tunnel/start.sh") {
+		t.Errorf("wrapper missing service start script:\n%s", out)
+	}
+	if !strings.Contains(out, "exec 'npx' '-y' '@benborla29/mcp-server-mysql@2.0.8'") {
+		t.Errorf("wrapper missing original command:\n%s", out)
+	}
+}
+
 func TestMCPApply_Delete(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	if err := mem.WriteFile("/home/.codex/config.toml",

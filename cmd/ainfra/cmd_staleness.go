@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/MHilhorst/ainfra/internal/agent"
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
@@ -21,12 +22,16 @@ import (
 // Returns true when the hook was injected (so callers can branch on it),
 // false when there is no repo manifest or the manifest opts out via
 // `stalenessWarning: false`.
-func injectStalenessHook(dir string, rendered map[string][]provider.Resource, lock *lockfile.Lock) bool {
+func injectStalenessHook(dir string, rendered map[string][]provider.Resource, lock *lockfile.Lock, agentOverride string) bool {
 	if _, err := os.Stat(dir + "/ainfra.yaml"); err != nil {
 		return false
 	}
 	layers, err := manifest.LoadLayers(dir)
 	if err != nil {
+		return false
+	}
+	agentID, _, _ := manifest.ResolveAgentWithOverride(layers, agentOverride)
+	if agentID != string(agent.ClaudeCode) {
 		return false
 	}
 	repo := layers[manifest.LayerRepo]
@@ -101,7 +106,7 @@ func runStalenessCheck(ctx cli.Context) int {
 	if current == "" {
 		return 0
 	}
-	applied, err := provider.ReadApplied(dir)
+	applied, err := provider.ReadAppliedForAgent(dir, string(agent.ClaudeCode))
 	if err != nil || applied == nil || applied.ManifestHash == "" {
 		// Never applied — staleness is undefined; stay silent.
 		return 0

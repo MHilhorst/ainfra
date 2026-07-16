@@ -18,11 +18,12 @@ You cloned a repo that already contains an `ainfra.yaml`. There is no "initializ
 
 ```sh
 ainfra install                       # reconcile your machine to the manifest
+ainfra install --agent codex         # render Codex config next to Claude Code
 ainfra install --dry-run             # preview without writing
 ainfra install --dry-run --strict    # CI gate: exit non-zero on any drift
 ```
 
-`install` asks for confirmation before it touches anything (pass `--yes` to skip the prompt in CI). `--dry-run` is always safe and changes nothing. `--dry-run --strict` exits non-zero when there's anything to do, so it works as a CI gate. Remote sources (`github:`, `npm:`, `https:`) resolve at lock time and write through a content-addressed cache, so subsequent fetches are offline-capable. Gateway adapters remain the one follow-up.
+`install` asks for confirmation before it touches anything (pass `--yes` to skip the prompt in CI). `--agent codex` applies the Codex-supported channels from the same manifest using a separate applied ledger, so Claude Code and Codex can be installed in the same repo without removing each other's resources. `--dry-run` is always safe and changes nothing. `--dry-run --strict` exits non-zero when there's anything to do, so it works as a CI gate. Remote sources (`github:`, `npm:`, `https:`) resolve at lock time and write through a content-addressed cache, so subsequent fetches are offline-capable. Gateway adapters remain the one follow-up.
 
 `ainfra check` re-introspects every MCP server whose lockfile entry has a populated `toolsetHash`, compares the live `tools/list` against the locked per-tool description and input-schema hashes, and exits non-zero on drift with a per-tool diagnostic naming the changed tool.
 
@@ -141,7 +142,7 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
 | `ainfra init --adopt` | One-shot bootstrap: draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--force` to re-scan). Use `install` for drift after that. |
 | `ainfra init team <path>` | Scaffold a team config repo at `<path>`, scanning `~/.claude/` by default (`--empty` for a skeleton) |
-| `ainfra install` | Reconcile the environment to the manifest (`--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
+| `ainfra install` | Reconcile the environment to the manifest (`--agent`, `--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
 | `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile |
 | `ainfra remove <ch> <id>` | Remove an entry and reconcile |
 | `ainfra update [<ch> <id>]` | Re-resolve the lockfile and reinstall |
