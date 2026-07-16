@@ -55,15 +55,24 @@ func (o OpResolver) Check(ref string) error {
 	return nil
 }
 
-// Available reports whether the 1Password CLI is installed and has a usable
-// session, without resolving any specific reference. It is the up-front
+// Available reports whether the 1Password CLI is installed and can resolve
+// op:// references, without resolving any specific one. It is the up-front
 // readiness probe so `ainfra install` can fail fast — before writing any
-// config — when op cannot resolve op:// references at all. `op whoami` is the
-// cheapest call that exercises both the binary and the active session (it works
-// with the desktop-app integration, a service-account token, or a Connect
-// server), so any error from it means op is not ready.
+// config — when op is unusable.
+//
+// `op whoami` is the cheap first probe: it succeeds with a CLI session or a
+// service-account token. It is NOT sufficient on its own, because it reports
+// the *session* state: with only the desktop-app integration enabled and no
+// `op signin` ever run, it fails with "account is not signed in" while reads
+// still succeed (the app authorizes each read via biometrics). Gating on it
+// alone made install unusable on exactly the setup our own error message
+// recommends. So on failure, fall back to a probe that exercises a real read
+// path; only if that also fails is op genuinely not ready.
 func (o OpResolver) Available() error {
 	if _, err := o.Runner.Run("op", "whoami"); err != nil {
+		if _, ferr := o.Runner.Run("op", "vault", "list", "--format=json"); ferr == nil {
+			return nil
+		}
 		if hint := opUnavailableHint(err); hint != "" {
 			return fmt.Errorf("1Password: %s", hint)
 		}
