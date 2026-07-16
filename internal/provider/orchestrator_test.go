@@ -495,3 +495,74 @@ func TestApplyAllRenderedWritesPartialLedger(t *testing.T) {
 		t.Errorf("ledger cliTools[x] present; want absent (failed create)")
 	}
 }
+
+// An agent-gated resource lives in the shared lock but is filtered out of the
+// rendered set for agents that do not own it. The per-agent ledger must record
+// only what this agent renders: recording a foreign resource makes the next run
+// diff it as prior-without-desired and plan a delete against a file this agent
+// never wrote.
+func TestApplyAllRenderedLedgerExcludesResourcesNotRenderedForAgent(t *testing.T) {
+	root := t.TempDir()
+	rules := &stubProvider{channel: "rules"}
+	o := NewOrchestrator(root, Env{}, []Provider{rules})
+
+	// The lock is agent-agnostic: it carries both rules.
+	lock := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Rules: map[string]lockfile.Entry{
+			"team-claude-md":       {Layer: "repo", ContentHash: "h1"},
+			"team-codex-agents-md": {Layer: "repo", ContentHash: "h2"},
+		},
+	}}
+	// Rendering for claude-code drops the codex-gated rule.
+	rendered := map[string][]Resource{
+		"rules": {{ID: "team-claude-md", Channel: "rules", ContentHash: "h1"}},
+	}
+
+	if _, err := o.ApplyAllRendered(rendered, lock); err != nil {
+		t.Fatalf("ApplyAllRendered: %v", err)
+	}
+
+	ledger, err := ReadApplied(root)
+	if err != nil {
+		t.Fatalf("ReadApplied: %v", err)
+	}
+	if _, ok := ledger.Entries.Rules["team-claude-md"]; !ok {
+		t.Errorf("ledger rules[team-claude-md] absent; want present (rendered for this agent)")
+	}
+	if _, ok := ledger.Entries.Rules["team-codex-agents-md"]; ok {
+		t.Errorf("ledger rules[team-codex-agents-md] present; want absent (not rendered for this agent)")
+	}
+}
+
+// The oscillation this guards against: run 1 records the foreign resource, run 2
+// reads it back as prior, finds no desired counterpart, and plans a delete.
+func TestApplyAllRenderedDoesNotPlanDeleteForForeignResourceOnSecondRun(t *testing.T) {
+	root := t.TempDir()
+	rules := &stubProvider{channel: "rules"}
+	o := NewOrchestrator(root, Env{}, []Provider{rules})
+
+	lock := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Rules: map[string]lockfile.Entry{
+			"team-claude-md":       {Layer: "repo", ContentHash: "h1"},
+			"team-codex-agents-md": {Layer: "repo", ContentHash: "h2"},
+		},
+	}}
+	rendered := map[string][]Resource{
+		"rules": {{ID: "team-claude-md", Channel: "rules", ContentHash: "h1"}},
+	}
+
+	if _, err := o.ApplyAllRendered(rendered, lock); err != nil {
+		t.Fatalf("first ApplyAllRendered: %v", err)
+	}
+	// The stub observes nothing, so a second plan re-creates "team-claude-md";
+	// what matters is that no delete is planned for the codex-gated rule.
+	plans, err := o.PlanAllRendered(rendered)
+	if err != nil {
+		t.Fatalf("PlanAllRendered: %v", err)
+	}
+	for _, c := range plans["rules"].Changes {
+		if c.Kind == ChangeDelete && c.ID == "team-codex-agents-md" {
+			t.Fatalf("second run plans a delete for team-codex-agents-md; want no delete for another agent's resource")
+		}
+	}
+}
