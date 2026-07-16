@@ -366,3 +366,35 @@ func TestRulesApply_DryRun(t *testing.T) {
 		t.Errorf("DryRun: target file was created, should not have been")
 	}
 }
+
+// A delete whose fragment is already gone must succeed. Machines that recorded
+// another agent's rule in their ledger before restrictToRendered landed will
+// plan exactly this delete once; erroring on the absent file would strand the
+// stale entry in the ledger forever, since a failed change falls back to prior.
+func TestRulesApplyDeleteMissingFragmentSucceeds(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Root: "/repo"}
+
+	plan := provider.ChannelPlan{
+		Channel: "rules",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeDelete,
+				ID:   "team-codex-agents-md",
+				Resource: provider.Resource{
+					ID:      "team-codex-agents-md",
+					Channel: "rules",
+					Payload: map[string]any{"target": "AGENTS.md"},
+				},
+			},
+		},
+	}
+
+	res, err := claudecode.Rules{}.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply on an already-absent fragment: %v, want nil", err)
+	}
+	if len(res.Applied) != 1 {
+		t.Errorf("Applied = %d changes, want 1 (the delete counts as applied)", len(res.Applied))
+	}
+}

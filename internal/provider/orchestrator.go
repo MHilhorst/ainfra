@@ -227,7 +227,7 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 		results = append(results, res)
 	}
 
-	ledger := buildLedger(prior, desired, results)
+	ledger := buildLedger(prior, restrictToRendered(desired, rendered), results)
 	if !o.env.DryRun {
 		if werr := o.writeApplied(ledger); werr != nil {
 			errs = append(errs, fmt.Errorf("writing applied ledger: %w", werr))
@@ -280,6 +280,62 @@ func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable Channe
 // apply. A resource that failed or was skipped falls back to its prior entry
 // (or is dropped if it had none); every other resource takes its desired entry.
 // With no failures the result equals desired — today's behaviour.
+// restrictToRendered narrows desired to the ids present in rendered, one
+// channel at a time.
+//
+// The lock is agent-agnostic: it carries every resource in the manifest,
+// including ones gated to another agent via `agents:`. The rendered set holds
+// only what the target agent owns, and PlanAllRendered already treats it as the
+// desired state. The applied ledger is per-agent too (see appliedPathForAgent),
+// so it must be built from the same view the plan used. Passing the unfiltered
+// lock instead records another agent's resources in this agent's ledger, and
+// the next run reads them back as prior-without-desired and plans a delete
+// against a file this agent never wrote.
+func restrictToRendered(desired *lockfile.Lock, rendered map[string][]Resource) *lockfile.Lock {
+	renderedIDs := make(map[string]map[string]bool, len(rendered))
+	for ch, rs := range rendered {
+		ids := make(map[string]bool, len(rs))
+		for _, r := range rs {
+			ids[r.ID] = true
+		}
+		renderedIDs[ch] = ids
+	}
+	d := desired.Entries
+	return &lockfile.Lock{
+		Version:      desired.Version,
+		GeneratedAt:  desired.GeneratedAt,
+		ManifestHash: desired.ManifestHash,
+		Entries: lockfile.Entries{
+			MCPServers:         keepRendered(d.MCPServers, renderedIDs["mcpServers"]),
+			BackgroundServices: keepRendered(d.BackgroundServices, renderedIDs["backgroundServices"]),
+			Hooks:              keepRendered(d.Hooks, renderedIDs["hooks"]),
+			Commands:           keepRendered(d.Commands, renderedIDs["commands"]),
+			CLITools:           keepRendered(d.CLITools, renderedIDs["cliTools"]),
+			Skills:             keepRendered(d.Skills, renderedIDs["skills"]),
+			Marketplaces:       keepRendered(d.Marketplaces, renderedIDs["marketplaces"]),
+			Plugins:            keepRendered(d.Plugins, renderedIDs["plugins"]),
+			Rules:              keepRendered(d.Rules, renderedIDs["rules"]),
+			Tools:              keepRendered(d.Tools, renderedIDs["tools"]),
+		},
+	}
+}
+
+// keepRendered returns the entries of one channel whose id was rendered for the
+// target agent. A nil entry map stays nil so an untouched channel is not
+// rewritten as an empty one.
+func keepRendered(entries map[string]lockfile.Entry, ids map[string]bool) map[string]lockfile.Entry {
+	if entries == nil {
+		return nil
+	}
+	out := make(map[string]lockfile.Entry, len(entries))
+	for id, e := range entries {
+		if ids[id] {
+			out[id] = e
+		}
+	}
+	return out
+}
+
 func buildLedger(prior, desired *lockfile.Lock, results []ApplyResult) *lockfile.Lock {
 	bad := map[string]bool{} // key: "<channel>/<id>"
 	for _, r := range results {

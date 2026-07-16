@@ -127,7 +127,14 @@ func (Rules) Apply(env provider.Env, plan provider.ChannelPlan) (provider.ApplyR
 				}
 				err = fsmerge.EnsureImportLine(env.FS, targetPath, importPath)
 			case provider.ChangeDelete:
-				err = env.FS.Remove(fragmentPath(env, c.ID))
+				// An absent fragment is the desired end state, so removing it
+				// again is a no-op rather than an error. Erroring here would
+				// strand the resource in the ledger: a failed change falls back
+				// to its prior entry, so the next run plans the same doomed
+				// delete forever.
+				if err = env.FS.Remove(fragmentPath(env, c.ID)); errors.Is(err, iofs.ErrNotExist) {
+					err = nil
+				}
 			}
 			if err != nil {
 				return provider.ApplyResult{}, err
