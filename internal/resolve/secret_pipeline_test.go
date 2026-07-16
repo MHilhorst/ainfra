@@ -67,3 +67,24 @@ func TestRenderResourcesRendersPlaceholderIntoHeaders(t *testing.T) {
 		t.Errorf("Authorization header = %q, want the placeholder", got)
 	}
 }
+
+func TestRunLockManifestHashMatchesFreshLoadAfterSecretSubstitution(t *testing.T) {
+	// substituteSecrets used to write placeholders into the layer's shared
+	// Env map before RunLock hashed the layers, so the recorded manifestHash
+	// never matched CurrentManifestHash and every install warned "stale".
+	dir := writeSecretManifest(t)
+	if err := RunLock(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("RunLock: %v", err)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatalf("Read lock: %v", err)
+	}
+	current, err := CurrentManifestHash(dir)
+	if err != nil {
+		t.Fatalf("CurrentManifestHash: %v", err)
+	}
+	if current != lock.ManifestHash {
+		t.Errorf("fresh hash %s != locked hash %s (phantom stale-lock warning)", current, lock.ManifestHash)
+	}
+}

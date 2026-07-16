@@ -319,6 +319,14 @@ func resolveLocks(dir string, runner provider.CommandRunner, introspect bool) (*
 			if srv.Enabled != nil && !*srv.Enabled {
 				continue // disabled servers are not locked
 			}
+			// srv is a struct copy, but Env/Headers/Args still alias the loaded
+			// layer. substituteSecrets writes placeholders into them, and the
+			// manifest hash is computed from the layers after this loop — an
+			// in-place substitution would make the lock's hash differ from a
+			// fresh load forever and every install would warn "lockfile is stale".
+			srv.Env = copyStringMap(srv.Env)
+			srv.Headers = copyStringMap(srv.Headers)
+			srv.Args = append([]string(nil), srv.Args...)
 			refs, err := substituteSecrets(&srv, "mcpServers", id, layerName, srv.Secret, allSecrets, nil)
 			if err != nil {
 				return nil, nil, nil, err

@@ -234,8 +234,16 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 			// servers install the locked version instead of floating to latest.
 			args = pinPackageVersion(cmd, args, version)
 
+			// Render only substitutes; the bound-but-unused gate already ran at
+			// lock time (where produced-service usage is visible). Re-running it
+			// here would falsely reject secrets consumed by a template's
+			// background service, e.g. an SSH tunnel identity.
+			allUsed := map[string]bool{}
+			for name := range srv.Secret {
+				allUsed[name] = true
+			}
 			secSrv := &manifest.MCPServer{Env: envMap, Headers: headersMap, URL: url}
-			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers), nil); err != nil {
+			if _, err := substituteSecrets(secSrv, "mcpServers", id, manifest.Layer(entry.Layer), srv.Secret, collectSecrets(layers), allUsed); err != nil {
 				return nil, nil, nil, err
 			}
 			envMap, headersMap, url = secSrv.Env, secSrv.Headers, secSrv.URL
