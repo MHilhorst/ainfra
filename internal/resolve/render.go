@@ -113,6 +113,9 @@ func RenderResourcesFor(dir string, runner provider.CommandRunner, ctx Resolutio
 // from an arbitrary machine would fold its environment (VPN state, npx cache)
 // into the result.
 func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx ResolutionContext) (map[string][]provider.Resource, *lockfile.Lock, *lockfile.Lock, error) {
+	if ctx.Agent != "" && (ctx.Identity == "" || ctx.Identity == DefaultIdentity) {
+		ctx.Identity = ctx.Agent
+	}
 	_, committed, personal, err := resolveLocksForAgent(dir, runner, false, ctx.Agent)
 	if err != nil {
 		return nil, nil, nil, err

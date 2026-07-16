@@ -431,6 +431,35 @@ rules:
 	}
 }
 
+func TestRenderResourcesAgentOverrideUsesAgentAsDefaultIdentity(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "team.md"), []byte("Codex rules."), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manifestYAML := `version: 1
+rules:
+  team:
+    target: AGENTS.md
+    source: ./team.md
+    agents: [codex]
+    scope:
+      identities: [codex]
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(manifestYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := DefaultContext()
+	ctx.Agent = "codex"
+	resources, err := RenderResourcesFor(dir, provider.ExecRunner{}, ctx)
+	if err != nil {
+		t.Fatalf("RenderResourcesFor: %v", err)
+	}
+	if ids := idsOf(resources["rules"]); !slices.Equal(ids, []string{"team"}) {
+		t.Fatalf("codex override should match codex identity scope, got %v", ids)
+	}
+}
+
 func TestRenderResources_EnabledFalse(t *testing.T) {
 	dir := t.TempDir()
 	manifestYAML := `version: 1
