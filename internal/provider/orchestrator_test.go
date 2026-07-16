@@ -566,3 +566,72 @@ func TestApplyAllRenderedDoesNotPlanDeleteForForeignResourceOnSecondRun(t *testi
 		}
 	}
 }
+
+// The renderer computes a background service's ContentHash with a different
+// formula than the lockfile does (it folds in the script-generator version).
+// The applied ledger must record the hash that was actually rendered, otherwise
+// every subsequent install re-detects drift and never converges.
+func TestApplyAllRenderedConvergesWhenRenderedHashDiffersFromLock(t *testing.T) {
+	root := t.TempDir()
+	// The service directory exists on the machine but Observe returns no
+	// ContentHash, exactly like the real backgroundServices provider.
+	svc := &stubProvider{
+		channel:  "backgroundServices",
+		observed: []Resource{{ID: "db-tunnel", Channel: "backgroundServices"}},
+	}
+	o := NewOrchestrator(root, Env{}, []Provider{svc})
+
+	rendered := map[string][]Resource{
+		"backgroundServices": {{ID: "db-tunnel", Channel: "backgroundServices", Layer: "repo", ContentHash: "render-hash"}},
+	}
+	// The lockfile entry carries a hash computed by the other formula.
+	desired := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		BackgroundServices: map[string]lockfile.Entry{
+			"db-tunnel": {Layer: "repo", ContentHash: "lock-hash"},
+		},
+	}}
+
+	if _, err := o.ApplyAllRendered(rendered, desired); err != nil {
+		t.Fatalf("ApplyAllRendered: %v", err)
+	}
+
+	plans, err := o.PlanAllRendered(rendered)
+	if err != nil {
+		t.Fatalf("PlanAllRendered: %v", err)
+	}
+	if !plans["backgroundServices"].Empty() {
+		t.Errorf("expected convergence (empty plan) after apply, got %+v", plans["backgroundServices"])
+	}
+}
+
+// A template-derived lifecycle hook is synthesized only at render time and has
+// no lockfile entry. The applied ledger must still record it, otherwise the next
+// run always re-detects it as new.
+func TestApplyAllRenderedRecordsRenderedEntryAbsentFromLock(t *testing.T) {
+	root := t.TempDir()
+	hooks := &stubProvider{channel: "hooks"}
+	o := NewOrchestrator(root, Env{}, []Provider{hooks})
+
+	rendered := map[string][]Resource{
+		"hooks": {{ID: "db-tunnel-sessionstart", Channel: "hooks", Layer: "repo", ContentHash: "hook-hash"}},
+	}
+	desired := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		Hooks: map[string]lockfile.Entry{},
+	}}
+
+	if _, err := o.ApplyAllRendered(rendered, desired); err != nil {
+		t.Fatalf("ApplyAllRendered: %v", err)
+	}
+
+	ledger, err := lockfile.Read(filepath.Join(root, ".ainfra", "applied.lock"))
+	if err != nil {
+		t.Fatalf("read applied ledger: %v", err)
+	}
+	e, ok := ledger.Entries.Hooks["db-tunnel-sessionstart"]
+	if !ok {
+		t.Fatalf("rendered hook not recorded in ledger; next run would see it as new")
+	}
+	if e.ContentHash != "hook-hash" {
+		t.Errorf("ledger hook ContentHash = %q, want %q", e.ContentHash, "hook-hash")
+	}
+}

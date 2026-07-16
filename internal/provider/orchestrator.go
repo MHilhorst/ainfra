@@ -280,8 +280,8 @@ func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable Channe
 // apply. A resource that failed or was skipped falls back to its prior entry
 // (or is dropped if it had none); every other resource takes its desired entry.
 // With no failures the result equals desired — today's behaviour.
-// restrictToRendered narrows desired to the ids present in rendered, one
-// channel at a time.
+// restrictToRendered narrows desired to the resources actually rendered for the
+// target agent, one channel at a time.
 //
 // The lock is agent-agnostic: it carries every resource in the manifest,
 // including ones gated to another agent via `agents:`. The rendered set holds
@@ -292,46 +292,55 @@ func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable Channe
 // the next run reads them back as prior-without-desired and plans a delete
 // against a file this agent never wrote.
 func restrictToRendered(desired *lockfile.Lock, rendered map[string][]Resource) *lockfile.Lock {
-	renderedIDs := make(map[string]map[string]bool, len(rendered))
-	for ch, rs := range rendered {
-		ids := make(map[string]bool, len(rs))
-		for _, r := range rs {
-			ids[r.ID] = true
-		}
-		renderedIDs[ch] = ids
-	}
 	d := desired.Entries
 	return &lockfile.Lock{
 		Version:      desired.Version,
 		GeneratedAt:  desired.GeneratedAt,
 		ManifestHash: desired.ManifestHash,
 		Entries: lockfile.Entries{
-			MCPServers:         keepRendered(d.MCPServers, renderedIDs["mcpServers"]),
-			BackgroundServices: keepRendered(d.BackgroundServices, renderedIDs["backgroundServices"]),
-			Hooks:              keepRendered(d.Hooks, renderedIDs["hooks"]),
-			Commands:           keepRendered(d.Commands, renderedIDs["commands"]),
-			CLITools:           keepRendered(d.CLITools, renderedIDs["cliTools"]),
-			Skills:             keepRendered(d.Skills, renderedIDs["skills"]),
-			Marketplaces:       keepRendered(d.Marketplaces, renderedIDs["marketplaces"]),
-			Plugins:            keepRendered(d.Plugins, renderedIDs["plugins"]),
-			Rules:              keepRendered(d.Rules, renderedIDs["rules"]),
-			Tools:              keepRendered(d.Tools, renderedIDs["tools"]),
+			MCPServers:         ledgerEntries(d.MCPServers, rendered["mcpServers"]),
+			BackgroundServices: ledgerEntries(d.BackgroundServices, rendered["backgroundServices"]),
+			Hooks:              ledgerEntries(d.Hooks, rendered["hooks"]),
+			Commands:           ledgerEntries(d.Commands, rendered["commands"]),
+			CLITools:           ledgerEntries(d.CLITools, rendered["cliTools"]),
+			Skills:             ledgerEntries(d.Skills, rendered["skills"]),
+			Marketplaces:       ledgerEntries(d.Marketplaces, rendered["marketplaces"]),
+			Plugins:            ledgerEntries(d.Plugins, rendered["plugins"]),
+			Rules:              ledgerEntries(d.Rules, rendered["rules"]),
+			Tools:              ledgerEntries(d.Tools, rendered["tools"]),
 		},
 	}
 }
 
-// keepRendered returns the entries of one channel whose id was rendered for the
-// target agent. A nil entry map stays nil so an untouched channel is not
-// rewritten as an empty one.
-func keepRendered(entries map[string]lockfile.Entry, ids map[string]bool) map[string]lockfile.Entry {
-	if entries == nil {
+// ledgerEntries builds one channel's applied-ledger entries from the resources
+// actually rendered for the target agent. The rendered resource carries the
+// authoritative ContentHash — the exact value the next run's diff recomputes —
+// so it overrides the lockfile entry's hash, which may be derived by a different
+// formula (background services fold in the script-generator version; see
+// resolve.serviceContentHash). Recording the lockfile hash instead makes every
+// install re-detect drift and never converge.
+//
+// A rendered resource with no lockfile entry (e.g. a template-derived lifecycle
+// hook synthesized only at render time) is still recorded, synthesized from the
+// resource, so the next run sees it as up to date rather than new. Tombstones
+// are "ensure absent" instructions and are never recorded as applied state. A
+// channel with neither lock entries nor rendered resources stays nil so an
+// untouched channel is not rewritten as an empty one.
+func ledgerEntries(lockCh map[string]lockfile.Entry, rendered []Resource) map[string]lockfile.Entry {
+	if lockCh == nil && len(rendered) == 0 {
 		return nil
 	}
-	out := make(map[string]lockfile.Entry, len(entries))
-	for id, e := range entries {
-		if ids[id] {
-			out[id] = e
+	out := make(map[string]lockfile.Entry, len(rendered))
+	for _, r := range rendered {
+		if r.Tombstone {
+			continue
 		}
+		e, ok := lockCh[r.ID]
+		if !ok {
+			e = lockfile.Entry{Layer: r.Layer, Requires: r.Requires}
+		}
+		e.ContentHash = r.ContentHash
+		out[r.ID] = e
 	}
 	return out
 }
