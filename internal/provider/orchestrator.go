@@ -227,7 +227,7 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 		results = append(results, res)
 	}
 
-	ledger := buildLedger(prior, restrictToRendered(desired, rendered), results)
+	ledger := buildLedger(prior, ledgerDesired(desired, rendered), results)
 	if !o.env.DryRun {
 		if werr := o.writeApplied(ledger); werr != nil {
 			errs = append(errs, fmt.Errorf("writing applied ledger: %w", werr))
@@ -280,58 +280,66 @@ func splitBlocked(plan ChannelPlan, failedRefs map[string]bool) (runnable Channe
 // apply. A resource that failed or was skipped falls back to its prior entry
 // (or is dropped if it had none); every other resource takes its desired entry.
 // With no failures the result equals desired — today's behaviour.
-// restrictToRendered narrows desired to the ids present in rendered, one
-// channel at a time.
+// ledgerDesired projects the rendered resources into the lock shape the ledger
+// records, one channel at a time.
 //
-// The lock is agent-agnostic: it carries every resource in the manifest,
-// including ones gated to another agent via `agents:`. The rendered set holds
-// only what the target agent owns, and PlanAllRendered already treats it as the
-// desired state. The applied ledger is per-agent too (see appliedPathForAgent),
-// so it must be built from the same view the plan used. Passing the unfiltered
-// lock instead records another agent's resources in this agent's ledger, and
-// the next run reads them back as prior-without-desired and plans a delete
+// The ledger must describe what this run actually applied, which is the
+// rendered set. Two things go wrong when the agent-agnostic lock is used
+// instead.
+//
+// A resource gated to another agent via `agents:` is in the lock but not in
+// rendered. The ledger is per-agent (see appliedPathForAgent), so recording it
+// makes the next run read it back as prior-without-desired and plan a delete
 // against a file this agent never wrote.
-func restrictToRendered(desired *lockfile.Lock, rendered map[string][]Resource) *lockfile.Lock {
-	renderedIDs := make(map[string]map[string]bool, len(rendered))
-	for ch, rs := range rendered {
-		ids := make(map[string]bool, len(rs))
-		for _, r := range rs {
-			ids[r.ID] = true
-		}
-		renderedIDs[ch] = ids
-	}
+//
+// A resource generated during render — a service's SessionStart hook — is in
+// rendered but not in the lock, so it is never recorded and every run rediscovers
+// it as new. The same applies to a hash the renderer computes itself rather than
+// copying from the lock entry (backgroundServices): recording the lock's hash
+// leaves the ledger disagreeing with what the plan compares against, and the
+// resource reads as out of sync forever.
+//
+// Lock entries carry fields a Resource does not (Version, Integrity, Args, ...),
+// so each rendered resource takes its lock entry as the base and overrides only
+// what render is authoritative for: the content hash, and the layer when the
+// entry has none. Rendered ids absent from the lock get a synthesized entry.
+func ledgerDesired(desired *lockfile.Lock, rendered map[string][]Resource) *lockfile.Lock {
 	d := desired.Entries
 	return &lockfile.Lock{
 		Version:      desired.Version,
 		GeneratedAt:  desired.GeneratedAt,
 		ManifestHash: desired.ManifestHash,
 		Entries: lockfile.Entries{
-			MCPServers:         keepRendered(d.MCPServers, renderedIDs["mcpServers"]),
-			BackgroundServices: keepRendered(d.BackgroundServices, renderedIDs["backgroundServices"]),
-			Hooks:              keepRendered(d.Hooks, renderedIDs["hooks"]),
-			Commands:           keepRendered(d.Commands, renderedIDs["commands"]),
-			CLITools:           keepRendered(d.CLITools, renderedIDs["cliTools"]),
-			Skills:             keepRendered(d.Skills, renderedIDs["skills"]),
-			Marketplaces:       keepRendered(d.Marketplaces, renderedIDs["marketplaces"]),
-			Plugins:            keepRendered(d.Plugins, renderedIDs["plugins"]),
-			Rules:              keepRendered(d.Rules, renderedIDs["rules"]),
-			Tools:              keepRendered(d.Tools, renderedIDs["tools"]),
+			MCPServers:         renderedEntries(d.MCPServers, rendered["mcpServers"]),
+			BackgroundServices: renderedEntries(d.BackgroundServices, rendered["backgroundServices"]),
+			Hooks:              renderedEntries(d.Hooks, rendered["hooks"]),
+			Commands:           renderedEntries(d.Commands, rendered["commands"]),
+			CLITools:           renderedEntries(d.CLITools, rendered["cliTools"]),
+			Skills:             renderedEntries(d.Skills, rendered["skills"]),
+			Marketplaces:       renderedEntries(d.Marketplaces, rendered["marketplaces"]),
+			Plugins:            renderedEntries(d.Plugins, rendered["plugins"]),
+			Rules:              renderedEntries(d.Rules, rendered["rules"]),
+			Tools:              renderedEntries(d.Tools, rendered["tools"]),
 		},
 	}
 }
 
-// keepRendered returns the entries of one channel whose id was rendered for the
-// target agent. A nil entry map stays nil so an untouched channel is not
-// rewritten as an empty one.
-func keepRendered(entries map[string]lockfile.Entry, ids map[string]bool) map[string]lockfile.Entry {
-	if entries == nil {
+// renderedEntries builds one channel's ledger entries from the resources
+// rendered for this agent, keeping each id's lock entry as the base. A channel
+// with nothing rendered yields nil rather than an empty map, so it round-trips
+// through the lockfile unchanged.
+func renderedEntries(entries map[string]lockfile.Entry, rendered []Resource) map[string]lockfile.Entry {
+	if len(rendered) == 0 {
 		return nil
 	}
-	out := make(map[string]lockfile.Entry, len(entries))
-	for id, e := range entries {
-		if ids[id] {
-			out[id] = e
+	out := make(map[string]lockfile.Entry, len(rendered))
+	for _, r := range rendered {
+		e := entries[r.ID] // zero Entry when the renderer produced this id itself
+		e.ContentHash = r.ContentHash
+		if e.Layer == "" {
+			e.Layer = r.Layer
 		}
+		out[r.ID] = e
 	}
 	return out
 }

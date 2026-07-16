@@ -566,3 +566,71 @@ func TestApplyAllRenderedDoesNotPlanDeleteForForeignResourceOnSecondRun(t *testi
 		}
 	}
 }
+
+// A hook generated during render (a service's SessionStart hook) exists in the
+// rendered set but never in the lock. The ledger must still record it: the hooks
+// provider observes the machine by reading the ledger back, so an unrecorded
+// hook is rediscovered as new on every run and reinstalled forever.
+func TestApplyAllRenderedLedgerRecordsRenderedResourceAbsentFromLock(t *testing.T) {
+	root := t.TempDir()
+	hooks := &stubProvider{channel: "hooks"}
+	o := NewOrchestrator(root, Env{}, []Provider{hooks})
+
+	// The lock has no hooks at all; the renderer generated this one.
+	lock := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{}}
+	rendered := map[string][]Resource{
+		"hooks": {{ID: "db-tunnel-sessionstart", Channel: "hooks", Layer: "repo", ContentHash: "h9"}},
+	}
+
+	if _, err := o.ApplyAllRendered(rendered, lock); err != nil {
+		t.Fatalf("ApplyAllRendered: %v", err)
+	}
+
+	ledger, err := ReadApplied(root)
+	if err != nil {
+		t.Fatalf("ReadApplied: %v", err)
+	}
+	got, ok := ledger.Entries.Hooks["db-tunnel-sessionstart"]
+	if !ok {
+		t.Fatalf("ledger hooks[db-tunnel-sessionstart] absent; want present (rendered resources are recorded even when the lock has no entry)")
+	}
+	if got.ContentHash != "h9" {
+		t.Errorf("ledger contentHash = %q, want %q (the rendered hash)", got.ContentHash, "h9")
+	}
+}
+
+// The renderer computes some hashes itself rather than copying the lock entry's
+// (backgroundServices). The ledger has to record the rendered hash, because that
+// is what the next run's plan compares against: recording the lock's hash leaves
+// the resource reading as out of sync on every run.
+func TestApplyAllRenderedLedgerPrefersRenderedHashOverLockHash(t *testing.T) {
+	root := t.TempDir()
+	svcs := &stubProvider{channel: "backgroundServices"}
+	o := NewOrchestrator(root, Env{}, []Provider{svcs})
+
+	lock := &lockfile.Lock{Version: 1, Entries: lockfile.Entries{
+		BackgroundServices: map[string]lockfile.Entry{
+			"db-tunnel": {Layer: "repo", Version: "3", ContentHash: "lock-hash"},
+		},
+	}}
+	rendered := map[string][]Resource{
+		"backgroundServices": {{ID: "db-tunnel", Channel: "backgroundServices", ContentHash: "rendered-hash"}},
+	}
+
+	if _, err := o.ApplyAllRendered(rendered, lock); err != nil {
+		t.Fatalf("ApplyAllRendered: %v", err)
+	}
+
+	ledger, err := ReadApplied(root)
+	if err != nil {
+		t.Fatalf("ReadApplied: %v", err)
+	}
+	got := ledger.Entries.BackgroundServices["db-tunnel"]
+	if got.ContentHash != "rendered-hash" {
+		t.Errorf("ledger contentHash = %q, want %q (what was applied)", got.ContentHash, "rendered-hash")
+	}
+	// Fields the Resource does not carry must survive from the lock entry.
+	if got.Version != "3" {
+		t.Errorf("ledger version = %q, want %q (carried from the lock entry)", got.Version, "3")
+	}
+}
