@@ -493,6 +493,27 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverrid
 	allEmpty := plansEmpty(plans) && plansEmpty(userPlans)
 	if allEmpty {
 		fmt.Fprintln(ctx.Stdout, "Nothing to do — your environment already matches ainfra.yaml.")
+		if dryRun {
+			return 0
+		}
+		// A secret value can rotate in its backend without any config drift,
+		// so a no-op install still re-materializes secrets. A backend that is
+		// not ready (offline laptop, vault signed out) degrades to a warning —
+		// it must not fail an otherwise clean install.
+		if failures := preflightSecretBackends(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal); len(failures) > 0 {
+			c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
+			fmt.Fprintln(ctx.Stderr, c.Yellow("warning: secrets were not refreshed — backend not ready:"))
+			for _, f := range failures {
+				fmt.Fprintf(ctx.Stderr, "  %s\n", f)
+			}
+			return 0
+		}
+		res, serr := syncSecrets(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal)
+		if serr != nil {
+			ui.RenderError(ctx.Stderr, errColor, serr)
+			return 1
+		}
+		renderSyncResult(ctx.Stdout, res)
 		return 0
 	}
 
@@ -587,14 +608,23 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverrid
 		ui.RenderError(ctx.Stderr, errColor, serr)
 		return 1
 	}
-	if res.EnvCount > 0 {
-		fmt.Fprintf(ctx.Stdout, "Wrote %d secret%s into %s.\n", res.EnvCount, pluralS(res.EnvCount), res.SettingsPath)
-	}
-	for _, f := range res.Files {
-		fmt.Fprintf(ctx.Stdout, "Wrote credential file %s\n", f)
-	}
+	renderSyncResult(ctx.Stdout, res)
 	fmt.Fprintln(ctx.Stdout, "Done — your environment now matches ainfra.yaml.")
 	return 0
+}
+
+// renderSyncResult reports what syncSecrets wrote.
+func renderSyncResult(w io.Writer, res syncResult) {
+	if res.EnvCount > 0 {
+		dests := res.SettingsPath
+		if res.ShellEnvPath != "" {
+			dests += " and " + res.ShellEnvPath
+		}
+		fmt.Fprintf(w, "Wrote %d secret%s into %s.\n", res.EnvCount, pluralS(res.EnvCount), dests)
+	}
+	for _, f := range res.Files {
+		fmt.Fprintf(w, "Wrote credential file %s\n", f)
+	}
 }
 
 // runPrintSchema dumps the manifest's JSON Schema; wired in via `install --print-schema`.
