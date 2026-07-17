@@ -339,3 +339,29 @@ func TestNoPruneLeavesUntrackedAlone(t *testing.T) {
 		t.Error("a non-prune run wrote the offered ledger")
 	}
 }
+
+// A provider whose Observe leaves Resource.Channel empty must still produce a
+// usable ledger key. Otherwise the row would be ":<id>", never match on the
+// next run, and the entry would be re-offered forever instead of arming.
+func TestPruneStampsChannelOnOffer(t *testing.T) {
+	mem := NewMemFilesystem()
+	p := &prunableStub{channel: "skills", observed: []Resource{{ID: "stray"}}} // no Channel set
+	o := NewOrchestratorScoped(t.TempDir(), ScopeRepo, Env{FS: mem}, []Provider{p})
+	o.EnablePrune(fixedNow)
+
+	if _, err := o.ApplyAllRendered(map[string][]Resource{}, emptyLock()); err != nil {
+		t.Fatal(err)
+	}
+
+	raw, err := mem.ReadFile(OfferedPath(o.root))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var l OfferedLedger
+	if err := json.Unmarshal(raw, &l); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := l.Offered["skills:stray"]; !ok {
+		t.Errorf("ledger = %s; want a skills:stray row keyed off the plan's channel", raw)
+	}
+}

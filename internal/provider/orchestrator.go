@@ -154,6 +154,12 @@ func (o *Orchestrator) guardPrune(plan ChannelPlan) ChannelPlan {
 			out.Changes = append(out.Changes, c) // armed: reported on an earlier run
 			continue
 		}
+		// Stamp the channel from the plan rather than trusting the observed
+		// resource to carry it. writeOffered and the caller's report both key
+		// off Resource.Channel; a provider whose Observe left it empty would
+		// otherwise produce a ":<id>" ledger key that never matches, so the
+		// entry would be re-offered forever and never arm.
+		c.Resource.Channel = plan.Channel
 		o.newlyOffered = append(o.newlyOffered, c)
 	}
 	return out
