@@ -33,6 +33,7 @@ func TestStrayFlag(t *testing.T) {
 		fs.Bool("personal", false, "")
 		fs.Bool("global", false, "")
 		fs.Bool("no-install", false, "")
+		fs.String("agent", "", "") // a value-taking flag, like install's
 		return fs
 	}
 
@@ -108,6 +109,23 @@ func TestStrayFlag(t *testing.T) {
 			name:       "consumed terminator plus a later literal one",
 			raw:        []string{"--", "command", "ship", "--global", "--"},
 			positional: []string{"command", "ship", "--global", "--"},
+			want:       "",
+		},
+		{
+			// Codex fourth pass: `--agent --` hands "--" to --agent as its
+			// VALUE. Parse swallows it, but it protects nothing, so the
+			// dropped --global after it must still be caught.
+			name:       "a -- eaten as a flag value is not a terminator",
+			raw:        []string{"--agent", "--", "bogus", "--global"},
+			positional: []string{"bogus", "--global"},
+			want:       "--global",
+		},
+		{
+			// The same shape with a bool flag: --personal never eats the next
+			// token, so this "--" really is a terminator.
+			name:       "a -- after a bool flag is a real terminator",
+			raw:        []string{"--personal", "--", "command", "--global"},
+			positional: []string{"command", "--global"},
 			want:       "",
 		},
 		{

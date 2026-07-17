@@ -40,16 +40,21 @@ type Command struct {
 	// front-page (subscriber-mode helpers, etc.).
 	Hidden bool
 
-	// SubParsesArgs marks a command that takes a positional subcommand and
-	// parses the flags that follow it itself (e.g. `ainfra plugin release
-	// --patch`). Such a command is exempt from the stray-flag check, because
-	// for it a flag after a positional is the intended shape rather than a
-	// silently dropped one.
+	// SubParsesArgs reports, for a given leftover arg list, whether this
+	// command parses the flags among them itself (e.g. `ainfra plugin release
+	// --patch`). When it returns true the command is exempt from the
+	// stray-flag check, because for that shape a flag after a positional is
+	// intended rather than silently dropped.
 	//
-	// Do not set this to silence the check on a command that does NOT
-	// sub-parse: the flag really is being dropped there, and the error is the
+	// It takes the args rather than being a plain bool so a command can exempt
+	// only the shapes it really sub-parses: `init` re-parses flags after `team
+	// <path>`, but plain `ainfra init junk --force` drops --force like any
+	// other command, and blanket-exempting init would hide that.
+	//
+	// Nil means never exempt. Do not return true for a shape the command does
+	// NOT sub-parse: the flag really is dropped there, and this error is the
 	// only thing telling the user their argument did nothing.
-	SubParsesArgs bool
+	SubParsesArgs func(args []string) bool
 }
 
 // Registry holds the registered commands and dispatches to them.
@@ -144,7 +149,8 @@ func (r *Registry) Dispatch(args []string) int {
 		ui.RenderError(r.stderr, cz, fmt.Errorf("%s: %v", cmd.Name, err))
 		return 1
 	}
-	if stray := strayFlag(fs, cmdArgs, fs.Args()); stray != "" && !cmd.SubParsesArgs {
+	subParses := cmd.SubParsesArgs != nil && cmd.SubParsesArgs(fs.Args())
+	if stray := strayFlag(fs, cmdArgs, fs.Args()); stray != "" && !subParses {
 		cz := ui.NewColorizer(r.stderr, *noColor)
 		ui.RenderError(r.stderr, cz, &diag.Diagnostic{
 			Summary: fmt.Sprintf("%s: %s comes after a positional argument, so it was not applied", cmd.Name, stray),
@@ -199,7 +205,7 @@ func (r *Registry) Dispatch(args []string) int {
 // When the terminator appears before any positional, flag.Parse consumes it and
 // it is absent from positional; everything left is then protected by intent.
 func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
-	if terminatorConsumed(raw, positional) {
+	if terminatorConsumed(fs, raw, positional) {
 		return ""
 	}
 	for _, a := range positional {
@@ -222,20 +228,39 @@ func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
 // which it does only when the terminator precedes every positional. In that
 // case the caller asked for the remaining args to be taken literally.
 //
-// Counted rather than "is a -- still present", because Parse strips exactly
-// one: `add -- command ship --global --` leaves the second, literal "--" in
-// place, and treating that as proof no terminator was consumed would flag
-// --global inside an explicitly literal tail.
-func terminatorConsumed(raw, positional []string) bool {
-	return countTerminators(raw) > countTerminators(positional)
+// Parse never reorders, so the leftover positionals are always a suffix of raw
+// and the token immediately before that suffix is whatever Parse swallowed
+// last. That token is a terminator unless it was the VALUE of a preceding
+// non-boolean flag: `ainfra install --agent -- bogus --dry-run` hands "--" to
+// --agent, which protects nothing and must not excuse the dropped --dry-run.
+//
+// Testing for a leftover "--" instead would be wrong the other way: Parse
+// strips exactly one, so a second literal terminator in `add -- command ship
+// --global --` would read as "none consumed" and flag --global inside a tail
+// the user explicitly marked literal.
+func terminatorConsumed(fs *flag.FlagSet, raw, positional []string) bool {
+	start := len(raw) - len(positional)
+	if start <= 0 || raw[start-1] != "--" {
+		return false
+	}
+	if start >= 2 && takesValue(fs, raw[start-2]) {
+		return false // the "--" was that flag's value, not a terminator
+	}
+	return true
 }
 
-func countTerminators(args []string) int {
-	n := 0
-	for _, a := range args {
-		if a == "--" {
-			n++
-		}
+// takesValue reports whether tok names a registered non-boolean flag in the
+// separate-value form (`--agent x`, not `--agent=x`), meaning Parse consumes
+// the following token as its value.
+func takesValue(fs *flag.FlagSet, tok string) bool {
+	name := strings.TrimLeft(tok, "-")
+	if name == tok || name == "" || strings.Contains(name, "=") {
+		return false
 	}
-	return n
+	f := fs.Lookup(name)
+	if f == nil {
+		return false
+	}
+	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !(ok && bf.IsBoolFlag()) // a bool flag never eats the next token
 }

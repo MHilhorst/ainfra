@@ -40,7 +40,7 @@ func newExecCommand() *cli.Command {
 		// flags: `ainfra exec claude --no-color` passes --no-color to claude.
 		// exec registers no flags of its own, so a token here is never a
 		// dropped ainfra flag.
-		SubParsesArgs: true,
+		SubParsesArgs: func([]string) bool { return true },
 		Run:           runExec,
 	}
 }

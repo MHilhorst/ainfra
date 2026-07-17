@@ -252,3 +252,21 @@ func TestInitTeamAcceptsFlagsAfterPath(t *testing.T) {
 		t.Errorf("--empty was not honored; manifest is not the skeleton:\n%s", data)
 	}
 }
+
+// TestInitNonTeamRejectsLateFlag pins that only the `team` form is exempt from
+// the stray-flag check.
+//
+// A blanket exemption on init would hide a real dropped flag here: plain
+// `ainfra init` does not re-parse its args, so --force after a positional does
+// nothing and the user would believe they had forced an overwrite.
+func TestInitNonTeamRejectsLateFlag(t *testing.T) {
+	dir := t.TempDir()
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "init", "junk", "--force"}, &bytes.Buffer{}, &errOut)
+	if code == 0 {
+		t.Error("exited 0; --force here is silently dropped and must be rejected")
+	}
+	if !strings.Contains(errOut.String(), "--force") {
+		t.Errorf("error should name the dropped flag, got %q", errOut.String())
+	}
+}
