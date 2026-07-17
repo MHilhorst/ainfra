@@ -79,10 +79,27 @@ func TestStrayFlag(t *testing.T) {
 			want:       "",
 		},
 		{
-			// "--" is the explicit "these are positionals" terminator.
-			name:       "double dash disables the check",
+			// "--" is the explicit "these are positionals" terminator: what
+			// follows it is protected.
+			name:       "tokens after the terminator are protected",
 			raw:        []string{"command", "ship", "--", "--global"},
-			positional: []string{"command", "ship", "--global"},
+			positional: []string{"command", "ship", "--", "--global"},
+			want:       "",
+		},
+		{
+			// Codex re-review: a terminator later in the line must not
+			// retroactively excuse a flag dropped before it.
+			name:       "terminator does not excuse a flag before it",
+			raw:        []string{"command", "ship", "--global", "--"},
+			positional: []string{"command", "ship", "--global", "--"},
+			want:       "--global",
+		},
+		{
+			// flag.Parse consumes a terminator that precedes every positional,
+			// so it is absent from positional and everything left is literal.
+			name:       "terminator consumed by Parse protects the rest",
+			raw:        []string{"--", "command", "--global"},
+			positional: []string{"command", "--global"},
 			want:       "",
 		},
 		{

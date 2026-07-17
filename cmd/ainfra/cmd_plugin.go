@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
+	"github.com/MHilhorst/ainfra/internal/diag"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
 	"github.com/MHilhorst/ainfra/internal/plugin"
@@ -47,6 +48,17 @@ func runPlugin(ctx cli.Context) int {
 	sub.BoolVar(&major, "major", false, "bump the major version on release")
 	if err := sub.Parse(ctx.Args[1:]); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
+		return 2
+	}
+	// `plugin` opts out of the top-level stray-flag check because a flag after
+	// the action word is its normal shape. That makes this its own guard: an
+	// unexpected positional stops sub.Parse too, so `plugin release foo
+	// --patch` would otherwise drop --patch and release the wrong level.
+	if rest := sub.Args(); len(rest) > 0 {
+		ui.RenderError(ctx.Stderr, errColor, &diag.Diagnostic{
+			Summary: fmt.Sprintf("plugin %s: unexpected argument %q", action, rest[0]),
+			Hint:    "usage: ainfra plugin <build|release> [--patch|--minor|--major]",
+		})
 		return 2
 	}
 	level := ""

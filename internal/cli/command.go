@@ -191,19 +191,24 @@ func (r *Registry) Dispatch(args []string) int {
 // real file — and rejecting it would break invocations that work today. Only a
 // token that would have done something had it been placed earlier is an error.
 //
-// Args after an explicit "--" terminator are intentional positionals (that is
-// what the terminator is for), so a "--" anywhere in the raw args disables the
-// check.
+// Only tokens after an explicit "--" terminator are protected — that is what
+// the terminator is for. A terminator later in the line does not retroactively
+// excuse a dropped flag before it, so `add command ship x.md --global --` is
+// still an error.
+//
+// When the terminator appears before any positional, flag.Parse consumes it and
+// it is absent from positional; everything left is then protected by intent.
 func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
-	for _, a := range raw {
-		if a == "--" {
-			return ""
-		}
+	if terminatorConsumed(raw, positional) {
+		return ""
 	}
 	for _, a := range positional {
+		if a == "--" {
+			return "" // everything from here on is a protected positional
+		}
 		name := strings.TrimLeft(a, "-")
 		if name == a || name == "" {
-			continue // not dash-prefixed, or a bare "-"/"--"
+			continue // not dash-prefixed, or a bare "-"
 		}
 		name, _, _ = strings.Cut(name, "=") // --flag=value
 		if fs.Lookup(name) != nil {
@@ -211,4 +216,26 @@ func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
 		}
 	}
 	return ""
+}
+
+// terminatorConsumed reports whether flag.Parse swallowed a "--" terminator,
+// which it does only when the terminator precedes every positional. In that
+// case the caller asked for the remaining args to be taken literally.
+func terminatorConsumed(raw, positional []string) bool {
+	inRaw := false
+	for _, a := range raw {
+		if a == "--" {
+			inRaw = true
+			break
+		}
+	}
+	if !inRaw {
+		return false
+	}
+	for _, a := range positional {
+		if a == "--" {
+			return false // still present, so Parse stopped before reaching it
+		}
+	}
+	return true
 }
