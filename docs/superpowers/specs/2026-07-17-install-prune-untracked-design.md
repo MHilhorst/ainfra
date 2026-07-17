@@ -1,7 +1,7 @@
 # `ainfra install --prune`: declare-or-clear for untracked config
 
 Date: 2026-07-17
-Status: Approved design, not yet implemented
+Status: Implemented on feat/install-prune-untracked
 
 ## Problem
 
@@ -96,9 +96,29 @@ route to user scope automatically
 (`cmd/ainfra/commands.go::partitionLockByLayer`).
 
 The rule a user needs to understand is one sentence: **if you want to keep it,
-declare it.** `ainfra add <channel> <id> --personal` for user-scope entries; for
-repo-scope entries, `ainfra init --adopt --force` or a manifest edit, which is a
-team decision and goes through a PR.
+declare it.**
+
+Which manifest matters, and getting it wrong is dangerous:
+
+- **User-scope entries** (anything in `~/.claude/`) must go in the *global*
+  personal manifest, `~/.config/ainfra/personal.yaml`:
+  `ainfra add --global <channel> <id> <source>`.
+- **Repo-scope entries** go in the repo's `ainfra.yaml` (team, via PR) or its
+  `ainfra.personal.yaml` (`--personal`, just you, just this repo).
+
+`--global` did not exist before this work; it was added for exactly this reason.
+`--personal` writes the *repo's* `ainfra.personal.yaml`, but `~/.claude/`
+applies in every repo — so declaring a slash command with `--personal` leaves it
+undeclared in every other repo, and a `--prune` run from a second repo would
+report and then delete it. That defeats the guard from a direction the user
+never sees. `cmd/ainfra/cmd_install_prune_test.go::TestInstallPruneGlobalDeclarationSurvivesOtherRepo`
+pins the fix.
+
+Flags must precede positionals. Go's `flag` package stops parsing at the first
+positional, so `ainfra add command ship <src> --global` silently ignores
+`--global` and writes the team's `ainfra.yaml` instead (and ignores
+`--no-install`, installing anyway). Any advice this feature prints must put
+flags first.
 
 ## The guard: the offered ledger
 
@@ -405,11 +425,14 @@ Not declared in ainfra (nothing removed yet):
 
   commands  dbaccess, document, monitor, review-wip, ship, spin, start, stop
 
-To keep any of these, declare them:
-  ainfra add commands ship --personal
+  In ~/.claude/ (applies in every repo):
+    commands   dbaccess, document, monitor, review-wip, ship, spin, start, stop
+
+  To keep one, declare it in your global personal manifest:
+    ainfra add --global <channel> <id> <source>
 
 Anything still undeclared will be removed by the next 'ainfra install --prune'.
-Backups are written to .ainfra/pruned-<timestamp>/ regardless.
+Backups are written to .ainfra/pruned-<timestamp>/ when it does.
 ```
 
 Second run removes what remains undeclared, listing each delete and its backup
