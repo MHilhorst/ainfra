@@ -47,6 +47,58 @@ ainfra init team ../claude-config --empty   # …or scaffold a skeleton instead
 
 `init --adopt` reads `.mcp.json`, `.claude/settings.json` hooks, `.claude/commands/*`, and `CLAUDE.md`, and emits a draft `ainfra.yaml`. Literal credentials it recognizes (`ghp_*`, `sk-*`, `xoxb-*`, and generic `token` / `key` / `password` keys) are stripped and replaced with `direct`-mode secret references plus a `TODO` marker for the vault path — nothing sensitive ends up in the manifest. Skills and tool permissions are skipped: skills arrive with `git clone`, and a clean permissions matcher is left for a later iteration.
 
+## Clearing config you never declared
+
+`ainfra install` only ever adds and updates, so a machine accumulates config no
+manifest describes: an MCP server hand-added to `.mcp.json`, a skill dropped
+into `.claude/skills/`, a slash command in `~/.claude/commands/`. `--prune`
+removes it — but never the first time it sees it:
+
+```sh
+ainfra install --prune                                       # reports what is undeclared, removes nothing
+ainfra add --global command ship ~/.claude/commands/ship.md  # keep the ones you want
+ainfra install --prune                                       # removes what is still undeclared
+```
+
+Undeclared does not mean unwanted. Usually it means you never got around to
+declaring it — the first machine this was tried on had eight undeclared slash
+commands, every one of them in daily use. So the first run is always a report,
+and only a later run removes what you saw and chose not to keep. Anything
+removed is copied to `~/.config/ainfra/pruned/<timestamp>/` first.
+
+The record of what you have been shown lives under `~/.config/ainfra/`, not in
+the repo, and is keyed per machine and per agent. It is deliberately not
+shareable: a ledger that travelled over git would arm deletions on a teammate's
+first run, from a list they never saw.
+
+**Use `--global` for anything in `~/.claude/`.** It applies in every repo, so a
+declaration in one repo's `ainfra.personal.yaml` leaves it undeclared in all the
+others — and a `--prune` run from a different repo would then remove it.
+`--global` writes `~/.config/ainfra/personal.yaml`, which follows you
+everywhere.
+
+Flags go **before** the positional arguments (`ainfra add --global command ship
+…`, not `ainfra add command ship … --global`). A flag placed after them is
+silently ignored, and the entry lands in the team's `ainfra.yaml`.
+
+There is deliberately no flag to skip the two-step. The gap between being shown
+an entry and losing it is the point, and `--dry-run --prune` does not count as
+having been shown: a preview never arms a removal.
+
+`--prune` covers `mcpServers` (in the repo), `skills`, and `commands`, in both
+the repo and your `~/.claude/`. It does **not** touch:
+
+| Not pruned                                  | Why                                                        |
+| ------------------------------------------- | ---------------------------------------------------------- |
+| `hooks`                                     | ainfra cannot see hooks it did not install                  |
+| `rules` (CLAUDE.md, AGENTS.md)              | not yet scoped; deferred                                    |
+| personal MCP servers in `~/.claude.json`    | ainfra does not read that file yet                          |
+| `tools`, `backgroundServices`               | would uninstall CLI binaries and tear down tunnels          |
+| `plugins`, `marketplaces`                   | installed artifacts; removal is not free                    |
+
+So `--prune` does not make your machine match your manifest exactly. It clears
+undeclared config files, which is narrower.
+
 ## Authoring a setup from scratch
 
 Starting a new team setup — most days you work through `add`, never touching `ainfra.yaml` by hand:
@@ -142,8 +194,9 @@ Each database server gets its own tunnel port, assigned by ainfra — no port is
 | `ainfra init` | Scaffold an `ainfra.yaml` (`--personal`, `--force`, `--with-skill`) |
 | `ainfra init --adopt` | One-shot bootstrap: draft an `ainfra.yaml` from an existing `.mcp.json` / `.claude/` / `CLAUDE.md` setup (`--force` to re-scan). Use `install` for drift after that. |
 | `ainfra init team <path>` | Scaffold a team config repo at `<path>`, scanning `~/.claude/` by default (`--empty` for a skeleton) |
-| `ainfra install` | Reconcile the environment to the manifest (`--agent`, `--dry-run`, `--strict`, `--print-schema`, `--from <url>`) |
-| `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile |
+| `ainfra install` | Reconcile the environment to the manifest (`--agent`, `--dry-run`, `--strict`, `--prune`, `--print-schema`, `--from <url>`) |
+| `ainfra install --prune` | Also remove undeclared config. Reports on the first run, removes on a later one — see [Clearing config you never declared](#clearing-config-you-never-declared) |
+| `ainfra add <ch> <id> [src]` | Add an entry to `ainfra.yaml` and reconcile (`--personal` for this repo only, `--global` for every repo on this machine) |
 | `ainfra remove <ch> <id>` | Remove an entry and reconcile |
 | `ainfra update [<ch> <id>]` | Re-resolve the lockfile and reinstall |
 | `ainfra list` | List installed entries (`--channel`, `--json`) |

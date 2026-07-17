@@ -2,7 +2,9 @@ package provider
 
 import (
 	"fmt"
+	"path/filepath"
 	"sort"
+	"time"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 )
@@ -38,6 +40,259 @@ type Orchestrator struct {
 	scope     Scope
 	env       Env
 	providers map[string]Provider
+
+	// prune and its companions implement `install --prune`. See EnablePrune.
+	prune        bool
+	now          func() time.Time
+	offered      *OfferedLedger
+	offeredBad   bool
+	newlyOffered []Change
+	backupDir    string
+}
+
+// EnablePrune turns on --prune for this orchestrator: untracked resources
+// become candidate deletes, guarded by the offered ledger so nothing is
+// removed the first time the user is shown it.
+//
+// now is injected so tests can pin the backup directory name and the offer
+// timestamps.
+func (o *Orchestrator) EnablePrune(now func() time.Time) {
+	o.prune = true
+	o.now = now
+}
+
+// NewlyOffered returns the untracked resources the last plan reported to the
+// user for the first time. They are deliberately absent from the plan: prune
+// never deletes on first sight, so the caller should print these as "not
+// declared, nothing removed yet".
+func (o *Orchestrator) NewlyOffered() []Change { return o.newlyOffered }
+
+// OfferedLedgerCorrupt reports whether the offered ledger could not be parsed
+// and was treated as empty, so the caller can warn. Everything was re-offered
+// and nothing was deleted.
+func (o *Orchestrator) OfferedLedgerCorrupt() bool { return o.offeredBad }
+
+// RecordOffered persists the offers from the last plan without applying
+// anything.
+//
+// A prune run whose plan is otherwise empty still has work to do: the entries
+// it just reported must be recorded, or the next run would offer them again
+// instead of arming them, and prune could never remove anything. ApplyAllRendered
+// records offers itself; this is for the caller's early-return path where there
+// are no changes to apply.
+func (o *Orchestrator) RecordOffered() error {
+	if !o.prune || o.env.DryRun {
+		return nil
+	}
+	return o.writeOffered(nil)
+}
+
+func (o *Orchestrator) clock() time.Time {
+	if o.now != nil {
+		return o.now()
+	}
+	return time.Now()
+}
+
+// offeredPath resolves the offered ledger for this orchestrator's scope and
+// target agent. Keyed by agent like the applied ledger: a side-by-side install
+// for another agent has a different provider set and would otherwise rewrite
+// this one's ledger from an empty offer set.
+func (o *Orchestrator) offeredPath() (string, error) {
+	if o.scope == ScopeUser {
+		return OfferedPathUser(o.env.Agent)
+	}
+	return OfferedPathRepo(o.root, o.env.Agent)
+}
+
+// scopeKey names this orchestrator's scope for the backup tree, so a repo-scope
+// and a user-scope prune in the same run cannot collide on a shared id (e.g. a
+// "ship" command in both).
+func (o *Orchestrator) scopeKey() string {
+	if o.scope == ScopeUser {
+		return "user"
+	}
+	return repoScopeKey(o.root)
+}
+
+// pruneableInScope reports whether p's untracked resources may be removed in
+// this orchestrator's scope.
+func (o *Orchestrator) pruneableInScope(p Provider) bool {
+	if _, ok := p.(Pruner); !ok {
+		return false
+	}
+	// MCP in user scope would read $HOME/.mcp.json, which is not where Claude
+	// Code keeps user-level MCP servers (~/.claude.json, a different file and
+	// format ainfra does not read yet). Pruning there would act on the wrong
+	// file, so the channel is repo-scope-only for prune.
+	if o.scope == ScopeUser && p.Channel() == "mcpServers" {
+		return false
+	}
+	return true
+}
+
+// loadOffered reads the offered ledger once per orchestrator.
+func (o *Orchestrator) loadOffered() error {
+	if !o.prune || o.offered != nil {
+		return nil
+	}
+	path, err := o.offeredPath()
+	if err != nil {
+		return err
+	}
+	l, corrupt, err := ReadOffered(o.env.FS, path)
+	if err != nil {
+		return err
+	}
+	o.offered, o.offeredBad = l, corrupt
+	return nil
+}
+
+// guardPrune drops prune deletes the user has not been shown before, recording
+// them in newlyOffered instead.
+//
+// This is what makes --prune safe. Untracked usually means "never got around
+// to declaring it", not "unwanted", so an entry must appear in one run's report
+// before a later run may delete it. The guard lives here rather than in the
+// caller because ApplyAllRendered re-plans internally: a caller-side guard
+// would be bypassed on apply and the unoffered deletes would execute.
+func (o *Orchestrator) guardPrune(plan ChannelPlan) ChannelPlan {
+	out := ChannelPlan{Channel: plan.Channel}
+	for _, c := range plan.Changes {
+		if !c.Prune {
+			out.Changes = append(out.Changes, c)
+			continue
+		}
+		if _, seen := o.offered.Offered[OfferedKey(plan.Channel, c.ID)]; seen {
+			out.Changes = append(out.Changes, c) // armed: reported on an earlier run
+			continue
+		}
+		// Stamp the channel from the plan rather than trusting the observed
+		// resource to carry it. writeOffered and the caller's report both key
+		// off Resource.Channel; a provider whose Observe left it empty would
+		// otherwise produce a ":<id>" ledger key that never matches, so the
+		// entry would be re-offered forever and never arm.
+		c.Resource.Channel = plan.Channel
+		o.newlyOffered = append(o.newlyOffered, c)
+	}
+	return out
+}
+
+// diffOptsFor returns the diff options for one provider in this scope.
+func (o *Orchestrator) diffOptsFor(p Provider) DiffOpts {
+	if o.prune && o.pruneableInScope(p) {
+		return DiffOpts{Prune: true}
+	}
+	return DiffOpts{}
+}
+
+// backupPrunes copies each prune delete's on-disk state into the run's backup
+// directory, dropping any change whose backup failed. Never delete what could
+// not be backed up: the resource may be the user's only copy.
+func (o *Orchestrator) backupPrunes(p Provider, plan ChannelPlan) (ChannelPlan, []ChangeFailure) {
+	pr, ok := p.(Pruner)
+	if !ok {
+		return plan, nil
+	}
+	out := ChannelPlan{Channel: plan.Channel}
+	var failed []ChangeFailure
+	for _, c := range plan.Changes {
+		if !c.Prune {
+			out.Changes = append(out.Changes, c)
+			continue
+		}
+		dir, derr := o.runBackupDir()
+		if derr != nil {
+			failed = append(failed, ChangeFailure{
+				Change: c,
+				Err:    fmt.Errorf("no backup directory, not deleting: %w", derr),
+			})
+			continue
+		}
+		if err := pr.Backup(o.env, c.Resource, dir); err != nil {
+			failed = append(failed, ChangeFailure{
+				Change: c,
+				Err:    fmt.Errorf("backup failed, not deleting: %w", err),
+			})
+			continue
+		}
+		out.Changes = append(out.Changes, c)
+	}
+	return out, failed
+}
+
+// runBackupDir is this run's backup directory, computed once so every channel
+// shares one timestamped tree.
+//
+// It lives outside the repo, under $XDG_CONFIG_HOME/ainfra/pruned/. ainfra
+// never git-ignores .ainfra/ (init writes only the `ainfra.personal.*`
+// pattern), and a backup of an untracked .mcp.json entry carries that server's
+// full config including any env values — so a repo-local backup tree would be
+// committed by default.
+func (o *Orchestrator) runBackupDir() (string, error) {
+	if o.backupDir != "" {
+		return o.backupDir, nil
+	}
+	root, err := PruneBackupRoot()
+	if err != nil {
+		return "", err
+	}
+	o.backupDir = filepath.Join(root, o.clock().UTC().Format("20060102T150405Z"), o.scopeKey())
+	return o.backupDir, nil
+}
+
+// writeOffered persists the offered ledger after an apply. A row exists only
+// for a resource that is still untracked and still on disk: entries the user
+// declared drop out because they are no longer untracked, and entries this run
+// deleted drop out because they are gone.
+func (o *Orchestrator) writeOffered(results []ApplyResult) error {
+	deleted := map[string]bool{}
+	for _, res := range results {
+		for _, c := range res.Applied {
+			if c.Prune && c.Kind == ChangeDelete {
+				deleted[OfferedKey(res.Channel, c.ID)] = true
+			}
+		}
+	}
+
+	next := &OfferedLedger{Version: offeredLedgerVersion, Offered: map[string]OfferedEntry{}}
+	stamp := o.clock().UTC().Format(time.RFC3339)
+
+	keep := func(key string) {
+		if deleted[key] {
+			return
+		}
+		if prev, ok := o.offered.Offered[key]; ok {
+			next.Offered[key] = prev
+			return
+		}
+		next.Offered[key] = OfferedEntry{FirstOfferedAt: stamp}
+	}
+
+	// Reported this run for the first time.
+	for _, c := range o.newlyOffered {
+		keep(OfferedKey(c.Resource.Channel, c.ID))
+	}
+	// Armed but not removed (e.g. its backup failed): keep the row so the next
+	// run can retry rather than re-offering an entry the user already saw.
+	for _, res := range results {
+		for _, f := range res.Failed {
+			if f.Change.Prune {
+				keep(OfferedKey(res.Channel, f.Change.ID))
+			}
+		}
+		for _, s := range res.Skipped {
+			if s.Change.Prune {
+				keep(OfferedKey(res.Channel, s.Change.ID))
+			}
+		}
+	}
+
+	path, err := o.offeredPath()
+	if err != nil {
+		return err
+	}
+	return WriteOffered(o.env.FS, path, next)
 }
 
 // NewOrchestrator builds a repo-scope Orchestrator keyed by each provider's
@@ -104,7 +359,7 @@ func (o *Orchestrator) PlanAll(desired *lockfile.Lock) (map[string]ChannelPlan, 
 				}
 			}
 		}
-		plan := DiffResources(p.Channel(), desiredByCh[p.Channel()], observed, priorForCh)
+		plan := DiffResources(p.Channel(), desiredByCh[p.Channel()], observed, priorForCh, DiffOpts{})
 		result[ch] = plan
 	}
 	return result, nil
@@ -143,6 +398,10 @@ func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[stri
 	if err != nil {
 		return nil, err
 	}
+	o.newlyOffered = nil
+	if err := o.loadOffered(); err != nil {
+		return nil, err
+	}
 
 	priorByCh := ResourcesByChannel(prior)
 
@@ -166,7 +425,11 @@ func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[stri
 			}
 		}
 		desiredForCh := rendered[p.Channel()]
-		plan := DiffResources(p.Channel(), desiredForCh, observed, priorForCh)
+		opts := o.diffOptsFor(p)
+		plan := DiffResources(p.Channel(), desiredForCh, observed, priorForCh, opts)
+		if opts.Prune {
+			plan = o.guardPrune(plan)
+		}
 		result[ch] = plan
 	}
 	return result, nil
@@ -202,6 +465,14 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 
 		runnable, skipped := splitBlocked(plan, failedRefs)
 
+		// Back up prune deletes before they are applied. A resource that could
+		// not be backed up is dropped from the plan: never delete what has no
+		// copy.
+		var backupFailed []ChangeFailure
+		if o.prune && !o.env.DryRun {
+			runnable, backupFailed = o.backupPrunes(p, runnable)
+		}
+
 		res := ApplyResult{Channel: ch}
 		r, applyErr := p.Apply(o.env, runnable)
 		if applyErr != nil {
@@ -216,6 +487,7 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 			res.Channel = ch
 		}
 		res.Skipped = append(res.Skipped, skipped...)
+		res.Failed = append(res.Failed, backupFailed...)
 
 		for _, f := range res.Failed {
 			failedRefs[nodeRef(ch, f.Change.ID)] = true
@@ -231,6 +503,14 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 	if !o.env.DryRun {
 		if werr := o.writeApplied(ledger); werr != nil {
 			errs = append(errs, fmt.Errorf("writing applied ledger: %w", werr))
+		}
+	}
+	// The offered ledger is never written on a dry run: a preview that armed a
+	// deletion would make the next real run delete on what the user
+	// experienced as the first run.
+	if o.prune && !o.env.DryRun {
+		if werr := o.writeOffered(results); werr != nil {
+			errs = append(errs, fmt.Errorf("writing offered ledger: %w", werr))
 		}
 	}
 

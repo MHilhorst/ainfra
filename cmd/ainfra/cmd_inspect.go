@@ -373,6 +373,11 @@ func nextStepHints(hasManifest bool, s inspectStats) []string {
 	}
 	if s.Untracked > 0 {
 		hints = append(hints, "ainfra init --adopt --force    # fold the local-only entries into ainfra.yaml so they're shared")
+		// The two remedies for local-only entries are keep-it and clear-it;
+		// showing only the first left users with no answer when the entries
+		// were cruft. --prune reports before it removes, so pointing at it
+		// here cannot cost anyone their config.
+		hints = append(hints, "ainfra install --prune         # or report the local-only entries, and remove them on a later run")
 	}
 	if s.Missing > 0 {
 		hints = append(hints, "ainfra install                 # install the entries ainfra.yaml expects but that aren't here yet")

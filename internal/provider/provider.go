@@ -72,6 +72,13 @@ type Change struct {
 	ID       string
 	Detail   string
 	Resource Resource
+	// Prune marks a delete synthesized because the resource is untracked —
+	// present on the machine but in neither the manifest nor the applied
+	// ledger — rather than one the manifest asked for. The orchestrator uses
+	// it to find the deletes subject to the offered-ledger guard and to back
+	// them up. It is a structural flag rather than a Detail string match,
+	// which would be fragile.
+	Prune bool
 }
 
 // ChannelPlan is the set of changes one provider would make.
@@ -130,6 +137,35 @@ type Provider interface {
 	Channel() string
 	Observe(env Env) ([]Resource, error)
 	Apply(env Env, plan ChannelPlan) (ApplyResult, error)
+}
+
+// Pruner is implemented by providers whose channel supports --prune.
+//
+// A provider that does not implement it can never have untracked resources
+// removed: the orchestrator does not pass DiffOpts{Prune} to its diff. This
+// makes the pruneable set a property of the type system rather than a list
+// that can drift out of sync with intent.
+//
+// Deliberately not implemented by:
+//   - hooks: Observe is ledger-sourced, so observed equals prior and the
+//     untracked set is always empty. A prune would report success having done
+//     nothing, which is worse than not supporting it.
+//   - rules: Observe spans the repo and $HOME in every scope, so scoping a
+//     prune correctly is work this design defers.
+//   - tools: would uninstall CLI binaries.
+//   - backgroundServices: would tear down the prod-DB tunnels.
+//   - plugins, marketplaces: installed artifacts; removal is not free and
+//     removing a marketplace breaks the plugins that need it.
+type Pruner interface {
+	Provider
+	// Backup copies the on-disk state of r into dir before r is deleted.
+	//
+	// Implementations own their storage layout: the orchestrator does not know
+	// where a channel keeps its data, and Observe does not populate Payload,
+	// so a generic orchestrator-level backup would write empty files while
+	// reporting success. An error cancels the delete — never remove what could
+	// not be backed up.
+	Backup(env Env, r Resource, dir string) error
 }
 
 // ApplyError aggregates the per-resource failures of a partial apply. When it

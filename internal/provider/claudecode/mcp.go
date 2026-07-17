@@ -5,6 +5,7 @@ package claudecode
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	iofs "io/fs"
 	"path/filepath"
 
@@ -178,4 +179,40 @@ func isEmpty(v any) bool {
 		return len(x) == 0
 	}
 	return false
+}
+
+// Backup writes the server's entry from .mcp.json into dir before Apply removes
+// it.
+//
+// It re-reads the file rather than serializing r.Payload: Observe does not
+// populate Payload, so a payload-based backup would write an empty object while
+// reporting success — losing exactly the data it claims to protect. A missing
+// entry is an error, not an empty backup, because the orchestrator cancels the
+// delete on error and must not be told a non-existent backup succeeded.
+func (MCP) Backup(env provider.Env, r provider.Resource, dir string) error {
+	raw, err := env.FS.ReadFile(mcpPath(env))
+	if err != nil {
+		return err
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return err
+	}
+	servers, ok := doc["mcpServers"].(map[string]any)
+	if !ok {
+		return fmt.Errorf("mcpServers: %s has no mcpServers object; refusing to back up %q as empty", mcpPath(env), r.ID)
+	}
+	entry, ok := servers[r.ID]
+	if !ok {
+		return fmt.Errorf("mcpServers: %q not found in %s; refusing to back up an empty entry", r.ID, mcpPath(env))
+	}
+	out, err := json.MarshalIndent(entry, "", "  ")
+	if err != nil {
+		return err
+	}
+	dst := filepath.Join(dir, "mcpServers", r.ID+".json")
+	if err := env.FS.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	return env.FS.WriteFile(dst, append(out, '\n'), 0o644)
 }
