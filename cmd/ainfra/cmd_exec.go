@@ -76,11 +76,40 @@ func runExec(ctx cli.Context) int {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("exec: %v", err))
 		return 127
 	}
-	if err := execFn(bin, ctx.Args, mergeEnv(os.Environ(), resolved)); err != nil {
+	// The child's PATH loses the shim dir. Third-party claude wrappers (e.g.
+	// cmux's) resolve the "real" binary by scanning PATH skipping only their
+	// own dir — with the shim dir still present, the shim and such a wrapper
+	// resolve each other in an infinite loop. Secrets are already injected,
+	// so nested launches don't need the shim again.
+	env := stripShimDirFromPath(mergeEnv(os.Environ(), resolved))
+	if err := execFn(bin, ctx.Args, env); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("exec %s: %v", bin, err))
 		return 126
 	}
 	return 0
+}
+
+// stripShimDirFromPath removes ainfra's shim dir from the PATH entry of an
+// environment slice. See runExec for why.
+func stripShimDirFromPath(env []string) []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return env
+	}
+	shimDir := filepath.Join(home, ".config", "ainfra", "bin")
+	for i, kv := range env {
+		if !strings.HasPrefix(kv, "PATH=") {
+			continue
+		}
+		var kept []string
+		for _, d := range filepath.SplitList(kv[len("PATH="):]) {
+			if d != shimDir {
+				kept = append(kept, d)
+			}
+		}
+		env[i] = "PATH=" + strings.Join(kept, string(os.PathListSeparator))
+	}
+	return env
 }
 
 // mergeEnv returns base with every resolved secret set. A freshly-resolved
