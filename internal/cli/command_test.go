@@ -27,13 +27,13 @@ func TestRegistryAddAndLookup(t *testing.T) {
 }
 
 func TestStrayFlag(t *testing.T) {
-	// A FlagSet shaped like `ainfra add`: the flags it really registers.
+	// A FlagSet shaped like a real ainfra command.
 	newFS := func() *flag.FlagSet {
 		fs := flag.NewFlagSet("add", flag.ContinueOnError)
 		fs.Bool("personal", false, "")
 		fs.Bool("global", false, "")
 		fs.Bool("no-install", false, "")
-		fs.String("agent", "", "") // a value-taking flag, like install's
+		fs.String("channel", "", "") // a value-taking flag, like list's
 		return fs
 	}
 
@@ -53,7 +53,7 @@ func TestStrayFlag(t *testing.T) {
 			want:       "--global",
 		},
 		{
-			name:       "single-dash form is caught too",
+			name:       "single-dash form is caught",
 			raw:        []string{"command", "ship", "-global"},
 			positional: []string{"command", "ship", "-global"},
 			want:       "-global",
@@ -71,61 +71,44 @@ func TestStrayFlag(t *testing.T) {
 			want:       "",
 		},
 		{
-			// Codex review of this change: a dash-prefixed token that is not a
-			// flag of this command is a legitimate positional (a real filename).
-			// Rejecting it would break invocations that work today.
+			// A dash-prefixed token that is not a flag of this command is a
+			// legitimate positional — a real filename. Rejecting it would break
+			// invocations that work today.
 			name:       "dash-prefixed non-flag positional is allowed",
 			raw:        []string{"command", "ship", "-draft.md"},
 			positional: []string{"command", "ship", "-draft.md"},
 			want:       "",
 		},
 		{
-			// "--" is the explicit "these are positionals" terminator: what
-			// follows it is protected.
-			name:       "tokens after the terminator are protected",
-			raw:        []string{"command", "ship", "--", "--global"},
-			positional: []string{"command", "ship", "--", "--global"},
+			// Go's flag package would not parse ---global as a flag, so it is
+			// not a dropped one either.
+			name:       "triple-dash is not flag-shaped",
+			raw:        []string{"command", "ship", "---global"},
+			positional: []string{"command", "ship", "---global"},
 			want:       "",
 		},
 		{
-			// Codex re-review: a terminator later in the line must not
-			// retroactively excuse a flag dropped before it.
-			name:       "terminator does not excuse a flag before it",
+			// Any "--" means "take the rest literally". Deciding which "--"
+			// Parse swallowed, and whether it was a terminator or a flag's
+			// value, means reimplementing the parser — and a wrong guess
+			// rejects a working command. Missing a drop is the safer error.
+			name:       "a terminator anywhere disables the check",
 			raw:        []string{"command", "ship", "--global", "--"},
 			positional: []string{"command", "ship", "--global", "--"},
-			want:       "--global",
+			want:       "",
 		},
 		{
-			// flag.Parse consumes a terminator that precedes every positional,
-			// so it is absent from positional and everything left is literal.
-			name:       "terminator consumed by Parse protects the rest",
+			name:       "terminator consumed by Parse also disables it",
 			raw:        []string{"--", "command", "--global"},
 			positional: []string{"command", "--global"},
 			want:       "",
 		},
 		{
-			// Codex third pass: Parse strips only the first "--", so a second
-			// literal one must not read as "no terminator was consumed".
-			name:       "consumed terminator plus a later literal one",
-			raw:        []string{"--", "command", "ship", "--global", "--"},
-			positional: []string{"command", "ship", "--global", "--"},
-			want:       "",
-		},
-		{
-			// Codex fourth pass: `--agent --` hands "--" to --agent as its
-			// VALUE. Parse swallows it, but it protects nothing, so the
-			// dropped --global after it must still be caught.
-			name:       "a -- eaten as a flag value is not a terminator",
-			raw:        []string{"--agent", "--", "bogus", "--global"},
-			positional: []string{"bogus", "--global"},
-			want:       "--global",
-		},
-		{
-			// The same shape with a bool flag: --personal never eats the next
-			// token, so this "--" really is a terminator.
-			name:       "a -- after a bool flag is a real terminator",
-			raw:        []string{"--personal", "--", "command", "--global"},
-			positional: []string{"command", "--global"},
+			// Codex: `list --channel --channel -- --json` parses fine on main.
+			// Whatever we do, it must not start erroring.
+			name:       "flag-shaped value before a terminator is left alone",
+			raw:        []string{"--channel", "--channel", "--", "--global"},
+			positional: []string{"--global"},
 			want:       "",
 		},
 		{

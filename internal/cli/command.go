@@ -181,7 +181,7 @@ func (r *Registry) Dispatch(args []string) int {
 }
 
 // strayFlag returns the first leftover argument that names a flag this command
-// actually registered, or "" when there is none.
+// registered, or "" when there is none.
 //
 // Go's flag package stops parsing at the first positional, so
 // `ainfra add command ship ./x.md --global` silently leaves --global in Args
@@ -191,76 +191,45 @@ func (r *Registry) Dispatch(args []string) int {
 // install runs anyway. Both are silent wrong-thing-done outcomes, so the CLI
 // refuses rather than guessing.
 //
-// It matches against the command's own FlagSet rather than "starts with a
-// dash" on purpose. A dash-prefixed token that is not a flag of this command
-// is just an unusual positional — `ainfra add command ship -draft.md` names a
-// real file — and rejecting it would break invocations that work today. Only a
-// token that would have done something had it been placed earlier is an error.
+// Two deliberate limits keep this from ever rejecting a command that works
+// today. Between missing a dropped flag and breaking a valid invocation, it
+// misses:
 //
-// Only tokens after an explicit "--" terminator are protected — that is what
-// the terminator is for. A terminator later in the line does not retroactively
-// excuse a dropped flag before it, so `add command ship x.md --global --` is
-// still an error.
-//
-// When the terminator appears before any positional, flag.Parse consumes it and
-// it is absent from positional; everything left is then protected by intent.
+//   - Any line containing "--" is left alone entirely. Working out which "--"
+//     Parse swallowed, and whether it was a terminator or some flag's value,
+//     means reimplementing the parser — and getting it wrong rejects real
+//     commands (`ainfra list --channel --channel -- --json` parses fine). A
+//     user who reaches for the terminator has said "take the rest literally",
+//     so take them at their word.
+//   - Only tokens the flag package would actually parse as a flag count:
+//     exactly one or two leading dashes naming a registered flag. `---global`
+//     is not a flag to Go, so it is not a dropped one here either.
 func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
-	if terminatorConsumed(fs, raw, positional) {
-		return ""
+	for _, a := range raw {
+		if a == "--" {
+			return ""
+		}
 	}
 	for _, a := range positional {
-		if a == "--" {
-			return "" // everything from here on is a protected positional
-		}
-		name := strings.TrimLeft(a, "-")
-		if name == a || name == "" {
-			continue // not dash-prefixed, or a bare "-"
-		}
-		name, _, _ = strings.Cut(name, "=") // --flag=value
-		if fs.Lookup(name) != nil {
+		if name, ok := flagName(a); ok && fs.Lookup(name) != nil {
 			return a
 		}
 	}
 	return ""
 }
 
-// terminatorConsumed reports whether flag.Parse swallowed a "--" terminator,
-// which it does only when the terminator precedes every positional. In that
-// case the caller asked for the remaining args to be taken literally.
-//
-// Parse never reorders, so the leftover positionals are always a suffix of raw
-// and the token immediately before that suffix is whatever Parse swallowed
-// last. That token is a terminator unless it was the VALUE of a preceding
-// non-boolean flag: `ainfra install --agent -- bogus --dry-run` hands "--" to
-// --agent, which protects nothing and must not excuse the dropped --dry-run.
-//
-// Testing for a leftover "--" instead would be wrong the other way: Parse
-// strips exactly one, so a second literal terminator in `add -- command ship
-// --global --` would read as "none consumed" and flag --global inside a tail
-// the user explicitly marked literal.
-func terminatorConsumed(fs *flag.FlagSet, raw, positional []string) bool {
-	start := len(raw) - len(positional)
-	if start <= 0 || raw[start-1] != "--" {
-		return false
+// flagName returns the flag name a token would parse as, and whether it is
+// flag-shaped at all. It mirrors what Go's flag package accepts: one or two
+// leading dashes, a non-empty name that does not itself begin with a dash, and
+// an optional "=value" tail.
+func flagName(tok string) (string, bool) {
+	if !strings.HasPrefix(tok, "-") {
+		return "", false
 	}
-	if start >= 2 && takesValue(fs, raw[start-2]) {
-		return false // the "--" was that flag's value, not a terminator
+	name := strings.TrimPrefix(strings.TrimPrefix(tok, "-"), "-")
+	if name == "" || strings.HasPrefix(name, "-") {
+		return "", false // bare "-", "--", or "---flag": not a flag to Go
 	}
-	return true
-}
-
-// takesValue reports whether tok names a registered non-boolean flag in the
-// separate-value form (`--agent x`, not `--agent=x`), meaning Parse consumes
-// the following token as its value.
-func takesValue(fs *flag.FlagSet, tok string) bool {
-	name := strings.TrimLeft(tok, "-")
-	if name == tok || name == "" || strings.Contains(name, "=") {
-		return false
-	}
-	f := fs.Lookup(name)
-	if f == nil {
-		return false
-	}
-	bf, ok := f.Value.(interface{ IsBoolFlag() bool })
-	return !(ok && bf.IsBoolFlag()) // a bool flag never eats the next token
+	name, _, _ = strings.Cut(name, "=")
+	return name, name != ""
 }
