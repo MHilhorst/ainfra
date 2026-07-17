@@ -616,11 +616,10 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverrid
 // renderSyncResult reports what syncSecrets wrote.
 func renderSyncResult(w io.Writer, res syncResult) {
 	if res.EnvCount > 0 {
-		dests := res.SettingsPath
-		if res.ShellEnvPath != "" {
-			dests += " and " + res.ShellEnvPath
+		fmt.Fprintf(w, "Wrote %d secret%s into %s.\n", res.EnvCount, pluralS(res.EnvCount), res.SettingsPath)
+		if res.ShimPath != "" {
+			fmt.Fprintf(w, "Launcher shim %s injects them fresh at every launch.\n", res.ShimPath)
 		}
-		fmt.Fprintf(w, "Wrote %d secret%s into %s.\n", res.EnvCount, pluralS(res.EnvCount), dests)
 	}
 	for _, f := range res.Files {
 		fmt.Fprintf(w, "Wrote credential file %s\n", f)
