@@ -128,8 +128,13 @@ func TestInstallWritesLauncherShimAndPathLine(t *testing.T) {
 		t.Fatalf("launcher shim not written: %v", err)
 	}
 	shim := string(raw)
-	if !strings.Contains(shim, "ainfra --chdir") || !strings.Contains(shim, `exec -- claude "$@"`) {
+	if !strings.Contains(shim, "--chdir") || !strings.Contains(shim, `exec -- claude "$@"`) {
 		t.Errorf("shim does not re-exec through ainfra exec, got:\n%s", shim)
+	}
+	// The ainfra binary must be referenced absolutely — GUI-spawned processes
+	// have a minimal PATH where a bare `ainfra` is not found.
+	if strings.Contains(shim, "\nexec ainfra ") {
+		t.Errorf("shim references ainfra by bare name, want an absolute path:\n%s", shim)
 	}
 	if !strings.Contains(shim, dir) {
 		t.Errorf("shim does not bake in the manifest dir %q, got:\n%s", dir, shim)
