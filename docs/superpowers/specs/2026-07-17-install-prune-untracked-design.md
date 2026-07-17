@@ -58,11 +58,12 @@ was shown and chose not to keep.
 
 ### Honest scope
 
-`--prune` covers `skills`, `commands`, and `rules` in both the repo and the
-user's `~/.claude`, plus `mcpServers` in the repo. It is **not** "nothing but
+`--prune` covers `skills` and `commands` in both the repo and the user's
+`~/.claude`, plus `mcpServers` in the repo. It is **not** "nothing but
 ainfra remains". These survive a prune regardless:
 
 - **Untracked hooks**, always — structural; see "Why `hooks` is unpruneable".
+- **Untracked rules**, deferred; see "Why `rules` is deferred".
 - **Personal MCP servers in `~/.claude.json`**, always; see "Why personal MCP
   servers survive".
 - **CLI tools, background services, plugins, marketplaces**, by choice; see
@@ -112,8 +113,8 @@ directory), records every untracked resource that has been reported to the user:
 {
   "version": 1,
   "offered": {
-    "commands:ship":     { "firstOfferedAt": "2026-07-17T11:04:22Z" },
-    "rules:claude-md":   { "firstOfferedAt": "2026-07-17T11:04:22Z" }
+    "commands:ship":  { "firstOfferedAt": "2026-07-17T11:04:22Z" },
+    "skills:scratch": { "firstOfferedAt": "2026-07-17T11:04:22Z" }
   }
 }
 ```
@@ -275,19 +276,19 @@ type Pruner interface {
 }
 ```
 
-Implemented by `MCP`, `Skills`, `Commands`, `Rules` — the providers whose
-`Observe` enumerates on-disk state and can therefore see untracked entries:
+Implemented by `MCP`, `Skills`, `Commands` — the providers whose `Observe`
+enumerates on-disk state within a single scope root:
 
 - `MCP.Observe` reads `env.Root/.mcp.json` (`mcp.go::mcpPath`).
 - `Skills.Observe` lists `env.Root/.claude/skills/` (`skills.go::skillsDir`).
 - `Commands.Observe` lists `env.Root/.claude/commands/` (`commands.go::commandsDir`).
-- `Rules.Observe` lists `.claude/ainfra/*.md` under the repo and `$HOME` (`rules.go`).
 
 Deliberately **not** implemented by:
 
 | Channel              | Why not                                            |
 | -------------------- | -------------------------------------------------- |
 | `hooks`              | Cannot work — see below.                           |
+| `rules`              | Deferred — see below.                              |
 | `tools`              | Pruning would uninstall CLI binaries (brew).       |
 | `backgroundServices` | Pruning would tear down the prod-DB tunnels.       |
 | `plugins`            | Installed artifacts; reinstall is not free.        |
@@ -296,18 +297,20 @@ Deliberately **not** implemented by:
 Adding a channel is a deliberate act of implementing an interface, reviewable in
 a PR.
 
-#### A note on `Rules.Observe` and scope
+#### Why `rules` is deferred
 
 `Rules.Observe` scans both `env.Root/.claude/ainfra` and `env.Home/.claude/ainfra`
 in every scope, because a rule's fragment is co-located with its target and a
-`~`-prefixed target is user-level (`rules.go::fragmentFor`).
+`~`-prefixed target is user-level (`rules.go::fragmentFor`). A repo-scope prune
+and a user-scope prune would therefore both observe the `$HOME` fragments, so
+the two plans can name the same resource and would double-delete and
+double-back-up it. Scoping that correctly is the only genuinely new scope logic
+prune would need.
 
-Under this design that is intended — the user is reconciling their own machine.
-But it means a repo-scope prune and a user-scope prune both observe the `$HOME`
-fragments, so the two plans can name the same resource. The user-scope plan owns
-`$HOME` fragments; the repo-scope plan must filter them out, or the resource is
-double-deleted and double-backed-up. This is the one place prune needs genuinely
-new scope logic.
+It buys nothing. On the inspected machine the untracked rules are exactly
+`claude-md` and `agents-md` — the user's CLAUDE.md and AGENTS.md, the two
+entries nobody would ever want pruned. High complexity, negative value, so
+`rules` stays out of v1. Revisit only if real rule cruft appears.
 
 #### Why `hooks` is unpruneable
 
@@ -345,8 +348,8 @@ not touched, rather than let users assume their MCP list was reset.
 
 **Why provider-side.** The obvious design — have the orchestrator serialize
 `Change.Resource.Payload` — does not work. `Observe` does not populate
-`Payload`: `Skills.Observe` returns only `ID` and `Channel`, `Rules.Observe` the
-same, `MCP.Observe` returns `ID` and `ContentHash`. An orchestrator-level backup
+`Payload`: `Skills.Observe` returns only `ID` and `Channel`, and `MCP.Observe`
+returns `ID` and `ContentHash`. An orchestrator-level backup
 would write empty files while reporting success, losing exactly the data it
 claims to protect. Only the provider knows its own layout.
 
@@ -359,7 +362,6 @@ location and nothing lands in git.
 
 - `Skills`: copy the tree at `.claude/skills/<id>/` to `skills/<id>/`.
 - `Commands`: copy `.claude/commands/<id>.md` to `commands/<id>.md`.
-- `Rules`: copy the fragment `.claude/ainfra/<id>.md` to `rules/<id>.md`.
 - `MCP`: re-read `.mcp.json` and write the entry's JSON fragment to
   `mcpServers/<id>.json`.
 
@@ -402,7 +404,6 @@ First `--prune` run:
 Not declared in ainfra (nothing removed yet):
 
   commands  dbaccess, document, monitor, review-wip, ship, spin, start, stop
-  rules     claude-md, agents-md
 
 To keep any of these, declare them:
   ainfra add commands ship --personal
@@ -451,7 +452,6 @@ Unit, orchestrator / `cmd`:
 - `MCP` is not pruned in user scope.
 - Backup is called before `Apply` for each armed delete.
 - Backup failure cancels that delete and leaves the resource on disk.
-- A `$HOME` rule fragment is deleted once, by the user-scope plan only.
 
 Provider-level:
 
@@ -466,9 +466,9 @@ Provider-level:
 E2E, `cmd/ainfra/`:
 
 - **The scenario from "The evidence" above**: a machine with 8 undeclared
-  commands and 2 undeclared rules. First `install --prune --yes` deletes
-  nothing. After declaring 8 of them, a second run removes only the remaining 2.
-  This is the acceptance test for the whole feature.
+  commands. First `install --prune --yes` deletes nothing. After declaring the
+  ones the user wants, a second run removes only the rest. This is the
+  acceptance test for the whole feature.
 - `install --prune --dry-run` changes nothing and writes no ledger.
 - `install` without `--prune` leaves every untracked entry alone. The headline
   safety property.
@@ -494,4 +494,7 @@ sufficient containment.
 
 The offered ledger means prune is never a one-command operation. That is
 deliberate: the evidence says a single-command deleter would have removed eight
-working slash commands and a CLAUDE.md from the first machine it touched.
+working slash commands from the first machine it touched.
+
+Dropping `rules` means CLAUDE.md and AGENTS.md are never at risk from prune at
+all, which on the evidence is a feature rather than a gap.
