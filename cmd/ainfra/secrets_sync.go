@@ -67,24 +67,25 @@ func preflightSecretBackends(dir string, reg *secret.Registry, committed, person
 type syncResult struct {
 	EnvCount     int      // environment variables written to the settings file
 	SettingsPath string   // the settings file written
-	ShellEnvPath string   // shell export file for process-env delivery, "" when no secrets
+	ShimPath     string   // launcher shim that injects secrets at startup, "" when no secrets
 	Files        []string // credential files written, by path
 }
 
-// syncSecrets resolves every secret referenced by the resolved locks and the
-// manifest at dir and materializes it. It runs as the final step of
-// `ainfra install`, which passes the in-memory resolved locks so a secret
-// added to ainfra.yaml syncs even while the committed lockfile is stale.
-//
-// A secret is materialized by its destination:
-//   - a single-value secret (lock)     -> one env var in the settings file
-//   - envFile: true                    -> a .env blob expanded into many env vars
-//   - path: <file>                     -> the resolved value written to that file
-func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) (syncResult, error) {
+// resolveSecretEnv resolves every environment-variable secret referenced by
+// the locks (single-value secrets) and the manifest at dir (envFile blobs).
+// It is shared by `ainfra install`, which persists the result, and
+// `ainfra exec`, which injects it into a child process at launch.
+// Credential-file (path:) secrets are install-time artifacts and are not
+// resolved here. Resolution failures are returned as messages, not an error —
+// the callers decide whether a failure is fatal (install) or a warning (exec).
+func resolveSecretEnv(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) (map[string]string, []string) {
 	// The single-value secret set is the union of both locks.
 	refs := map[string]lockfile.SecretRef{}
-	maps.Copy(refs, committed.Secrets)
-	maps.Copy(refs, personal.Secrets)
+	for _, l := range []*lockfile.Lock{committed, personal} {
+		if l != nil {
+			maps.Copy(refs, l.Secrets)
+		}
+	}
 
 	resolved := map[string]string{}
 	var failures []string
@@ -98,8 +99,48 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 		resolved[sr.Var] = val
 	}
 
-	// envFile and path secrets are declared in the manifest, not the lockfile:
-	// envFile expands one ref into many env vars; path writes one ref to a file.
+	// envFile secrets expand one ref into many env vars; they are declared in
+	// the manifest, not the lockfile.
+	if layers, lerr := manifest.LoadLayers(dir); lerr == nil {
+		for _, ln := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
+			m := layers[ln]
+			if m == nil {
+				continue
+			}
+			for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
+				sec := m.Secrets[id]
+				if !sec.EnvFile {
+					continue
+				}
+				blob, rerr := reg.Resolve(expandUser(sec.Ref))
+				if rerr != nil {
+					failures = append(failures, fmt.Sprintf("  secret %q: %v", id, rerr))
+					continue
+				}
+				maps.Copy(resolved, parseEnvBlob(blob))
+			}
+		}
+	}
+	return resolved, failures
+}
+
+// syncSecrets resolves every secret referenced by the resolved locks and the
+// manifest at dir and materializes it. It runs as the final step of
+// `ainfra install`, which passes the in-memory resolved locks so a secret
+// added to ainfra.yaml syncs even while the committed lockfile is stale.
+//
+// A secret is materialized by its destination:
+//   - a single-value secret (lock)     -> one env var in the settings file
+//   - envFile: true                    -> a .env blob expanded into many env vars
+//   - path: <file>                     -> the resolved value written to that file
+//
+// Process-environment delivery (what ${VAR} expansion in HTTP MCP server
+// headers needs) is not persisted at all: the launcher shim written here
+// re-resolves secrets through `ainfra exec` at every launch.
+func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) (syncResult, error) {
+	resolved, failures := resolveSecretEnv(dir, reg, committed, personal)
+
+	// path secrets write the resolved value to a credential file.
 	fileSet := map[string]bool{}
 	if layers, lerr := manifest.LoadLayers(dir); lerr == nil {
 		for _, ln := range []manifest.Layer{manifest.LayerTeam, manifest.LayerRepo, manifest.LayerPersonal} {
@@ -109,7 +150,7 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 			}
 			for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
 				sec := m.Secrets[id]
-				if !sec.EnvFile && sec.Path == "" {
+				if sec.Path == "" || sec.EnvFile {
 					continue
 				}
 				blob, rerr := reg.Resolve(expandUser(sec.Ref))
@@ -117,17 +158,12 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 					failures = append(failures, fmt.Sprintf("  secret %q: %v", id, rerr))
 					continue
 				}
-				switch {
-				case sec.EnvFile:
-					maps.Copy(resolved, parseEnvBlob(blob))
-				case sec.Path != "":
-					dest := expandTilde(sec.Path)
-					if werr := writeCredentialFile(dest, blob); werr != nil {
-						failures = append(failures, fmt.Sprintf("  secret %q: %v", id, werr))
-						continue
-					}
-					fileSet[dest] = true
+				dest := expandTilde(sec.Path)
+				if werr := writeCredentialFile(dest, blob); werr != nil {
+					failures = append(failures, fmt.Sprintf("  secret %q: %v", id, werr))
+					continue
 				}
+				fileSet[dest] = true
 			}
 		}
 	}
@@ -147,59 +183,68 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 
 	// The settings env block only reaches stdio MCP servers. Claude Code
 	// expands ${VAR} in HTTP server headers from the real process environment,
-	// so the same secrets are also written as shell exports and sourced from
-	// ~/.zshenv. Skipped entirely when the manifest declares no secrets — a
-	// secretless install must not touch the user's shell config.
-	shellEnvPath := ""
+	// so a launcher shim re-execs claude through `ainfra exec`, which resolves
+	// secrets fresh into the process env at every launch. Skipped entirely
+	// when the manifest declares no secrets — a secretless install must not
+	// touch the user's shell config.
+	shimPath := ""
 	if len(resolved) > 0 {
-		shellEnvPath = filepath.Join(home, ".config", "ainfra", "env.sh")
-		if err := writeShellEnv(shellEnvPath, resolved); err != nil {
+		shimPath, err = writeLauncherShim(home, dir)
+		if err != nil {
 			return syncResult{}, err
 		}
-		if err := ensureShellSourceLine(filepath.Join(home, ".zshenv"), shellEnvPath); err != nil {
+		if err := ensurePathLine(filepath.Join(home, ".zshenv"), filepath.Dir(shimPath)); err != nil {
 			return syncResult{}, err
 		}
+	}
+	// The pre-shim mechanism exported credential values into every shell via
+	// an env.sh sourced from ~/.zshenv. Remove it on every install so upgraded
+	// machines stop carrying secrets in shell config.
+	if err := cleanupLegacyShellEnv(home); err != nil {
+		return syncResult{}, err
 	}
 
 	return syncResult{
 		EnvCount:     len(resolved),
 		SettingsPath: settingsPath,
-		ShellEnvPath: shellEnvPath,
+		ShimPath:     shimPath,
 		Files:        slices.Sorted(maps.Keys(fileSet)),
 	}, nil
 }
 
-// writeShellEnv writes the resolved secrets as `export KEY='value'` lines so
-// a shell that sources the file puts every secret into the process
-// environment. Values are single-quoted with embedded quotes escaped, so
-// multi-line or special-character values survive. The file is written 0600 —
-// it holds credential values.
-func writeShellEnv(path string, env map[string]string) error {
-	var b strings.Builder
-	b.WriteString("# Generated by ainfra. Do not edit by hand.\n")
-	b.WriteString("# Sourced from ~/.zshenv so ${VAR} references in MCP server headers resolve.\n")
-	for _, k := range slices.Sorted(maps.Keys(env)) {
-		fmt.Fprintf(&b, "export %s='%s'\n", k, strings.ReplaceAll(env[k], "'", `'\''`))
+// writeLauncherShim writes an executable `claude` wrapper that re-execs the
+// real binary through `ainfra exec`, so every launch gets freshly-resolved
+// secrets in its process environment. The manifest dir is baked in at install
+// time because the shim runs from any working directory. The shim holds no
+// secret values, so 0755 is fine.
+func writeLauncherShim(home, manifestDir string) (string, error) {
+	binDir := filepath.Join(home, ".config", "ainfra", "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		return "", err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+	shim := filepath.Join(binDir, "claude")
+	content := fmt.Sprintf(`#!/bin/sh
+# Generated by ainfra. Do not edit by hand.
+# Resolves managed secrets into the process environment, then launches claude.
+exec ainfra --chdir %q exec -- claude "$@"
+`, manifestDir)
+	if err := os.WriteFile(shim, []byte(content), 0o755); err != nil {
+		return "", err
 	}
-	if err := os.WriteFile(path, []byte(b.String()), 0o600); err != nil {
-		return err
-	}
-	// WriteFile's mode only applies on creation; tighten a pre-existing file.
-	return os.Chmod(path, 0o600)
+	// WriteFile's mode only applies on creation; re-assert on updates.
+	return shim, os.Chmod(shim, 0o755)
 }
 
-// ensureShellSourceLine makes ~/.zshenv source the ainfra env file, creating
-// the rc file when missing. Idempotent: a file that already references the
-// env file (in any form) is left untouched, so a user can move or rewrite the
-// line without ainfra re-appending it.
-func ensureShellSourceLine(rcPath, envPath string) error {
-	marker := envPath
-	ref := fmt.Sprintf("%q", envPath)
+// ensurePathLine makes ~/.zshenv put the ainfra shim dir first on PATH,
+// creating the rc file when missing. The line carries no secret values.
+// Idempotent: a file that already references the shim dir (in any form) is
+// left untouched, so a user can move or rewrite the line without ainfra
+// re-appending it.
+func ensurePathLine(rcPath, binDir string) error {
+	marker := binDir
+	ref := fmt.Sprintf("%q", binDir)
 	if home, err := os.UserHomeDir(); err == nil {
-		if rel, rerr := filepath.Rel(home, envPath); rerr == nil && !strings.HasPrefix(rel, "..") {
+		if rel, rerr := filepath.Rel(home, binDir); rerr == nil && !strings.HasPrefix(rel, "..") {
 			marker = rel
 			ref = fmt.Sprintf(`"$HOME/%s"`, rel)
 		}
@@ -211,7 +256,7 @@ func ensureShellSourceLine(rcPath, envPath string) error {
 	if strings.Contains(string(existing), marker) {
 		return nil
 	}
-	line := fmt.Sprintf("\n# Added by ainfra — exports managed secrets into the shell environment.\n[ -f %s ] && . %s\n", ref, ref)
+	line := fmt.Sprintf("\n# Added by ainfra — puts the secret-injecting launcher shims on PATH.\nexport PATH=%s:\"$PATH\"\n", ref)
 	if len(existing) > 0 && !strings.HasSuffix(string(existing), "\n") {
 		line = "\n" + line
 	}
@@ -222,6 +267,41 @@ func ensureShellSourceLine(rcPath, envPath string) error {
 	defer f.Close()
 	_, err = f.WriteString(line)
 	return err
+}
+
+// cleanupLegacyShellEnv removes the pre-shim secret delivery: the env.sh file
+// of export lines and the ~/.zshenv line that sourced it (written by ainfra
+// <= 0.2.11). Both put credential values into the environment of every shell.
+// Idempotent, and a no-op on machines that never had them. Other content in
+// ~/.zshenv — including the shim PATH line — is preserved.
+func cleanupLegacyShellEnv(home string) error {
+	envPath := filepath.Join(home, ".config", "ainfra", "env.sh")
+	if err := os.Remove(envPath); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	rcPath := filepath.Join(home, ".zshenv")
+	raw, err := os.ReadFile(rcPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	lines := strings.Split(string(raw), "\n")
+	kept := make([]string, 0, len(lines))
+	removed := false
+	for _, l := range lines {
+		if strings.Contains(l, ".config/ainfra/env.sh") ||
+			strings.Contains(l, "Added by ainfra — exports managed secrets into the shell environment.") {
+			removed = true
+			continue
+		}
+		kept = append(kept, l)
+	}
+	if !removed {
+		return nil
+	}
+	return os.WriteFile(rcPath, []byte(strings.Join(kept, "\n")), 0o644)
 }
 
 // expandTilde resolves a leading ~/ against the user's home directory.
