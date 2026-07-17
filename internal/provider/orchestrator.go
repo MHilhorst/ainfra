@@ -72,6 +72,21 @@ func (o *Orchestrator) NewlyOffered() []Change { return o.newlyOffered }
 // and nothing was deleted.
 func (o *Orchestrator) OfferedLedgerCorrupt() bool { return o.offeredBad }
 
+// RecordOffered persists the offers from the last plan without applying
+// anything.
+//
+// A prune run whose plan is otherwise empty still has work to do: the entries
+// it just reported must be recorded, or the next run would offer them again
+// instead of arming them, and prune could never remove anything. ApplyAllRendered
+// records offers itself; this is for the caller's early-return path where there
+// are no changes to apply.
+func (o *Orchestrator) RecordOffered() error {
+	if !o.prune || o.env.DryRun {
+		return nil
+	}
+	return o.writeOffered(nil)
+}
+
 func (o *Orchestrator) clock() time.Time {
 	if o.now != nil {
 		return o.now()

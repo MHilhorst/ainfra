@@ -79,5 +79,5 @@ func runRemove(ctx cli.Context, personal, noInstall bool) int {
 		return 0
 	}
 
-	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/, "")
+	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/, false /*prune*/, "")
 }

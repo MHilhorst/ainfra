@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -73,6 +75,51 @@ func mergeLocks(committed, personal *lockfile.Lock) *lockfile.Lock {
 		},
 	}
 }
+
+// renderOffered prints the undeclared entries prune reported but did not
+// remove, and how to keep them.
+//
+// Prune never deletes on first sight, so this report is the user's chance to
+// declare something before a later run removes it. Undeclared usually means
+// "never got around to declaring it" rather than "unwanted", which is why the
+// list leads with how to keep things rather than how to delete them.
+func renderOffered(w io.Writer, c ui.Colorizer, offered []provider.Change) {
+	if len(offered) == 0 {
+		return
+	}
+	fmt.Fprintln(w, c.Yellow("Not declared in ainfra (nothing removed yet):"))
+	fmt.Fprintln(w)
+
+	byCh := map[string][]string{}
+	for _, ch := range offered {
+		channel := ch.Resource.Channel
+		byCh[channel] = append(byCh[channel], ch.ID)
+	}
+	channels := make([]string, 0, len(byCh))
+	for ch := range byCh {
+		channels = append(channels, ch)
+	}
+	sort.Strings(channels)
+	for _, ch := range channels {
+		ids := byCh[ch]
+		sort.Strings(ids)
+		fmt.Fprintf(w, "  %-10s %s\n", ch, strings.Join(ids, ", "))
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "To keep any of these, declare them:")
+	fmt.Fprintln(w, "  ainfra add <channel> <id> --personal")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Anything still undeclared will be removed by the next 'ainfra install --prune'.")
+	fmt.Fprintln(w, "Backups are written to .ainfra/pruned-<timestamp>/ when it does.")
+	fmt.Fprintln(w)
+}
+
+// pruneScopeNotice states what --prune cannot clear. Without it a user could
+// reasonably read a clean prune as "my machine now matches the manifest", which
+// is not what the feature does.
+const pruneScopeNotice = "--prune covers mcpServers (in this repo), skills, and commands. " +
+	"It does not touch hooks, rules, personal MCP servers in ~/.claude.json, CLI tools, background services, plugins, or marketplaces."
 
 // hasApplySummaryContent reports whether the user-scope summary block would
 // say anything beyond "Applied 0 entries". Used to skip an entirely-empty
@@ -293,16 +340,17 @@ func renderApplySummary(w io.Writer, results []provider.ApplyResult) {
 // newInstallCommand is the front-page reconcile verb. It plans, applies, and
 // syncs secrets in one pass; --dry-run + --strict gives the CI drift shape.
 func newInstallCommand() *cli.Command {
-	var yes, dryRun, noInstall, strict, printSchema bool
+	var yes, dryRun, noInstall, strict, printSchema, prune bool
 	var from, agentOverride string
 	return &cli.Command{
 		Name:      "install",
 		Summary:   "Install/update everything in ainfra.yaml (writes config files, installs CLI tools)",
-		UsageLine: "ainfra install [--agent <agent>] [--yes] [--dry-run] [--strict] [--no-install] [--from <url-or-dir>] [--print-schema]",
+		UsageLine: "ainfra install [--agent <agent>] [--yes] [--dry-run] [--strict] [--no-install] [--prune] [--from <url-or-dir>] [--print-schema]",
 		Example:   "ainfra install --yes",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.StringVar(&agentOverride, "agent", "", "target agent for this install (claude-code, codex, claude-desktop)")
 			fs.BoolVar(&yes, "yes", false, "skip confirmation prompt")
+			fs.BoolVar(&prune, "prune", false, "remove config not declared in ainfra; the first run only reports what it would remove")
 			fs.BoolVar(&dryRun, "dry-run", false, "preview without writing (replaces 'ainfra plan')")
 			fs.BoolVar(&strict, "strict", false, "with --dry-run, exit non-zero on any drift (CI shape; replaces 'ainfra check')")
 			fs.BoolVar(&noInstall, "no-install", false, "write config files but skip running CLI-tool installers")
@@ -314,9 +362,17 @@ func newInstallCommand() *cli.Command {
 				return runPrintSchema(ctx)
 			}
 			if from != "" {
+				if prune {
+					// Fail rather than silently ignore: a user who passes
+					// --prune and sees a clean exit would reasonably believe
+					// their undeclared config had been reported.
+					ui.RenderError(ctx.Stderr, ui.NewColorizer(ctx.Stderr, ctx.NoColor),
+						errors.New("--prune is not supported with --from: an artifact install has no manifest to declare what to keep"))
+					return 1
+				}
 				return runApplyFrom(ctx, from, yes)
 			}
-			return runApply(ctx, yes, dryRun, noInstall, strict, agentOverride)
+			return runApply(ctx, yes, dryRun, noInstall, strict, prune, agentOverride)
 		},
 	}
 }
@@ -386,7 +442,7 @@ func runApplyFrom(ctx cli.Context, from string, yes bool) int {
 	return 0
 }
 
-func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverride string) int {
+func runApply(ctx cli.Context, yes, dryRun, noInstall, strict, prune bool, agentOverride string) int {
 	dir := ctx.Dir
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
@@ -462,6 +518,9 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverrid
 	}
 
 	orch := provider.NewOrchestratorScoped(dir, provider.ScopeRepo, env, providers)
+	if prune {
+		orch.EnablePrune(time.Now)
+	}
 	plans, err := orch.PlanAllRendered(repoRendered)
 	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
@@ -477,11 +536,26 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverrid
 	home, herr := os.UserHomeDir()
 	priorUser, _ := provider.ReadAppliedUserForAgent(effectiveAgent)
 	userLedgerNonEmpty := priorUser != nil && hasAnyEntry(priorUser)
-	if herr == nil && (anyResources(userRendered) || userLedgerNonEmpty) {
+	if herr != nil && prune {
+		// Refuse rather than prune repo scope alone: a partial prune the user
+		// did not ask for is worse than none.
+		ui.RenderError(ctx.Stderr, errColor,
+			fmt.Errorf("--prune needs your home directory to reconcile user-scope config: %w", herr))
+		return 1
+	}
+	// --prune always constructs the user-scope orchestrator. Otherwise it is
+	// built only when personal entries or a non-empty user ledger exist, which
+	// is exactly backwards for prune: a user with nothing declared has the most
+	// undeclared config in ~/.claude, and would silently get no user-scope pass
+	// at all.
+	if herr == nil && (anyResources(userRendered) || userLedgerNonEmpty || prune) {
 		userEnv := env
 		userEnv.Root = home
 		userEnv.UserScope = true
 		userOrch = provider.NewOrchestratorScoped(home, provider.ScopeUser, userEnv, providers)
+		if prune {
+			userOrch.EnablePrune(time.Now)
+		}
 		userPlans, err = userOrch.PlanAllRendered(userRendered)
 		if err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
@@ -489,10 +563,45 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict bool, agentOverrid
 		}
 	}
 
+	// Report undeclared config before the "nothing to do" check below. Newly
+	// offered entries are deliberately absent from the plan — prune never
+	// deletes on first sight — so an empty plan is exactly the case where the
+	// user most needs to see this list.
+	var offered []provider.Change
+	if prune {
+		offered = append(offered, orch.NewlyOffered()...)
+		if userOrch != nil {
+			offered = append(offered, userOrch.NewlyOffered()...)
+		}
+		c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
+		if orch.OfferedLedgerCorrupt() || (userOrch != nil && userOrch.OfferedLedgerCorrupt()) {
+			fmt.Fprintln(ctx.Stderr, ui.NewColorizer(ctx.Stderr, ctx.NoColor).Yellow(
+				"warning: the offered ledger was unreadable, so every undeclared entry has been reported again and nothing was removed."))
+		}
+		renderOffered(ctx.Stdout, c, offered)
+		fmt.Fprintln(ctx.Stdout, c.Dim(pruneScopeNotice))
+		fmt.Fprintln(ctx.Stdout)
+	}
+
 	// Check if there is anything to do.
 	allEmpty := plansEmpty(plans) && plansEmpty(userPlans)
 	if allEmpty {
-		fmt.Fprintln(ctx.Stdout, "Nothing to do — your environment already matches ainfra.yaml.")
+		if len(offered) == 0 {
+			fmt.Fprintln(ctx.Stdout, "Nothing to do — your environment already matches ainfra.yaml.")
+		}
+		// Record the offers even though there is nothing to apply. Without
+		// this they would be re-offered on every run and never arm, so prune
+		// could never remove anything.
+		if err := orch.RecordOffered(); err != nil {
+			ui.RenderError(ctx.Stderr, errColor, err)
+			return 1
+		}
+		if userOrch != nil {
+			if err := userOrch.RecordOffered(); err != nil {
+				ui.RenderError(ctx.Stderr, errColor, err)
+				return 1
+			}
+		}
 		if dryRun {
 			return 0
 		}

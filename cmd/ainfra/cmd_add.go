@@ -161,5 +161,5 @@ func runAdd(ctx cli.Context, personal, noInstall bool) int {
 	// Run the standard install path. --yes is implicit on add (the user just
 	// asked for this change to land); --strict is irrelevant; --dry-run is not
 	// what the user wants here.
-	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/, "")
+	return runApply(ctx, true /*yes*/, false /*dryRun*/, false /*noInstall*/, false /*strict*/, false /*prune*/, "")
 }
