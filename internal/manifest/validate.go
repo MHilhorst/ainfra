@@ -536,6 +536,18 @@ func validatePlugin(m *Manifest) error {
 	if strings.TrimSpace(m.Plugin.Marketplace) == "" {
 		return fmt.Errorf("plugin.marketplace is required")
 	}
+	switch m.Plugin.Versioning {
+	case "", VersioningSemver, VersioningSHA:
+	default:
+		return &diag.Diagnostic{
+			Summary: fmt.Sprintf("unknown plugin versioning mode %q", m.Plugin.Versioning),
+			Path:    "plugin.versioning",
+			Detail: "`semver` (the default) writes an explicit version into plugin.json that " +
+				"`ainfra plugin release` bumps; `sha` omits it so Claude Code uses the commit SHA " +
+				"and every commit ships.",
+			Hint: "Use  versioning: sha  or  versioning: semver  (or omit the field).",
+		}
+	}
 	return nil
 }
 

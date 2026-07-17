@@ -682,3 +682,42 @@ func TestValidateAcceptsWellFormedRefs(t *testing.T) {
 		t.Errorf("well-formed secrets should validate, got: %v", err)
 	}
 }
+
+// TestValidatePluginRejectsUnknownVersioning: `versioning` selects whether
+// plugin.json carries a version. A typo must not silently fall back to semver —
+// the author asking for SHA-versioning would keep shipping a pinned version and
+// their users would silently stop receiving updates, which is precisely the
+// failure the mode exists to prevent.
+func TestValidatePluginRejectsUnknownVersioning(t *testing.T) {
+	m := &Manifest{
+		Version: 1,
+		Plugin: &PluginBuild{
+			Name:        "tvt-config",
+			Marketplace: "trein-vertraging",
+			Versioning:  "shaa",
+		},
+	}
+	err := Validate(m)
+	if err == nil {
+		t.Fatal("expected an error for versioning: shaa, got nil")
+	}
+	if !strings.Contains(err.Error(), "versioning") {
+		t.Errorf("error should name the offending field, got %q", err)
+	}
+}
+
+func TestValidatePluginAcceptsVersioningModes(t *testing.T) {
+	for _, mode := range []string{"", "semver", "sha"} {
+		m := &Manifest{
+			Version: 1,
+			Plugin: &PluginBuild{
+				Name:        "tvt-config",
+				Marketplace: "trein-vertraging",
+				Versioning:  mode,
+			},
+		}
+		if err := Validate(m); err != nil {
+			t.Errorf("versioning: %q should be valid, got %v", mode, err)
+		}
+	}
+}

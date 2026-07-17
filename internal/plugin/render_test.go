@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/manifest"
@@ -94,5 +95,35 @@ func TestAgentsRefs(t *testing.T) {
 	without := manifest.PluginBuild{Name: "p", Content: []string{"skills/"}}
 	if got := AgentsRefs(root, without); len(got) != 0 {
 		t.Errorf("undeclared: expected empty, got %v", got)
+	}
+}
+
+// TestRenderPluginJSONOmitsEmptyVersion covers the SHA-versioned flow. Claude
+// Code resolves a plugin's version from plugin.json first, then the marketplace
+// entry, then the git commit SHA. A plugin.json that declares a version pins
+// users to it: new commits do not reach anyone until the string changes. Omitting
+// the field entirely lets the commit SHA be the version, so every push ships and
+// no release step is needed. Rendering "version": "" instead of omitting the key
+// would pin every user to the empty string and break updates permanently.
+func TestRenderPluginJSONOmitsEmptyVersion(t *testing.T) {
+	pb := manifest.PluginBuild{
+		Name:        "tvt-config",
+		Description: "team config",
+	}
+	out, err := RenderPluginJSON(pb, "", nil)
+	if err != nil {
+		t.Fatalf("RenderPluginJSON: %v", err)
+	}
+	if strings.Contains(string(out), "version") {
+		t.Errorf("plugin.json must omit the version key entirely when unversioned,\n"+
+			"so Claude Code falls back to the commit SHA. Got:\n%s", out)
+	}
+
+	var doc map[string]any
+	if err := json.Unmarshal(out, &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if _, present := doc["version"]; present {
+		t.Error("version key present in rendered plugin.json; want absent")
 	}
 }

@@ -101,3 +101,85 @@ func TestPlugin_ReleasePatch(t *testing.T) {
 		t.Errorf("marketplace.json must be left untouched.\nbefore:\n%s\nafter:\n%s", mkBefore, mkAfter)
 	}
 }
+
+// newSHAVersionedPluginRepo is newPluginRepo with `versioning: sha` — the plugin
+// declares no version and lets Claude Code use the commit SHA.
+func newSHAVersionedPluginRepo(t *testing.T) string {
+	t.Helper()
+	dir := newPluginRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(`version: 1
+agent: claude-code
+plugin:
+  name: tvt-config
+  description: "Team config"
+  marketplace: trein-vertraging
+  versioning: sha
+  content: [ skills/ ]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+func TestPlugin_BuildSHAVersionedOmitsVersion(t *testing.T) {
+	dir := newSHAVersionedPluginRepo(t)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--chdir", dir, "plugin", "build"}, &out, &errOut); code != 0 {
+		t.Fatalf("build exited %d: %s", code, errOut.String())
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, present := doc["version"]; present {
+		t.Errorf("versioning: sha must omit the version key so Claude Code uses the\n"+
+			"commit SHA; got: %s", raw)
+	}
+}
+
+// TestPlugin_ReleaseRejectedWhenSHAVersioned: releasing is meaningless for a
+// SHA-versioned plugin — there is no version to bump and every commit already
+// ships. Failing loudly beats silently writing a version key that would pin
+// every user and stop updates dead.
+func TestPlugin_ReleaseRejectedWhenSHAVersioned(t *testing.T) {
+	dir := newSHAVersionedPluginRepo(t)
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "plugin", "release", "--patch"}, &bytes.Buffer{}, &errOut)
+	if code == 0 {
+		t.Fatal("expected non-zero exit releasing a SHA-versioned plugin")
+	}
+	if !strings.Contains(errOut.String(), "versioning: sha") {
+		t.Errorf("error should name the versioning mode, got %q", errOut.String())
+	}
+}
+
+// TestPlugin_BuildRejectsUnknownVersioning: `plugin build` loads the manifest
+// directly, so it must validate the plugin block itself. Without this, a typo'd
+// `versioning:` silently renders a pinned version — the author believes every
+// commit ships while their users are frozen at whatever version last shipped.
+func TestPlugin_BuildRejectsUnknownVersioning(t *testing.T) {
+	dir := newPluginRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(`version: 1
+agent: claude-code
+plugin:
+  name: tvt-config
+  description: "Team config"
+  marketplace: trein-vertraging
+  versioning: shaa
+  content: [ skills/ ]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "plugin", "build"}, &bytes.Buffer{}, &errOut)
+	if code == 0 {
+		t.Fatal("expected non-zero exit for an unknown versioning mode")
+	}
+	if !strings.Contains(errOut.String(), "versioning") {
+		t.Errorf("error should name the offending field, got %q", errOut.String())
+	}
+}

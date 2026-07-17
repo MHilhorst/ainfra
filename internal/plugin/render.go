@@ -12,8 +12,11 @@ import (
 // pluginJSON is the on-disk shape of .claude-plugin/plugin.json. Field order
 // here is the emitted key order.
 type pluginJSON struct {
-	Name        string                 `json:"name"`
-	Version     string                 `json:"version"`
+	Name string `json:"name"`
+	// Version is omitted when empty so Claude Code falls through to the next
+	// resolver in its precedence chain (marketplace entry, then commit SHA).
+	// Emitting "" would pin every user to the empty string forever.
+	Version     string                 `json:"version,omitempty"`
 	Description string                 `json:"description"`
 	Author      *manifest.PluginAuthor `json:"author,omitempty"`
 	Repository  string                 `json:"repository,omitempty"`

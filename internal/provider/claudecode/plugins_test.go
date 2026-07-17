@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
@@ -59,11 +60,12 @@ func TestPluginsObserve_WithPlugins(t *testing.T) {
 		if r.Channel != "plugins" {
 			t.Errorf("resource %q: Channel = %q, want plugins", r.ID, r.Channel)
 		}
-		// ContentHash may be empty (no cache dir on disk in this test) — the
-		// orchestrator falls back to the ledger when it is. When a cache dir
-		// IS present, Observe hashes its contents (covered by
-		// TestPluginsObserve_HashesCacheDir).
-		_ = r.ContentHash
+		// The exact hash value is pinned by
+		// TestPluginsObserve_HashIsComparableToDesired.
+		if r.ContentHash == "" {
+			t.Errorf("resource %q: ContentHash is empty; an installed plugin must\n"+
+				"hash to {marketplace, version} so the diff can compare it to desired", r.ID)
+		}
 	}
 	if !ids["tvt-config"] {
 		t.Error("expected resource with id 'tvt-config' (bare name without @marketplace)")
@@ -318,18 +320,15 @@ func TestPluginsApply_DeleteFallsBackToBareName(t *testing.T) {
 
 func TestPluginsApply_VersionMismatchWarning(t *testing.T) {
 	// After install, the plugin's resolved version is read from
-	// ~/.claude/plugins/cache/<name>@<mp>/<version>/.claude-plugin/plugin.json.
-	// When it differs from the manifest pin, Apply returns a Warning (not
-	// a Failed) so the user sees the drift without breaking apply.
+	// installed_plugins.json — the file Claude Code actually maintains. When it
+	// differs from the manifest pin, Apply returns a Warning (not a Failed) so
+	// the user sees the unenforceable pin without breaking apply.
 	runner := provider.NewFakeRunner()
 	runner.Script["claude plugin install tvt-config@trein-vertraging"] = provider.FakeResult{}
 	mem := provider.NewMemFilesystem()
-	const cacheBase = "/home/user/.claude/plugins/cache/tvt-config@trein-vertraging/1.5.0"
-	if err := mem.MkdirAll(cacheBase, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := mem.WriteFile(cacheBase+"/.claude-plugin/plugin.json",
-		[]byte(`{"name":"tvt-config","version":"1.5.0"}`), 0o644); err != nil {
+	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json",
+		[]byte(`{"version":2,"plugins":{"tvt-config@trein-vertraging":[{"scope":"user","version":"1.5.0"}]}}`),
+		0o644); err != nil {
 		t.Fatal(err)
 	}
 	env := provider.Env{FS: mem, Home: "/home/user", Runner: runner}
@@ -372,12 +371,9 @@ func TestPluginsApply_NoWarningOnVersionMatch(t *testing.T) {
 	runner := provider.NewFakeRunner()
 	runner.Script["claude plugin install tvt-config@trein-vertraging"] = provider.FakeResult{}
 	mem := provider.NewMemFilesystem()
-	const cacheBase = "/home/user/.claude/plugins/cache/tvt-config@trein-vertraging/2.0.0"
-	if err := mem.MkdirAll(cacheBase, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := mem.WriteFile(cacheBase+"/.claude-plugin/plugin.json",
-		[]byte(`{"name":"tvt-config","version":"2.0.0"}`), 0o644); err != nil {
+	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json",
+		[]byte(`{"version":2,"plugins":{"tvt-config@trein-vertraging":[{"scope":"user","version":"2.0.0"}]}}`),
+		0o644); err != nil {
 		t.Fatal(err)
 	}
 	env := provider.Env{FS: mem, Home: "/home/user", Runner: runner}
@@ -407,46 +403,6 @@ func TestPluginsApply_NoWarningOnVersionMatch(t *testing.T) {
 	}
 	if len(result.Warnings) != 0 {
 		t.Errorf("result.Warnings: got %v, want none on matching version", result.Warnings)
-	}
-}
-
-func TestPluginsObserve_HashesCacheDir(t *testing.T) {
-	mem := provider.NewMemFilesystem()
-	const installed = `{"version":2,"plugins":{"tvt-config@trein-vertraging":[{"scope":"user"}]}}`
-	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json", []byte(installed), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	const cacheBase = "/home/user/.claude/plugins/cache/tvt-config@trein-vertraging/1.0.0"
-	if err := mem.MkdirAll(cacheBase, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := mem.WriteFile(cacheBase+"/SKILL.md", []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	env := provider.Env{FS: mem, Home: "/home/user"}
-
-	resources, err := claudecode.Plugins{}.Observe(env)
-	if err != nil {
-		t.Fatalf("Observe: %v", err)
-	}
-	if len(resources) != 1 {
-		t.Fatalf("got %d resources, want 1", len(resources))
-	}
-	if resources[0].ContentHash == "" {
-		t.Error("expected non-empty ContentHash when the cache version dir exists")
-	}
-
-	// Editing a file in the cache must change the hash.
-	original := resources[0].ContentHash
-	if err := mem.WriteFile(cacheBase+"/SKILL.md", []byte("hello world"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	resources2, err := claudecode.Plugins{}.Observe(env)
-	if err != nil {
-		t.Fatalf("Observe (after edit): %v", err)
-	}
-	if resources2[0].ContentHash == original {
-		t.Error("ContentHash did not change after editing a file in the cache dir")
 	}
 }
 
@@ -526,5 +482,112 @@ func TestPluginsApply_NoLegacyPluginsJSON(t *testing.T) {
 	legacyPath := "/repo/.claude/ainfra/plugins.json"
 	if _, err := mem.ReadFile(legacyPath); err == nil {
 		t.Errorf("legacy plugins.json was written at %s, expected it to not exist", legacyPath)
+	}
+}
+
+// TestPluginsObserve_HashIsComparableToDesired pins the contract that makes the
+// plugins diff work at all: the lockfile's desired hash is derived from
+// {marketplace, version} (resolve/pipeline.go), so Observe must derive the
+// machine's hash the same way from the installed version. Hashing anything else
+// (e.g. the cache directory's file contents) yields a value that can never equal
+// desired, and the diff degrades to "always update" or, when empty, to a ledger
+// backfill that silently noops forever.
+func TestPluginsObserve_HashIsComparableToDesired(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := provider.Env{FS: mem, Home: "/home/user"}
+
+	installedJSON := `{
+		"version": 2,
+		"plugins": {
+			"tvt-config@trein-vertraging": [{"scope":"user","installPath":"/x","version":"2.16.0"}]
+		}
+	}`
+	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json", []byte(installedJSON), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	resources, err := claudecode.Plugins{}.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: unexpected error: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("Observe: got %d resources, want 1", len(resources))
+	}
+
+	// This is exactly how resolve/pipeline.go builds the desired hash.
+	want := lockfile.ContentHash(map[string]any{
+		"marketplace": "trein-vertraging", "version": "2.16.0",
+	})
+	if resources[0].ContentHash != want {
+		t.Errorf("ContentHash = %q, want %q (must match the desired hash so an\n"+
+			"in-sync plugin diffs to Noop and a changed pin diffs to Update)",
+			resources[0].ContentHash, want)
+	}
+}
+
+// TestPluginsDiff_UnpinnedAlwaysUpdates is the end-to-end contract behind the
+// SHA-versioned flow: an unpinned plugin must diff to Update on every install so
+// `claude plugin update` runs and Claude Code's own SHA check decides whether
+// there is anything new. Diffing to Noop here is the bug that made `ainfra
+// install` a no-op for plugins — the desired hash and the observed hash agreed
+// because neither reflected reality.
+func TestPluginsDiff_UnpinnedAlwaysUpdates(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	// Claude Code resolved the unpinned plugin to the marketplace commit SHA.
+	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json",
+		[]byte(`{"version":2,"plugins":{"tvt-config@trein-vertraging":[{"scope":"user","version":"d0164a938e37"}]}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := claudecode.Plugins{}.Observe(provider.Env{FS: mem, Home: "/home/user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Desired, exactly as resolve/pipeline.go builds it for a manifest entry
+	// with no version: pin.
+	desired := []provider.Resource{{
+		ID:      "tvt-config",
+		Channel: "plugins",
+		ContentHash: lockfile.ContentHash(map[string]any{
+			"marketplace": "trein-vertraging", "version": "",
+		}),
+	}}
+
+	plan := provider.DiffResources("plugins", desired, observed, desired)
+	if len(plan.Changes) != 1 {
+		t.Fatalf("got %d changes, want 1", len(plan.Changes))
+	}
+	if plan.Changes[0].Kind != provider.ChangeUpdate {
+		t.Errorf("Kind = %v, want ChangeUpdate so `claude plugin update` runs and\n"+
+			"new commits actually reach users", plan.Changes[0].Kind)
+	}
+}
+
+// TestPluginsDiff_PinnedInSyncNoops is the other half: a pinned plugin already at
+// its pinned version must NOT re-run an update on every install, or the plan is
+// permanently noisy and `--strict` drift checks never pass.
+func TestPluginsDiff_PinnedInSyncNoops(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	if err := mem.WriteFile("/home/user/.claude/plugins/installed_plugins.json",
+		[]byte(`{"version":2,"plugins":{"tvt-config@trein-vertraging":[{"scope":"user","version":"2.16.0"}]}}`),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	observed, err := claudecode.Plugins{}.Observe(provider.Env{FS: mem, Home: "/home/user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	desired := []provider.Resource{{
+		ID:      "tvt-config",
+		Channel: "plugins",
+		ContentHash: lockfile.ContentHash(map[string]any{
+			"marketplace": "trein-vertraging", "version": "2.16.0",
+		}),
+	}}
+
+	plan := provider.DiffResources("plugins", desired, observed, desired)
+	if len(plan.Changes) != 1 || plan.Changes[0].Kind != provider.ChangeNoop {
+		t.Errorf("want a single Noop for an in-sync pin, got %+v", plan.Changes)
 	}
 }

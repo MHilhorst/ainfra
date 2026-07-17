@@ -262,7 +262,26 @@ type PluginBuild struct {
 	Repository  string       `yaml:"repository,omitempty"`
 	License     string       `yaml:"license,omitempty"`
 	Content     []string     `yaml:"content,omitempty"`
+	// Versioning selects how the plugin's version reaches users.
+	//
+	//   "semver" (default) — plugin.json carries an explicit version that
+	//     `ainfra plugin release` bumps. Claude Code pins users to that string,
+	//     so content changes reach nobody until it moves.
+	//   "sha" — plugin.json omits the version, so Claude Code falls through to
+	//     the marketplace repo's commit SHA. Every commit is a new version and
+	//     ships with no release step.
+	Versioning string `yaml:"versioning,omitempty"`
 }
+
+// Plugin versioning modes.
+const (
+	VersioningSemver = "semver"
+	VersioningSHA    = "sha"
+)
+
+// SHAVersioned reports whether this plugin lets the commit SHA be its version,
+// i.e. plugin.json carries no version field.
+func (p PluginBuild) SHAVersioned() bool { return p.Versioning == VersioningSHA }
 
 // PluginAuthor is the author metadata written into plugin.json.
 type PluginAuthor struct {
