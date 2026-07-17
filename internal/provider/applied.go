@@ -9,7 +9,14 @@ import (
 )
 
 // appliedPath is the per-machine applied-state ledger location under a repo
-// root. .ainfra/ is git-ignored, so the ledger is never committed.
+// root.
+//
+// Note: .ainfra/ is NOT git-ignored by ainfra. `ainfra init` writes only the
+// `ainfra.personal.*` pattern (cmd_init.go::gitignoreEntry); repos that ignore
+// .ainfra/ do so by hand. Do not rely on this directory being private — the
+// prune offered ledger and its backups deliberately live under
+// $XDG_CONFIG_HOME instead, because a shared copy of "what this user was shown"
+// would arm deletions on a teammate's first run.
 func appliedPath(root string) string {
 	return filepath.Join(root, ".ainfra", "applied.lock")
 }

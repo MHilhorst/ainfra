@@ -64,7 +64,12 @@ Undeclared does not mean unwanted. Usually it means you never got around to
 declaring it — the first machine this was tried on had eight undeclared slash
 commands, every one of them in daily use. So the first run is always a report,
 and only a later run removes what you saw and chose not to keep. Anything
-removed is copied to `.ainfra/pruned-<timestamp>/` first.
+removed is copied to `~/.config/ainfra/pruned/<timestamp>/` first.
+
+The record of what you have been shown lives under `~/.config/ainfra/`, not in
+the repo, and is keyed per machine and per agent. It is deliberately not
+shareable: a ledger that travelled over git would arm deletions on a teammate's
+first run, from a list they never saw.
 
 **Use `--global` for anything in `~/.claude/`.** It applies in every repo, so a
 declaration in one repo's `ainfra.personal.yaml` leaves it undeclared in all the

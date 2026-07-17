@@ -96,7 +96,7 @@ func TestPruneSecondRunDeletes(t *testing.T) {
 	seed := &OfferedLedger{Offered: map[string]OfferedEntry{
 		"skills:stray": {FirstOfferedAt: "2026-07-16T10:00:00Z"},
 	}}
-	if err := WriteOffered(mem, OfferedPath(o.root), seed); err != nil {
+	if err := WriteOffered(mem, mustOfferedRepo(t, o.root), seed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -118,7 +118,7 @@ func TestPruneDeclaredBetweenRunsIsSpared(t *testing.T) {
 	seed := &OfferedLedger{Offered: map[string]OfferedEntry{
 		"skills:stray": {FirstOfferedAt: "2026-07-16T10:00:00Z"},
 	}}
-	if err := WriteOffered(mem, OfferedPath(o.root), seed); err != nil {
+	if err := WriteOffered(mem, mustOfferedRepo(t, o.root), seed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -146,7 +146,7 @@ func TestPruneDryRunWritesNoLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := mem.ReadFile(OfferedPath(o.root)); err == nil {
+	if _, err := mem.ReadFile(mustOfferedRepo(t, o.root)); err == nil {
 		t.Error("--dry-run wrote the offered ledger; a preview must not arm a deletion")
 	}
 }
@@ -154,7 +154,7 @@ func TestPruneDryRunWritesNoLedger(t *testing.T) {
 // A corrupt ledger must re-offer rather than delete unannounced.
 func TestPruneCorruptLedgerReOffers(t *testing.T) {
 	o, _, mem := setupPrune(t, ScopeRepo, "skills", []Resource{{ID: "stray", Channel: "skills"}})
-	if err := mem.WriteFile(OfferedPath(o.root), []byte("{broken"), 0o644); err != nil {
+	if err := mem.WriteFile(mustOfferedRepo(t, o.root), []byte("{broken"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -214,7 +214,7 @@ func TestPruneAllowsMCPInRepoScope(t *testing.T) {
 	seed := &OfferedLedger{Offered: map[string]OfferedEntry{
 		"mcpServers:stray": {FirstOfferedAt: "2026-07-16T10:00:00Z"},
 	}}
-	if err := WriteOffered(mem, OfferedPath(o.root), seed); err != nil {
+	if err := WriteOffered(mem, mustOfferedRepo(t, o.root), seed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -240,7 +240,7 @@ func TestPruneBackupFailureCancelsDelete(t *testing.T) {
 	seed := &OfferedLedger{Offered: map[string]OfferedEntry{
 		"skills:stray": {FirstOfferedAt: "2026-07-16T10:00:00Z"},
 	}}
-	if err := WriteOffered(mem, OfferedPath(o.root), seed); err != nil {
+	if err := WriteOffered(mem, mustOfferedRepo(t, o.root), seed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -276,7 +276,7 @@ func TestPruneWritesOfferedLedgerAfterApply(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := mem.ReadFile(OfferedPath(o.root))
+	raw, err := mem.ReadFile(mustOfferedRepo(t, o.root))
 	if err != nil {
 		t.Fatalf("offered ledger not written: %v", err)
 	}
@@ -300,7 +300,7 @@ func TestPruneDeletedEntryDropsFromLedger(t *testing.T) {
 	seed := &OfferedLedger{Offered: map[string]OfferedEntry{
 		"skills:stray": {FirstOfferedAt: "2026-07-16T10:00:00Z"},
 	}}
-	if err := WriteOffered(mem, OfferedPath(o.root), seed); err != nil {
+	if err := WriteOffered(mem, mustOfferedRepo(t, o.root), seed); err != nil {
 		t.Fatal(err)
 	}
 
@@ -308,7 +308,7 @@ func TestPruneDeletedEntryDropsFromLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := mem.ReadFile(OfferedPath(o.root))
+	raw, err := mem.ReadFile(mustOfferedRepo(t, o.root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestNoPruneLeavesUntrackedAlone(t *testing.T) {
 	if n := deletesFor(plans["skills"], "stray"); n != 0 {
 		t.Errorf("delete count = %d, want 0 without --prune", n)
 	}
-	if _, err := mem.ReadFile(OfferedPath(o.root)); err == nil {
+	if _, err := mem.ReadFile(mustOfferedRepo(t, o.root)); err == nil {
 		t.Error("a non-prune run wrote the offered ledger")
 	}
 }
@@ -353,7 +353,7 @@ func TestPruneStampsChannelOnOffer(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw, err := mem.ReadFile(OfferedPath(o.root))
+	raw, err := mem.ReadFile(mustOfferedRepo(t, o.root))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -364,4 +364,15 @@ func TestPruneStampsChannelOnOffer(t *testing.T) {
 	if _, ok := l.Offered["skills:stray"]; !ok {
 		t.Errorf("ledger = %s; want a skills:stray row keyed off the plan's channel", raw)
 	}
+}
+
+// mustOfferedRepo resolves the repo-scope offered ledger path the same way the
+// orchestrator does.
+func mustOfferedRepo(t *testing.T, root string) string {
+	t.Helper()
+	p, err := OfferedPathRepo(root, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return p
 }

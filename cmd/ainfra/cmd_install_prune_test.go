@@ -137,7 +137,9 @@ func TestInstallPruneBacksUpWhatItRemoves(t *testing.T) {
 		t.Fatal("cruft not removed; the rest of this test is meaningless")
 	}
 
-	matches, err := filepath.Glob(filepath.Join(home, ".ainfra", "pruned-*", "commands", "cruft.md"))
+	// Backups live under XDG, outside the repo: ainfra never git-ignores
+	// .ainfra/, and an MCP backup carries the server's env values.
+	matches, err := filepath.Glob(filepath.Join(home, ".config", "ainfra", "pruned", "*", "*", "commands", "cruft.md"))
 	if err != nil || len(matches) == 0 {
 		t.Fatalf("no backup for the removed command: %v", err)
 	}
@@ -155,7 +157,7 @@ func TestInstallPruneDryRunDoesNotArm(t *testing.T) {
 	if code := run([]string{"--chdir", dir, "install", "--prune", "--dry-run"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 		t.Fatal("dry run failed")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "ainfra", "prune-offered.json")); err == nil {
+	if userOfferedExists(t, home) {
 		t.Error("--dry-run wrote the offered ledger; a preview must not arm a deletion")
 	}
 
@@ -176,7 +178,7 @@ func TestInstallPruneRecordsOfferWithEmptyPlan(t *testing.T) {
 		t.Fatal("first run failed")
 	}
 
-	raw, err := os.ReadFile(filepath.Join(home, ".config", "ainfra", "prune-offered.json"))
+	raw, err := readUserOffered(t, home)
 	if err != nil {
 		t.Fatalf("offered ledger not written: %v", err)
 	}
@@ -204,7 +206,7 @@ func TestInstallWithoutPruneLeavesUndeclaredAlone(t *testing.T) {
 	if !commandExists(home, "ship") {
 		t.Error("ship was removed without --prune")
 	}
-	if _, err := os.Stat(filepath.Join(home, ".config", "ainfra", "prune-offered.json")); err == nil {
+	if userOfferedExists(t, home) {
 		t.Error("a non-prune install wrote the offered ledger")
 	}
 }
@@ -279,8 +281,12 @@ func TestInstallPruneGlobalDeclarationSurvivesOtherRepo(t *testing.T) {
 }
 
 // A repo-local personal declaration does NOT protect user-scope config in
-// another repo. This pins the behaviour that makes --global necessary, so the
-// day someone changes it they see why the flag exists.
+// another repo. This pins the behaviour that makes --global necessary: ~/.claude
+// applies everywhere, but ainfra.personal.yaml is per-repo, so a command
+// "kept" in repo A is undeclared in repo B and a prune there removes it.
+//
+// If this ever starts passing, --global's rationale needs revisiting — so it
+// asserts rather than skipping.
 func TestInstallPruneRepoPersonalDoesNotProtectOtherRepo(t *testing.T) {
 	dirA, home := newPruneRepo(t, "ship")
 	declarePersonalRepo(t, dirA, "ship")
@@ -308,7 +314,7 @@ func TestInstallPruneRepoPersonalDoesNotProtectOtherRepo(t *testing.T) {
 	}
 
 	if commandExists(home, "ship") {
-		t.Skip("repo-local personal declarations now protect other repos; if that is intended, --global's rationale needs revisiting")
+		t.Error("a repo-local --personal declaration now protects other repos; if intended, revisit why --global exists")
 	}
 }
 
@@ -327,5 +333,96 @@ func declarePersonalRepo(t *testing.T, dir string, ids ...string) {
 	}
 	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"), []byte(b.String()), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// userOfferedPath is the user-scope offered ledger for the default
+// (claude-code) agent. The ledger lives under XDG, never inside a repo.
+//
+// Named exactly rather than globbed: a --agent codex run writes
+// user.codex.json alongside user.json, and "user.codex.json" sorts first — so
+// a user*.json glob would silently read the wrong agent's ledger and make an
+// agent-isolation test pass or fail for the wrong reason.
+func userOfferedPath(t *testing.T, home string) string {
+	t.Helper()
+	return filepath.Join(home, ".config", "ainfra", "prune-offered", "user.json")
+}
+
+func userOfferedExists(t *testing.T, home string) bool {
+	t.Helper()
+	_, err := os.Stat(userOfferedPath(t, home))
+	return err == nil
+}
+
+func readUserOffered(t *testing.T, home string) ([]byte, error) {
+	t.Helper()
+	return os.ReadFile(userOfferedPath(t, home))
+}
+
+// TestInstallPruneIgnoresRepoLocalLedger is the regression test for the worst
+// bug this feature had: a committed offered ledger arming deletes on a
+// machine's first prune run.
+//
+// The ledger records "THIS user was shown this entry". An earlier version kept
+// it at <repo>/.ainfra/prune-offered.json on the false premise that .ainfra/ is
+// git-ignored — ainfra only ever writes the `ainfra.personal.*` pattern
+// (cmd_init.go::gitignoreEntry), so in a consumer repo the ledger is committed
+// by default. A teammate would then clone a ledger listing entries they had
+// never seen, and their first `install --prune` would delete their own local
+// config without ever reporting it.
+//
+// A stale ledger inside the repo must therefore be inert.
+func TestInstallPruneIgnoresRepoLocalLedger(t *testing.T) {
+	dir, home := newPruneRepo(t, "local-only")
+
+	// Simulate a teammate having committed their ledger.
+	stale := filepath.Join(dir, ".ainfra")
+	if err := os.MkdirAll(stale, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := `{"version":1,"offered":{"commands:local-only":{"firstOfferedAt":"2026-07-01T00:00:00Z"}}}`
+	if err := os.WriteFile(filepath.Join(stale, "prune-offered.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var out bytes.Buffer
+	if code := run([]string{"--chdir", dir, "install", "--prune", "--yes"}, &out, &bytes.Buffer{}); code != 0 {
+		t.Fatalf("code=%d\n%s", code, out.String())
+	}
+
+	if !commandExists(home, "local-only") {
+		t.Error("a repo-local ledger armed a delete on the first run; the ledger must be per-machine and never travel over git")
+	}
+	if !strings.Contains(out.String(), "Not declared in ainfra") {
+		t.Errorf("the entry should have been offered afresh; got:\n%s", out.String())
+	}
+}
+
+// TestInstallPruneCodexRunDoesNotWipeLedger is the regression test for the
+// second critical bug: `--agent codex` has no Pruner in its provider set, so
+// with an agent-agnostic ledger path its run rewrote the ledger to empty and
+// prune could never converge on a machine that installs both agents — which is
+// the documented team setup.
+func TestInstallPruneCodexRunDoesNotWipeLedger(t *testing.T) {
+	dir, home := newPruneRepo(t, "ship")
+
+	if code := run([]string{"--chdir", dir, "install", "--prune", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("claude-code prune failed")
+	}
+	before, err := readUserOffered(t, home)
+	if err != nil || !strings.Contains(string(before), "commands:ship") {
+		t.Fatalf("fixture: ship not armed after run 1: %s %v", before, err)
+	}
+
+	if code := run([]string{"--chdir", dir, "install", "--prune", "--yes", "--agent", "codex"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("codex prune failed")
+	}
+
+	after, err := readUserOffered(t, home)
+	if err != nil {
+		t.Fatalf("claude-code ledger disappeared after a codex run: %v", err)
+	}
+	if !strings.Contains(string(after), "commands:ship") {
+		t.Errorf("a codex run wiped the claude-code ledger: %s", after)
 	}
 }

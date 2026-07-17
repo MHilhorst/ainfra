@@ -125,9 +125,9 @@ flags first.
 **This is the heart of the design.** Prune never deletes an entry the user has
 not previously been shown.
 
-A new per-scope ledger, `<scope root>/.ainfra/prune-offered.json` (user scope:
-alongside the applied ledger under XDG, via `xdg.AppliedLedgerPath`'s
-directory), records every untracked resource that has been reported to the user:
+A new ledger under `$XDG_CONFIG_HOME/ainfra/prune-offered/`, keyed per scope and
+per agent (`user[.<agent>].json`, `repo-<hash of root>[.<agent>].json`), records
+every untracked resource that has been reported to the user:
 
 ```json
 {
@@ -153,6 +153,36 @@ Behavior on `ainfra install --prune`:
 `--dry-run` never writes the offered ledger. A preview must not arm a deletion:
 if it did, `--dry-run --prune` followed by a real `--prune` would delete on what
 the user experienced as the *first* real run.
+
+### The ledger must not travel over git
+
+The ledger records "**this user, on this machine**, was shown this entry". That
+makes its location a correctness requirement, not a preference.
+
+An earlier draft put the repo-scope ledger at `<root>/.ainfra/prune-offered.json`,
+justified with "`.ainfra/` is git-ignored". **That is false.** ainfra's only
+`.gitignore` write is `cmd/ainfra/cmd_init.go::gitignoreEntry`, which emits the
+single pattern `ainfra.personal.*`; nothing ever ignores `.ainfra/`. This repo
+and claude-config ignore it by hand — a coincidence of two repos, not a property
+of the tool. In any other consumer repo the ledger would be committed, and a
+teammate cloning it would inherit a list of entries they had never seen. Their
+first `install --prune` would then delete their own config on first sight, which
+is the exact outcome this design exists to prevent.
+
+So every ledger lives under `$XDG_CONFIG_HOME/ainfra/prune-offered/`, keyed by
+scope and agent. A repo-local ledger is inert
+(`cmd/ainfra/cmd_install_prune_test.go::TestInstallPruneIgnoresRepoLocalLedger`).
+
+### The ledger must be keyed by agent
+
+`appliedPathForAgent` keys the applied ledger by target agent; the offered
+ledger must do the same. Codex's provider set contains no `Pruner`, so an
+`ainfra install --prune --agent codex` run produces an empty offer set — and
+because `writeOffered` rebuilds rather than merges, an agent-agnostic path let
+that run truncate the Claude Code ledger to `{}`. Prune could then never
+converge on any machine that installs both, which is the documented team setup.
+Fail-safe in direction (re-offer, never delete), but functionally broken.
+Pinned by `TestInstallPruneCodexRunDoesNotWipeLedger`.
 
 ### Why a ledger rather than a prompt
 
@@ -373,10 +403,10 @@ returns `ID` and `ContentHash`. An orchestrator-level backup
 would write empty files while reporting success, losing exactly the data it
 claims to protect. Only the provider knows its own layout.
 
-**Destination.** `<scope root>/.ainfra/pruned-<RFC3339-timestamp>/<channel>/`,
-created once per run per scope. `.ainfra/` is git-ignored and already hosts the
-applied ledger (`internal/provider/applied.go::appliedPath`), so this adds no new
-location and nothing lands in git.
+**Destination.** `$XDG_CONFIG_HOME/ainfra/pruned/<timestamp>/<scope>/<channel>/`,
+created once per run per scope. Outside the repo: see "The ledger must not
+travel over git" — the same reasoning applies, and more sharply, because an MCP
+backup carries that server's full config including any env values.
 
 **Per-channel semantics:**
 
@@ -432,7 +462,7 @@ Not declared in ainfra (nothing removed yet):
     ainfra add --global <channel> <id> <source>
 
 Anything still undeclared will be removed by the next 'ainfra install --prune'.
-Backups are written to .ainfra/pruned-<timestamp>/ when it does.
+Backups are written under ~/.config/ainfra/pruned/<timestamp>/ when it does.
 ```
 
 Second run removes what remains undeclared, listing each delete and its backup

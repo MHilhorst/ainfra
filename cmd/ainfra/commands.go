@@ -117,7 +117,12 @@ func renderOffered(w io.Writer, c ui.Colorizer, repoOffers, userOffers []provide
 
 	fmt.Fprintln(w)
 	fmt.Fprintln(w, "Anything still undeclared will be removed by the next 'ainfra install --prune'.")
-	fmt.Fprintln(w, "Backups are written to .ainfra/pruned-<timestamp>/ when it does.")
+	// Print the real path. Backups live outside the repo, and most offers are
+	// user-scope, so naming a repo-relative directory would send every affected
+	// user to the wrong place for the only recovery path there is.
+	if root, err := provider.PruneBackupRoot(); err == nil {
+		fmt.Fprintf(w, "Backups are written under %s/<timestamp>/ when it does.\n", root)
+	}
 	fmt.Fprintln(w)
 }
 

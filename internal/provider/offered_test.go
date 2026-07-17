@@ -1,7 +1,7 @@
 package provider
 
 import (
-	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -68,9 +68,44 @@ func TestOfferedKey(t *testing.T) {
 	}
 }
 
-func TestOfferedPath(t *testing.T) {
-	want := filepath.Join("/repo", ".ainfra", "prune-offered.json")
-	if got := OfferedPath("/repo"); got != want {
-		t.Errorf("OfferedPath = %q, want %q", got, want)
+func TestOfferedPathIsOutsideTheRepo(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+
+	// Regression: a ledger inside the repo would be committed (ainfra never
+	// git-ignores .ainfra/), so a teammate would inherit a list of entries they
+	// were never shown and their first --prune would delete on first sight.
+	got, err := OfferedPathRepo("/repo", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.HasPrefix(got, "/repo") {
+		t.Errorf("OfferedPathRepo = %q; the ledger must never live inside the repo", got)
+	}
+	if !strings.HasPrefix(got, "/xdg") {
+		t.Errorf("OfferedPathRepo = %q, want it under XDG_CONFIG_HOME", got)
+	}
+}
+
+// A different agent gets a different ledger, mirroring the applied ledger.
+// Otherwise an --agent codex run, whose provider set has no Pruner, rewrites
+// the Claude Code ledger to empty and prune can never converge.
+func TestOfferedPathIsAgentScoped(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", "/xdg")
+
+	claude, _ := OfferedPathRepo("/repo", "claude-code")
+	defaulted, _ := OfferedPathRepo("/repo", "")
+	codex, _ := OfferedPathRepo("/repo", "codex")
+
+	if claude != defaulted {
+		t.Errorf("claude-code = %q, default = %q; want the same file", claude, defaulted)
+	}
+	if codex == claude {
+		t.Errorf("codex and claude-code share %q; a codex run would wipe the Claude ledger", codex)
+	}
+
+	u1, _ := OfferedPathUser("claude-code")
+	u2, _ := OfferedPathUser("codex")
+	if u1 == u2 {
+		t.Errorf("user-scope ledgers collide across agents: %q", u1)
 	}
 }

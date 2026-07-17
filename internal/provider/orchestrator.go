@@ -94,12 +94,25 @@ func (o *Orchestrator) clock() time.Time {
 	return time.Now()
 }
 
-// offeredPath resolves the offered ledger for this orchestrator's scope.
+// offeredPath resolves the offered ledger for this orchestrator's scope and
+// target agent. Keyed by agent like the applied ledger: a side-by-side install
+// for another agent has a different provider set and would otherwise rewrite
+// this one's ledger from an empty offer set.
 func (o *Orchestrator) offeredPath() (string, error) {
 	if o.scope == ScopeUser {
-		return OfferedPathUser()
+		return OfferedPathUser(o.env.Agent)
 	}
-	return OfferedPath(o.root), nil
+	return OfferedPathRepo(o.root, o.env.Agent)
+}
+
+// scopeKey names this orchestrator's scope for the backup tree, so a repo-scope
+// and a user-scope prune in the same run cannot collide on a shared id (e.g. a
+// "ship" command in both).
+func (o *Orchestrator) scopeKey() string {
+	if o.scope == ScopeUser {
+		return "user"
+	}
+	return repoScopeKey(o.root)
 }
 
 // pruneableInScope reports whether p's untracked resources may be removed in
@@ -188,7 +201,15 @@ func (o *Orchestrator) backupPrunes(p Provider, plan ChannelPlan) (ChannelPlan, 
 			out.Changes = append(out.Changes, c)
 			continue
 		}
-		if err := pr.Backup(o.env, c.Resource, o.runBackupDir()); err != nil {
+		dir, derr := o.runBackupDir()
+		if derr != nil {
+			failed = append(failed, ChangeFailure{
+				Change: c,
+				Err:    fmt.Errorf("no backup directory, not deleting: %w", derr),
+			})
+			continue
+		}
+		if err := pr.Backup(o.env, c.Resource, dir); err != nil {
 			failed = append(failed, ChangeFailure{
 				Change: c,
 				Err:    fmt.Errorf("backup failed, not deleting: %w", err),
@@ -201,13 +222,23 @@ func (o *Orchestrator) backupPrunes(p Provider, plan ChannelPlan) (ChannelPlan, 
 }
 
 // runBackupDir is this run's backup directory, computed once so every channel
-// shares one timestamped tree. .ainfra/ is git-ignored, so backups never land
-// in git.
-func (o *Orchestrator) runBackupDir() string {
-	if o.backupDir == "" {
-		o.backupDir = filepath.Join(o.root, ".ainfra", "pruned-"+o.clock().UTC().Format("20060102T150405Z"))
+// shares one timestamped tree.
+//
+// It lives outside the repo, under $XDG_CONFIG_HOME/ainfra/pruned/. ainfra
+// never git-ignores .ainfra/ (init writes only the `ainfra.personal.*`
+// pattern), and a backup of an untracked .mcp.json entry carries that server's
+// full config including any env values — so a repo-local backup tree would be
+// committed by default.
+func (o *Orchestrator) runBackupDir() (string, error) {
+	if o.backupDir != "" {
+		return o.backupDir, nil
 	}
-	return o.backupDir
+	root, err := PruneBackupRoot()
+	if err != nil {
+		return "", err
+	}
+	o.backupDir = filepath.Join(root, o.clock().UTC().Format("20060102T150405Z"), o.scopeKey())
+	return o.backupDir, nil
 }
 
 // writeOffered persists the offered ledger after an apply. A row exists only
