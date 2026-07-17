@@ -224,3 +224,108 @@ func TestInstallPruneWithFromIsRejected(t *testing.T) {
 		t.Errorf("error should explain the rejection, got %q", errOut.String())
 	}
 }
+
+// declareGlobal declares ids in the global personal manifest via `ainfra add
+// --global`, which is what the prune report tells users to run.
+func declareGlobal(t *testing.T, dir string, ids ...string) {
+	t.Helper()
+	src := t.TempDir()
+	for _, id := range ids {
+		p := filepath.Join(src, id+".md")
+		if err := os.WriteFile(p, []byte("# "+id+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		var out, errOut bytes.Buffer
+		if code := run([]string{"--chdir", dir, "add", "--global", "--no-install", "command", id, p}, &out, &errOut); code != 0 {
+			t.Fatalf("add --global %s: code=%d err=%q", id, code, errOut.String())
+		}
+	}
+}
+
+// TestInstallPruneGlobalDeclarationSurvivesOtherRepo is the regression test for
+// the cross-repo hazard.
+//
+// Config in ~/.claude/ applies in every repo. Declaring it in one repo's
+// ainfra.personal.yaml leaves it undeclared in every other repo, so a --prune
+// run from a second repo would report and then delete it — defeating the guard
+// from a direction the user never sees. --global is the fix, and this test
+// proves the advice the report prints actually holds.
+func TestInstallPruneGlobalDeclarationSurvivesOtherRepo(t *testing.T) {
+	dirA, home := newPruneRepo(t, "ship")
+
+	// Declare ship globally from repo A.
+	declareGlobal(t, dirA, "ship")
+
+	// A second repo, sharing the same HOME.
+	dirB := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirB, "ainfra.yaml"), []byte("version: 1\nagent: claude-code\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--chdir", dirB, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock B failed")
+	}
+
+	// Two prune runs from repo B: the second would arm anything offered by the
+	// first.
+	for i := 0; i < 2; i++ {
+		if code := run([]string{"--chdir", dirB, "install", "--prune", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+			t.Fatalf("prune run %d in repo B failed", i+1)
+		}
+	}
+
+	if !commandExists(home, "ship") {
+		t.Error("ship was globally declared but pruned by a run in another repo")
+	}
+}
+
+// A repo-local personal declaration does NOT protect user-scope config in
+// another repo. This pins the behaviour that makes --global necessary, so the
+// day someone changes it they see why the flag exists.
+func TestInstallPruneRepoPersonalDoesNotProtectOtherRepo(t *testing.T) {
+	dirA, home := newPruneRepo(t, "ship")
+	declarePersonalRepo(t, dirA, "ship")
+	if code := run([]string{"--chdir", dirA, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock A failed")
+	}
+	if code := run([]string{"--chdir", dirA, "install", "--prune", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("install A failed")
+	}
+	if !commandExists(home, "ship") {
+		t.Fatal("ship gone already in repo A; fixture is wrong")
+	}
+
+	dirB := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dirB, "ainfra.yaml"), []byte("version: 1\nagent: claude-code\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code := run([]string{"--chdir", dirB, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock B failed")
+	}
+	for i := 0; i < 2; i++ {
+		if code := run([]string{"--chdir", dirB, "install", "--prune", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+			t.Fatalf("prune run %d in repo B failed", i+1)
+		}
+	}
+
+	if commandExists(home, "ship") {
+		t.Skip("repo-local personal declarations now protect other repos; if that is intended, --global's rationale needs revisiting")
+	}
+}
+
+// declarePersonalRepo declares ids in the repo's own ainfra.personal.yaml.
+func declarePersonalRepo(t *testing.T, dir string, ids ...string) {
+	t.Helper()
+	src := t.TempDir()
+	var b strings.Builder
+	b.WriteString("version: 1\nagent: claude-code\ncommands:\n")
+	for _, id := range ids {
+		p := filepath.Join(src, id+".md")
+		if err := os.WriteFile(p, []byte("# "+id+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		b.WriteString("  " + id + ":\n    source: " + p + "\n")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.personal.yaml"), []byte(b.String()), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}

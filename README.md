@@ -81,7 +81,7 @@ extends:
 | Command | What it does |
 |---------|--------------|
 | `init` | Scaffold an `ainfra.yaml` (`--adopt`, `--personal`, `--with-skill`, `--force`) |
-| `install` | Reconcile your machine to the manifest (`--agent`, `--dry-run`, `--strict`, `--from <url>`) |
+| `install` | Reconcile your machine to the manifest (`--agent`, `--dry-run`, `--strict`, `--prune`, `--from <url>`) |
 | `add` / `remove` | Add or remove an entry and reconcile |
 | `update` | Re-resolve the lockfile and reinstall |
 | `list` / `inspect` | See what's installed |

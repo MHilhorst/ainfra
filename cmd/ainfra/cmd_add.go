@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
@@ -11,6 +12,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/provider"
 	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/ui"
+	"github.com/MHilhorst/ainfra/internal/xdg"
 )
 
 // channelAlias maps the short form a user types (`mcp`) to the canonical
@@ -79,26 +81,31 @@ timeout: 5000`, nil
 
 // newAddCommand wires `ainfra add <channel> <id> [source]`.
 func newAddCommand() *cli.Command {
-	var personal, noInstall bool
+	var personal, global, noInstall bool
 	return &cli.Command{
 		Name:      "add",
 		Summary:   "Add an entry to ainfra.yaml and install it (npm-install-style)",
-		UsageLine: "ainfra add <channel> <id> [source] [--personal] [--no-install]",
-		Example:   "ainfra add mcp github\n  ainfra add command audit ./commands/audit.md\n  ainfra add --personal mcp local-fs",
+		UsageLine: "ainfra add <channel> <id> [source] [--personal | --global] [--no-install]",
+		Example:   "ainfra add mcp github\n  ainfra add command audit ./commands/audit.md\n  ainfra add --personal mcp local-fs\n  ainfra add --global command ship",
 		SetFlags: func(fs *flag.FlagSet) {
-			fs.BoolVar(&personal, "personal", false, "write to ainfra.personal.yaml instead of ainfra.yaml")
+			fs.BoolVar(&personal, "personal", false, "write to this repo's ainfra.personal.yaml instead of ainfra.yaml")
+			fs.BoolVar(&global, "global", false, "write to your global personal manifest (~/.config/ainfra/personal.yaml), which applies in every repo")
 			fs.BoolVar(&noInstall, "no-install", false, "write the manifest entry and re-lock, but skip reconcile")
 		},
 		Run: func(ctx cli.Context) int {
-			return runAdd(ctx, personal, noInstall)
+			return runAdd(ctx, personal, global, noInstall)
 		},
 	}
 }
 
-func runAdd(ctx cli.Context, personal, noInstall bool) int {
+func runAdd(ctx cli.Context, personal, global, noInstall bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 	if len(ctx.Args) < 2 {
 		ui.RenderError(ctx.Stderr, errColor, errors.New("usage: ainfra add <channel> <id> [source]"))
+		return 2
+	}
+	if personal && global {
+		ui.RenderError(ctx.Stderr, errColor, errors.New("--personal and --global are mutually exclusive: --personal writes this repo's ainfra.personal.yaml, --global writes the manifest that applies in every repo"))
 		return 2
 	}
 	rawChannel := ctx.Args[0]
@@ -119,6 +126,36 @@ func runAdd(ctx cli.Context, personal, noInstall bool) int {
 		manifestFile = "ainfra.personal.yaml"
 	}
 	manifestPath := filepath.Join(ctx.Dir, manifestFile)
+
+	if global {
+		// The global personal manifest is the only right home for config that
+		// lives in ~/.claude/ and therefore applies in every repo. Declaring
+		// such an entry in one repo's ainfra.personal.yaml would leave it
+		// undeclared everywhere else — and `install --prune` in another repo
+		// would then report and eventually remove it.
+		p, err := xdg.PersonalManifestPath()
+		if err != nil {
+			ui.RenderError(ctx.Stderr, errColor, err)
+			return 1
+		}
+		manifestPath = p
+		manifestFile = manifestPath
+		// Create it on demand: it is the user's own file, there is no other
+		// command that scaffolds it, and refusing here would leave the advice
+		// printed by `install --prune` with no way to follow it.
+		if !fileExists(manifestPath) {
+			if err := os.MkdirAll(filepath.Dir(manifestPath), 0o755); err != nil {
+				ui.RenderError(ctx.Stderr, errColor, err)
+				return 1
+			}
+			if err := os.WriteFile(manifestPath, []byte("version: 1\n"), 0o644); err != nil {
+				ui.RenderError(ctx.Stderr, errColor, err)
+				return 1
+			}
+			fmt.Fprintf(ctx.Stdout, "Created %s.\n", manifestPath)
+		}
+	}
+
 	if !fileExists(manifestPath) {
 		if personal {
 			ui.RenderError(ctx.Stderr, errColor, fmt.Errorf("no %s in this repo. Create one with: ainfra init --personal", manifestFile))

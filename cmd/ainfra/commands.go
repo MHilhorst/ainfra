@@ -83,17 +83,49 @@ func mergeLocks(committed, personal *lockfile.Lock) *lockfile.Lock {
 // declare something before a later run removes it. Undeclared usually means
 // "never got around to declaring it" rather than "unwanted", which is why the
 // list leads with how to keep things rather than how to delete them.
-func renderOffered(w io.Writer, c ui.Colorizer, offered []provider.Change) {
-	if len(offered) == 0 {
+func renderOffered(w io.Writer, c ui.Colorizer, repoOffers, userOffers []provider.Change) {
+	if len(repoOffers) == 0 && len(userOffers) == 0 {
 		return
 	}
 	fmt.Fprintln(w, c.Yellow("Not declared in ainfra (nothing removed yet):"))
-	fmt.Fprintln(w)
 
+	// The two scopes need different advice, and getting it wrong is dangerous.
+	// Config in ~/.claude/ applies in every repo, so declaring it in one repo's
+	// ainfra.personal.yaml would leave it undeclared everywhere else — and a
+	// --prune run in another repo would report and then remove it. --global is
+	// the only correct home for those.
+	if len(userOffers) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, c.Bold("  In ~/.claude/ (applies in every repo):"))
+		renderOfferGroup(w, userOffers)
+		fmt.Fprintln(w)
+		// Flags before positionals: Go's flag package stops parsing at the
+		// first positional, so `add command ship --global` silently ignores
+		// --global and writes the team's ainfra.yaml instead.
+		fmt.Fprintln(w, "  To keep one, declare it in your global personal manifest:")
+		fmt.Fprintln(w, "    ainfra add --global <channel> <id> <source>")
+	}
+	if len(repoOffers) > 0 {
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, c.Bold("  In this repo:"))
+		renderOfferGroup(w, repoOffers)
+		fmt.Fprintln(w)
+		fmt.Fprintln(w, "  To keep one, declare it in this repo's manifest:")
+		fmt.Fprintln(w, "    ainfra add <channel> <id> <source>              # shared with the team, via ainfra.yaml")
+		fmt.Fprintln(w, "    ainfra add --personal <channel> <id> <source>   # just you, just this repo")
+	}
+
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Anything still undeclared will be removed by the next 'ainfra install --prune'.")
+	fmt.Fprintln(w, "Backups are written to .ainfra/pruned-<timestamp>/ when it does.")
+	fmt.Fprintln(w)
+}
+
+// renderOfferGroup prints one scope's offers, grouped by channel.
+func renderOfferGroup(w io.Writer, offers []provider.Change) {
 	byCh := map[string][]string{}
-	for _, ch := range offered {
-		channel := ch.Resource.Channel
-		byCh[channel] = append(byCh[channel], ch.ID)
+	for _, ch := range offers {
+		byCh[ch.Resource.Channel] = append(byCh[ch.Resource.Channel], ch.ID)
 	}
 	channels := make([]string, 0, len(byCh))
 	for ch := range byCh {
@@ -103,16 +135,8 @@ func renderOffered(w io.Writer, c ui.Colorizer, offered []provider.Change) {
 	for _, ch := range channels {
 		ids := byCh[ch]
 		sort.Strings(ids)
-		fmt.Fprintf(w, "  %-10s %s\n", ch, strings.Join(ids, ", "))
+		fmt.Fprintf(w, "    %-10s %s\n", ch, strings.Join(ids, ", "))
 	}
-
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "To keep any of these, declare them:")
-	fmt.Fprintln(w, "  ainfra add <channel> <id> --personal")
-	fmt.Fprintln(w)
-	fmt.Fprintln(w, "Anything still undeclared will be removed by the next 'ainfra install --prune'.")
-	fmt.Fprintln(w, "Backups are written to .ainfra/pruned-<timestamp>/ when it does.")
-	fmt.Fprintln(w)
 }
 
 // pruneScopeNotice states what --prune cannot clear. Without it a user could
@@ -569,16 +593,19 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict, prune bool, agent
 	// user most needs to see this list.
 	var offered []provider.Change
 	if prune {
-		offered = append(offered, orch.NewlyOffered()...)
+		repoOffers := orch.NewlyOffered()
+		var userOffers []provider.Change
 		if userOrch != nil {
-			offered = append(offered, userOrch.NewlyOffered()...)
+			userOffers = userOrch.NewlyOffered()
 		}
+		offered = append(append([]provider.Change{}, repoOffers...), userOffers...)
+
 		c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
 		if orch.OfferedLedgerCorrupt() || (userOrch != nil && userOrch.OfferedLedgerCorrupt()) {
 			fmt.Fprintln(ctx.Stderr, ui.NewColorizer(ctx.Stderr, ctx.NoColor).Yellow(
 				"warning: the offered ledger was unreadable, so every undeclared entry has been reported again and nothing was removed."))
 		}
-		renderOffered(ctx.Stdout, c, offered)
+		renderOffered(ctx.Stdout, c, repoOffers, userOffers)
 		fmt.Fprintln(ctx.Stdout, c.Dim(pruneScopeNotice))
 		fmt.Fprintln(ctx.Stdout)
 	}
