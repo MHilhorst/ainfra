@@ -184,3 +184,107 @@ func TestMergeEnvResolvedWins(t *testing.T) {
 		t.Error("entry without '=' was dropped")
 	}
 }
+
+// Third-party claude wrappers (e.g. cmux's) resolve the real binary by
+// scanning PATH skipping only their own dir. If the child still sees the shim
+// dir on PATH, such a wrapper and the shim resolve each other forever — the
+// child's PATH must lose the shim dir.
+func TestExecStripsShimDirFromChildPath(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+
+	shimDir := filepath.Join(home, ".config", "ainfra", "bin")
+	realDir := filepath.Join(home, "realbin")
+	for _, d := range []string{shimDir, realDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "toolx"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", shimDir+string(os.PathListSeparator)+realDir)
+
+	call := captureExec(t)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--chdir", dir, "exec", "--", "toolx"}, &out, &errOut); code != 0 {
+		t.Fatalf("exec: code=%d err=%q", code, errOut.String())
+	}
+	childPath, ok := envValue(call.env, "PATH")
+	if !ok {
+		t.Fatal("child env has no PATH")
+	}
+	if strings.Contains(childPath, shimDir) {
+		t.Errorf("child PATH still contains the shim dir: %q", childPath)
+	}
+	if !strings.Contains(childPath, realDir) {
+		t.Errorf("child PATH lost an unrelated dir: %q", childPath)
+	}
+}
+
+// findRealClaude must skip the shim dir and wrapper scripts so claude-app
+// targets the native binary, not another wrapper.
+func TestFindRealClaudeSkipsWrapperScripts(t *testing.T) {
+	base := t.TempDir()
+	shimDir := filepath.Join(base, "shims")
+	wrapperDir := filepath.Join(base, "wrappers")
+	realDir := filepath.Join(base, "real")
+	for _, d := range []string{shimDir, wrapperDir, realDir} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Shim dir and a script wrapper both precede the native binary on PATH.
+	if err := os.WriteFile(filepath.Join(shimDir, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wrapperDir, "claude"), []byte("#!/usr/bin/env bash\n# cmux claude wrapper\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(realDir, "claude"), []byte{0xCF, 0xFA, 0xED, 0xFE}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", strings.Join([]string{shimDir, wrapperDir, realDir}, string(os.PathListSeparator)))
+
+	if got := findRealClaude(shimDir); got != filepath.Join(realDir, "claude") {
+		t.Errorf("findRealClaude = %q, want the native binary in %q", got, realDir)
+	}
+}
+
+// When a native claude exists on PATH, install writes the absolute-target
+// claude-app shim for GUI hosts alongside the name-based shim.
+func TestInstallWritesClaudeAppShim(t *testing.T) {
+	dir := t.TempDir()
+	home := filepath.Join(dir, "home")
+	realDir := filepath.Join(home, "realbin")
+	if err := os.MkdirAll(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	realClaude := filepath.Join(realDir, "claude")
+	if err := os.WriteFile(realClaude, []byte{0xCF, 0xFA, 0xED, 0xFE}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	t.Setenv("PATH", realDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=sk-abc\n")
+
+	writeSecretFixture(t, dir)
+	if code := run([]string{"--chdir", dir, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	if code := run([]string{"--chdir", dir, "install", "--yes"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("install failed")
+	}
+
+	raw, err := os.ReadFile(filepath.Join(home, ".config", "ainfra", "bin", "claude-app"))
+	if err != nil {
+		t.Fatalf("claude-app shim not written: %v", err)
+	}
+	if !strings.Contains(string(raw), realClaude) {
+		t.Errorf("claude-app does not target the native binary %q, got:\n%s", realClaude, raw)
+	}
+}
