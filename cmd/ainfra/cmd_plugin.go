@@ -68,14 +68,31 @@ func runPlugin(ctx cli.Context) int {
 		ui.RenderError(ctx.Stderr, errColor, errors.New("no plugin: block in ainfra.yaml"))
 		return 1
 	}
+	// build/release read the manifest directly rather than going through the
+	// resolve pipeline, so validate the block here too. A typo'd versioning mode
+	// must not silently fall back to semver — the author would ship a pinned
+	// version believing every commit reaches users.
+	if err := manifest.Validate(repo); err != nil {
+		ui.RenderError(ctx.Stderr, errColor, err)
+		return 1
+	}
 	pb := *repo.Plugin
 
 	switch action {
 	case "build":
-		version := currentPluginVersion(ctx.Dir, pb.Name)
+		// A SHA-versioned plugin renders with an empty version, which
+		// RenderPluginJSON omits — Claude Code then uses the commit SHA.
+		version := ""
+		if !pb.SHAVersioned() {
+			version = currentPluginVersion(ctx.Dir, pb.Name)
+		}
 		if err := writePluginFiles(ctx.Dir, pb, version); err != nil {
 			ui.RenderError(ctx.Stderr, errColor, err)
 			return 1
+		}
+		if pb.SHAVersioned() {
+			fmt.Fprintf(ctx.Stdout, "Built plugin %s (versioning: sha — the commit SHA is the version).\n", pb.Name)
+			return 0
 		}
 		fmt.Fprintf(ctx.Stdout, "Built plugin %s at version %s.\n", pb.Name, version)
 		return 0
@@ -90,6 +107,17 @@ func runPlugin(ctx cli.Context) int {
 }
 
 func runPluginRelease(ctx cli.Context, pb manifest.PluginBuild, level string, errColor ui.Colorizer) int {
+	// Releasing a SHA-versioned plugin is a contradiction: there is no version
+	// to bump, and every commit already ships. Refusing beats writing a version
+	// key that would pin every user and stop updates dead.
+	if pb.SHAVersioned() {
+		ui.RenderError(ctx.Stderr, errColor, fmt.Errorf(
+			"%s uses `versioning: sha` — every commit already ships, so there is nothing to release.\n"+
+				"Run `ainfra plugin build` to regenerate plugin.json, or remove `versioning: sha` to go back to semver releases.",
+			pb.Name))
+		return 1
+	}
+
 	if warn, err := claudeValidatePlugin(ctx.Dir); err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
