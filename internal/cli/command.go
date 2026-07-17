@@ -144,7 +144,7 @@ func (r *Registry) Dispatch(args []string) int {
 		ui.RenderError(r.stderr, cz, fmt.Errorf("%s: %v", cmd.Name, err))
 		return 1
 	}
-	if stray := strayFlag(cmdArgs, fs.Args()); stray != "" && !cmd.SubParsesArgs {
+	if stray := strayFlag(fs, cmdArgs, fs.Args()); stray != "" && !cmd.SubParsesArgs {
 		cz := ui.NewColorizer(r.stderr, *noColor)
 		ui.RenderError(r.stderr, cz, &diag.Diagnostic{
 			Summary: fmt.Sprintf("%s: %s comes after a positional argument, so it was not applied", cmd.Name, stray),
@@ -174,8 +174,8 @@ func (r *Registry) Dispatch(args []string) int {
 	})
 }
 
-// strayFlag returns the first leftover argument that looks like a flag, or ""
-// when there is none.
+// strayFlag returns the first leftover argument that names a flag this command
+// actually registered, or "" when there is none.
 //
 // Go's flag package stops parsing at the first positional, so
 // `ainfra add command ship ./x.md --global` silently leaves --global in Args
@@ -185,17 +185,28 @@ func (r *Registry) Dispatch(args []string) int {
 // install runs anyway. Both are silent wrong-thing-done outcomes, so the CLI
 // refuses rather than guessing.
 //
+// It matches against the command's own FlagSet rather than "starts with a
+// dash" on purpose. A dash-prefixed token that is not a flag of this command
+// is just an unusual positional — `ainfra add command ship -draft.md` names a
+// real file — and rejecting it would break invocations that work today. Only a
+// token that would have done something had it been placed earlier is an error.
+//
 // Args after an explicit "--" terminator are intentional positionals (that is
 // what the terminator is for), so a "--" anywhere in the raw args disables the
 // check.
-func strayFlag(raw, positional []string) string {
+func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
 	for _, a := range raw {
 		if a == "--" {
 			return ""
 		}
 	}
 	for _, a := range positional {
-		if len(a) > 1 && strings.HasPrefix(a, "-") {
+		name := strings.TrimLeft(a, "-")
+		if name == a || name == "" {
+			continue // not dash-prefixed, or a bare "-"/"--"
+		}
+		name, _, _ = strings.Cut(name, "=") // --flag=value
+		if fs.Lookup(name) != nil {
 			return a
 		}
 	}

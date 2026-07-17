@@ -42,7 +42,7 @@ Bootstrapping a shared team config repo from your own polished `~/.claude/`:
 
 ```sh
 ainfra init team ../claude-config           # scaffold + git init + emit manifest from ~/.claude/
-ainfra init --empty team ../claude-config   # …or scaffold a skeleton instead
+ainfra init team ../claude-config --empty   # …or scaffold a skeleton instead
 ```
 
 `init --adopt` reads `.mcp.json`, `.claude/settings.json` hooks, `.claude/commands/*`, and `CLAUDE.md`, and emits a draft `ainfra.yaml`. Literal credentials it recognizes (`ghp_*`, `sk-*`, `xoxb-*`, and generic `token` / `key` / `password` keys) are stripped and replaced with `direct`-mode secret references plus a `TODO` marker for the vault path — nothing sensitive ends up in the manifest. Skills and tool permissions are skipped: skills arrive with `git clone`, and a clean permissions matcher is left for a later iteration.

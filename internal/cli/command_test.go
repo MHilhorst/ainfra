@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"flag"
 	"testing"
 )
 
@@ -26,6 +27,15 @@ func TestRegistryAddAndLookup(t *testing.T) {
 }
 
 func TestStrayFlag(t *testing.T) {
+	// A FlagSet shaped like `ainfra add`: the flags it really registers.
+	newFS := func() *flag.FlagSet {
+		fs := flag.NewFlagSet("add", flag.ContinueOnError)
+		fs.Bool("personal", false, "")
+		fs.Bool("global", false, "")
+		fs.Bool("no-install", false, "")
+		return fs
+	}
+
 	cases := []struct {
 		name       string
 		raw        []string
@@ -36,10 +46,22 @@ func TestStrayFlag(t *testing.T) {
 			// The bug this exists for: --global after the positionals was
 			// silently dropped, so the entry went to the team's ainfra.yaml
 			// while the user believed it went to their global manifest.
-			name:       "flag after positionals is caught",
+			name:       "registered flag after positionals is caught",
 			raw:        []string{"command", "ship", "./x.md", "--global"},
 			positional: []string{"command", "ship", "./x.md", "--global"},
 			want:       "--global",
+		},
+		{
+			name:       "single-dash form is caught too",
+			raw:        []string{"command", "ship", "-global"},
+			positional: []string{"command", "ship", "-global"},
+			want:       "-global",
+		},
+		{
+			name:       "--flag=value form is caught",
+			raw:        []string{"command", "ship", "--global=true"},
+			positional: []string{"command", "ship", "--global=true"},
+			want:       "--global=true",
 		},
 		{
 			name:       "flags before positionals parse normally",
@@ -48,11 +70,19 @@ func TestStrayFlag(t *testing.T) {
 			want:       "",
 		},
 		{
-			// "--" is the explicit "these are positionals" terminator, so a
-			// leading dash after it is intentional, not a mistake.
+			// Codex review of this change: a dash-prefixed token that is not a
+			// flag of this command is a legitimate positional (a real filename).
+			// Rejecting it would break invocations that work today.
+			name:       "dash-prefixed non-flag positional is allowed",
+			raw:        []string{"command", "ship", "-draft.md"},
+			positional: []string{"command", "ship", "-draft.md"},
+			want:       "",
+		},
+		{
+			// "--" is the explicit "these are positionals" terminator.
 			name:       "double dash disables the check",
-			raw:        []string{"command", "ship", "--", "--weird-name"},
-			positional: []string{"command", "ship", "--weird-name"},
+			raw:        []string{"command", "ship", "--", "--global"},
+			positional: []string{"command", "ship", "--global"},
 			want:       "",
 		},
 		{
@@ -63,14 +93,14 @@ func TestStrayFlag(t *testing.T) {
 		},
 		{
 			name:       "no positionals at all",
-			raw:        []string{"--yes"},
+			raw:        []string{"--global"},
 			positional: nil,
 			want:       "",
 		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := strayFlag(c.raw, c.positional); got != c.want {
+			if got := strayFlag(newFS(), c.raw, c.positional); got != c.want {
 				t.Errorf("strayFlag = %q, want %q", got, c.want)
 			}
 		})
