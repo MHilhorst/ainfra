@@ -104,3 +104,10 @@ func (Skills) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Apply
 		Applied: applied,
 	}, nil
 }
+
+// Backup copies the skill's directory into dir before Apply removes it. A skill
+// can be hours of hand-written work that exists nowhere else, so the copy is
+// recursive and a failure cancels the delete.
+func (Skills) Backup(env provider.Env, r provider.Resource, dir string) error {
+	return copyTree(env, skillDir(env, r.ID), filepath.Join(dir, "skills", r.ID))
+}

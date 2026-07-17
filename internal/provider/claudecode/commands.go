@@ -90,3 +90,8 @@ func (Commands) Apply(env provider.Env, plan provider.ChannelPlan) (provider.App
 		Applied: applied,
 	}, nil
 }
+
+// Backup copies the command's markdown file into dir before Apply removes it.
+func (Commands) Backup(env provider.Env, r provider.Resource, dir string) error {
+	return copyFile(env, commandPath(env, r.ID), filepath.Join(dir, "commands", r.ID+".md"))
+}
