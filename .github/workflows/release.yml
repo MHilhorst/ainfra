@@ -1,12 +1,27 @@
 name: Release
 
+# Every push to main ships: this workflow computes the next patch tag, pushes
+# it, and releases it — no hand-tagging step to forget.
+#
+# The `tags:` trigger is kept so a human can still cut a minor/major by hand
+# (`git tag v0.3.0 && git push origin v0.3.0`). That does NOT double-release:
+# GitHub deliberately does not fire workflows for refs pushed with the default
+# GITHUB_TOKEN, so the tag this job pushes never re-enters here. If that token
+# is ever swapped for a PAT, the protection is gone and this workflow will
+# trigger itself — split it in two before doing that.
 on:
   push:
+    branches: [main]
     tags:
       - "v*"
 
 permissions:
   contents: write
+
+# Two pushes landing together must not race for the same tag number.
+concurrency:
+  group: release
+  cancel-in-progress: false
 
 jobs:
   goreleaser:
@@ -16,11 +31,52 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Resolve the tag to release
+        id: tag
+        run: |
+          set -euo pipefail
+
+          # Hand-pushed tag: release exactly that, bump nothing.
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "Releasing hand-pushed tag ${GITHUB_REF_NAME}."
+            exit 0
+          fi
+
+          # Push to main. If HEAD already carries a tag, a release for this
+          # commit already exists (or is in flight) — re-tagging would fail.
+          if existing=$(git describe --exact-match --tags HEAD 2>/dev/null); then
+            echo "HEAD is already tagged ${existing} — nothing to release."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest=$(git tag -l 'v*' --sort=-v:refname | head -n1)
+          [ -n "$latest" ] || latest="v0.0.0"
+          if ! [[ "$latest" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::latest tag ${latest} is not vMAJOR.MINOR.PATCH; cannot compute the next patch."
+            exit 1
+          fi
+          next="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.$(( BASH_REMATCH[3] + 1 ))"
+          echo "tag=${next}" >> "$GITHUB_OUTPUT"
+          echo "Auto-bumping ${latest} -> ${next}."
+
+      - name: Push the tag
+        if: steps.tag.outputs.skip != 'true' && github.ref_type == 'branch'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${{ steps.tag.outputs.tag }}" -m "Release ${{ steps.tag.outputs.tag }}"
+          git push origin "${{ steps.tag.outputs.tag }}"
+
       - uses: actions/setup-go@v5
+        if: steps.tag.outputs.skip != 'true'
         with:
           go-version-file: go.mod
 
       - uses: goreleaser/goreleaser-action@v6
+        if: steps.tag.outputs.skip != 'true'
         with:
           distribution: goreleaser
           version: "~> v2"
