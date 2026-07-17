@@ -18,6 +18,7 @@ never bypass that loop.
 | `ainfra install` | The default reconcile. Re-locks if the manifest is newer than the lock, then reconciles. | yes (machine) |
 | `ainfra install --dry-run` | Preview the diff without writing | no |
 | `ainfra install --dry-run --strict` | CI gate: exit non-zero on any drift | no |
+| `ainfra install --prune` | Also report config no manifest declares. Removes nothing the first time it sees an entry — see below | yes (machine, from the 2nd run) |
 | `ainfra add <channel> <id> [source]` | Add a new entry to `ainfra.yaml` and reconcile | yes (manifest + machine) |
 | `ainfra remove <channel> <id>` | Remove an entry and reconcile | yes (manifest + machine) |
 | `ainfra update [<channel> <id>]` | Re-resolve the lockfile and reinstall | yes (lockfile + machine) |
@@ -37,12 +38,46 @@ days you can stay in the terminal:
 ```sh
 ainfra add mcp github                          # add an MCP server
 ainfra add command audit ./commands/audit.md   # add a slash command sourced from a file
-ainfra add --personal mcp local-fs             # add to ainfra.personal.yaml instead
+ainfra add --personal mcp local-fs             # add to this repo's ainfra.personal.yaml
+ainfra add --global command ship ~/.claude/commands/ship.md   # add to ~/.config/ainfra/personal.yaml
 ```
 
 Each `add` writes the entry, re-locks, and runs install. Pass `--no-install`
 to batch multiple `add` calls before a single reconcile. Commit `ainfra.yaml`
 **and** `ainfra.lock` together; never commit one without the other.
+
+**Put flags before the positionals.** `ainfra add command ship ./x.md --personal`
+silently ignores `--personal` (Go's flag parser stops at the first positional)
+and writes the team's `ainfra.yaml` instead.
+
+**`--personal` vs `--global`:** `--personal` writes *this repo's*
+`ainfra.personal.yaml`. `--global` writes `~/.config/ainfra/personal.yaml`,
+which applies in every repo. Anything that lives in `~/.claude/` — slash
+commands, skills — belongs in `--global`: declared with `--personal` it stays
+undeclared in every other repo, so an `install --prune` run from a different
+repo would report and eventually remove it.
+
+## Workflow: clearing config nobody declared
+
+`ainfra install` only ever adds and updates, so a machine accumulates config no
+manifest describes. `ainfra install --prune` clears it — but never on first
+sight:
+
+```sh
+ainfra install --prune                    # reports what is undeclared, removes nothing
+ainfra add --global command ship <src>    # keep the ones you want
+ainfra install --prune                    # removes what is still undeclared
+```
+
+Undeclared does not mean unwanted; usually it means nobody got around to
+declaring it. So the first run is always a report, a later run does the
+removal, and anything removed is copied to `~/.config/ainfra/pruned/<timestamp>/`
+first. `--dry-run --prune` previews without arming anything.
+
+`--prune` covers `mcpServers` (repo scope), `skills`, and `commands`. It does
+**not** touch hooks, rules, personal MCP servers in `~/.claude.json`, CLI tools,
+background services, plugins, or marketplaces — so it does not make a machine
+match its manifest exactly.
 
 ## Workflow: editing the manifest by hand
 
