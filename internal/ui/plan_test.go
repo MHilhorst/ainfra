@@ -134,3 +134,50 @@ func TestRenderPlanDetailIncluded(t *testing.T) {
 		t.Errorf("detail not included in output, got:\n%s", out)
 	}
 }
+
+func TestRenderPlanCountsRefreshesSeparatelyFromUpdates(t *testing.T) {
+	// The summary must not fold refreshes into the update count: unpinned
+	// plugins refresh on every run by design, and counting them as updates
+	// reported permanent drift that no run could clear.
+	plans := map[string]provider.ChannelPlan{
+		"plugins": {
+			Channel: "plugins",
+			Changes: []provider.Change{
+				{Kind: provider.ChangeRefresh, ID: "tvt-config", Detail: "unpinned — will check for updates"},
+				{Kind: provider.ChangeRefresh, ID: "codex", Detail: "unpinned — will check for updates"},
+			},
+		},
+	}
+
+	var b bytes.Buffer
+	RenderPlan(&b, Colorizer{}, plans)
+	out := b.String()
+
+	if !strings.Contains(out, "Plan: 0 to install, 0 to update, 2 to refresh, 0 to remove.") {
+		t.Errorf("refreshes must be counted in their own slot, got:\n%s", out)
+	}
+	// A refresh still mutates the machine, so it keeps the "~" symbol.
+	if !strings.Contains(out, "  ~ plugins.tvt-config  unpinned — will check for updates") {
+		t.Errorf("missing refresh line, got:\n%s", out)
+	}
+}
+
+func TestRenderPlanRefreshIsNotNoChanges(t *testing.T) {
+	// A plan containing only refreshes still does work, so it must not print
+	// the "No changes" message — that would claim the run was a no-op while
+	// it goes on to run `claude plugin update`.
+	plans := map[string]provider.ChannelPlan{
+		"plugins": {
+			Channel: "plugins",
+			Changes: []provider.Change{
+				{Kind: provider.ChangeRefresh, ID: "tvt-config", Detail: "unpinned — will check for updates"},
+			},
+		},
+	}
+
+	var b bytes.Buffer
+	RenderPlan(&b, Colorizer{}, plans)
+	if strings.Contains(b.String(), "No changes") {
+		t.Errorf("a refresh-only plan is not a no-op, got:\n%s", b.String())
+	}
+}

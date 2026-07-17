@@ -12,14 +12,23 @@ const (
 	ChangeCreate
 	ChangeUpdate
 	ChangeDelete
+	// ChangeRefresh is a mutation the resource asked for unconditionally
+	// rather than one drift made necessary: the desired resource is marked
+	// AlwaysRefresh, so a hash difference is the expected steady state and
+	// not a signal that anything has diverged. Applied exactly like
+	// ChangeUpdate; it exists to keep "will be refreshed every run" from
+	// reading as "has drifted", which is a claim about the machine.
+	ChangeRefresh
 )
 
-// String renders a ChangeKind as the one-character plan symbol.
+// String renders a ChangeKind as the one-character plan symbol. ChangeRefresh
+// shares the "~" mutation symbol with ChangeUpdate — both change the machine;
+// they differ in why, which the detail phrase carries.
 func (k ChangeKind) String() string {
 	switch k {
 	case ChangeCreate:
 		return "+"
-	case ChangeUpdate:
+	case ChangeUpdate, ChangeRefresh:
 		return "~"
 	case ChangeDelete:
 		return "-"
@@ -43,6 +52,14 @@ type Resource struct {
 	// not mention (which is left untouched). DiffResources never creates or
 	// updates a tombstone.
 	Tombstone bool
+	// AlwaysRefresh marks a desired resource whose ContentHash is not
+	// expected to ever equal the observed hash, because the manifest pins no
+	// version and the upstream one is therefore authoritative. The mismatch
+	// is the design, not drift: the provider re-runs its update every time so
+	// the resource tracks upstream. DiffResources emits ChangeRefresh instead
+	// of ChangeUpdate for these, so the plan does not report permanent,
+	// unfixable divergence for a resource behaving exactly as configured.
+	AlwaysRefresh bool
 }
 
 // Change is one planned mutation of a single resource.

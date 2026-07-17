@@ -461,6 +461,10 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 				Layer:       entry.Layer,
 				ContentHash: entry.ContentHash,
 				Requires:    entry.Requires,
+				// No pin means Claude Code's resolved version is
+				// authoritative, so this hash can never match what Observe
+				// reports and the plugin is refreshed on every run by design.
+				AlwaysRefresh: p.Version == "",
 				Payload: map[string]any{
 					"marketplace": p.Marketplace,
 					"version":     p.Version,

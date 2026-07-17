@@ -100,6 +100,8 @@ func kindString(k ChangeKind) string {
 		return "create"
 	case ChangeUpdate:
 		return "update"
+	case ChangeRefresh:
+		return "refresh"
 	case ChangeDelete:
 		return "delete"
 	default:

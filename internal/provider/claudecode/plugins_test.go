@@ -591,3 +591,48 @@ func TestPluginsDiff_PinnedInSyncNoops(t *testing.T) {
 		t.Errorf("want a single Noop for an in-sync pin, got %+v", plan.Changes)
 	}
 }
+
+func TestPluginsApply_RefreshRunsUpdate(t *testing.T) {
+	// A ChangeRefresh is the unpinned form of an update and must still invoke
+	// `claude plugin update`. If Apply ignored this kind, unpinned plugins
+	// would silently stop tracking upstream while the plan still claimed to
+	// be refreshing them — a far worse failure than the misleading label the
+	// refresh kind was introduced to fix.
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin update tvt-config@trein-vertraging"] = provider.FakeResult{}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeRefresh,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID:            "tvt-config",
+					Channel:       "plugins",
+					AlwaysRefresh: true,
+					Payload: map[string]any{
+						"marketplace": "trein-vertraging",
+						"version":     "",
+					},
+				},
+			},
+		},
+	}
+
+	result, err := claudecode.Plugins{}.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: unexpected error: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("Applied = %d, want 1", len(result.Applied))
+	}
+	if len(runner.Calls) != 1 || runner.Calls[0] != "claude plugin update tvt-config@trein-vertraging" {
+		t.Errorf("refresh must run `claude plugin update`; runner.Calls = %v", runner.Calls)
+	}
+	// An unpinned refresh has no pin to compare against, so it must not warn.
+	if len(result.Warnings) != 0 {
+		t.Errorf("Warnings = %v, want none for an unpinned refresh", result.Warnings)
+	}
+}
