@@ -74,6 +74,17 @@ func DiffResources(channel string, desired, observed, prior []Resource) ChannelP
 				Detail:   "new — will be installed",
 				Resource: want,
 			})
+		case got.ContentHash != want.ContentHash && want.AlwaysRefresh:
+			// Unpinned: the hashes are meant to differ (see
+			// Resource.AlwaysRefresh), so this is the steady state rather
+			// than drift, and reporting it as "out of sync" would describe a
+			// divergence no run can ever resolve.
+			plan.Changes = append(plan.Changes, Change{
+				Kind:     ChangeRefresh,
+				ID:       id,
+				Detail:   "unpinned — will check for updates",
+				Resource: want,
+			})
 		case got.ContentHash != want.ContentHash:
 			plan.Changes = append(plan.Changes, Change{
 				Kind:     ChangeUpdate,

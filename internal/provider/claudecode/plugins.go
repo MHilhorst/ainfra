@@ -180,11 +180,12 @@ func (Plugins) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Appl
 					warnings = append(warnings, w)
 				}
 
-			case provider.ChangeUpdate:
+			case provider.ChangeUpdate, provider.ChangeRefresh:
 				target := c.ID + "@" + marketplace
 				// Best-effort update: Claude Code itself decides whether to
 				// pull a new version based on its cache key, so the worst
-				// case here is a no-op.
+				// case here is a no-op. ChangeRefresh is the unpinned form of
+				// the same operation and runs identically.
 				_, _ = env.Runner.Run("claude", "plugin", "update", target)
 				if w, ok := versionMismatchWarning(env, c, marketplace, pinnedVersion); ok {
 					warnings = append(warnings, w)

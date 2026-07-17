@@ -111,3 +111,56 @@ func TestDiffResourcesCarriesResource(t *testing.T) {
 		t.Errorf("delete change Resource = %+v, want %+v", del.Resource, priorGone)
 	}
 }
+
+func TestDiffResourcesAlwaysRefreshReportsRefreshNotDrift(t *testing.T) {
+	// An unpinned resource hashes differently from the machine on every run
+	// by design (the upstream version is authoritative). That must plan as a
+	// refresh, not as drift — "out of sync" would describe a divergence no
+	// run can resolve, which is what made every ainfra install look dirty.
+	desired := []Resource{{ID: "unpinned", ContentHash: "want", AlwaysRefresh: true}}
+	observed := []Resource{res("unpinned", "got")}
+	prior := []Resource{res("unpinned", "got")}
+
+	c, ok := find(DiffResources("plugins", desired, observed, prior), "unpinned")
+	if !ok {
+		t.Fatal("unpinned: no change emitted")
+	}
+	if c.Kind != ChangeRefresh {
+		t.Errorf("kind = %v, want ChangeRefresh", c.Kind)
+	}
+	if c.Detail != "unpinned — will check for updates" {
+		t.Errorf("detail = %q, must not claim the resource drifted", c.Detail)
+	}
+}
+
+func TestDiffResourcesAlwaysRefreshStillNoopsWhenHashesMatch(t *testing.T) {
+	// AlwaysRefresh is not "always mutate": it only reclassifies a genuine
+	// hash difference. A pinned-and-matching resource stays a noop, so the
+	// flag can never manufacture work out of nothing.
+	desired := []Resource{{ID: "same", ContentHash: "h", AlwaysRefresh: true}}
+	observed := []Resource{res("same", "h")}
+
+	c, ok := find(DiffResources("plugins", desired, observed, nil), "same")
+	if !ok {
+		t.Fatal("same: no change emitted")
+	}
+	if c.Kind != ChangeNoop {
+		t.Errorf("kind = %v, want ChangeNoop", c.Kind)
+	}
+}
+
+func TestDiffResourcesRefreshIsNotSilentlyAppliedAsUpdate(t *testing.T) {
+	// Regression guard: a resource without the flag must keep reporting real
+	// drift as ChangeUpdate. If AlwaysRefresh ever leaked into the default
+	// path, genuine divergence would be downgraded to routine noise.
+	desired := []Resource{res("drifted", "want")}
+	observed := []Resource{res("drifted", "got")}
+
+	c, _ := find(DiffResources("plugins", desired, observed, nil), "drifted")
+	if c.Kind != ChangeUpdate {
+		t.Errorf("kind = %v, want ChangeUpdate", c.Kind)
+	}
+	if c.Detail != "out of sync — will be updated" {
+		t.Errorf("detail = %q, want the drift phrasing", c.Detail)
+	}
+}

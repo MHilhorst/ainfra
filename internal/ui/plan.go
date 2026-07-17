@@ -13,6 +13,11 @@ import (
 // After iterating all channels it prints a summary line. If there are no
 // non-noop changes anywhere it prints the no-changes message instead.
 //
+// Refreshes are counted separately from updates: both mutate the machine and
+// share the "~" symbol, but a refresh is an unpinned resource tracking
+// upstream by design, not drift, and conflating the two makes every run look
+// like it found problems.
+//
 // Lines are aligned in two columns: the channel.id key on the left and the
 // detail phrase on the right, sized to the widest key in this report so the
 // detail column stays visually anchored.
@@ -29,7 +34,7 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 		detail string
 	}
 	var rows []row
-	var adds, changes, destroys int
+	var adds, changes, refreshes, destroys int
 
 	for _, ch := range channels {
 		plan := plans[ch]
@@ -39,6 +44,8 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 				adds++
 			case provider.ChangeUpdate:
 				changes++
+			case provider.ChangeRefresh:
+				refreshes++
 			case provider.ChangeDelete:
 				destroys++
 			default:
@@ -48,7 +55,7 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 			switch change.Kind {
 			case provider.ChangeCreate:
 				sym = c.Green("+")
-			case provider.ChangeUpdate:
+			case provider.ChangeUpdate, provider.ChangeRefresh:
 				sym = c.Yellow("~")
 			case provider.ChangeDelete:
 				sym = c.Red("-")
@@ -57,7 +64,7 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 		}
 	}
 
-	if adds+changes+destroys == 0 {
+	if adds+changes+refreshes+destroys == 0 {
 		fmt.Fprintln(w, "No changes. Your environment already matches the lockfile.")
 		return
 	}
@@ -78,5 +85,5 @@ func RenderPlan(w io.Writer, c Colorizer, plans map[string]provider.ChannelPlan)
 		}
 	}
 
-	fmt.Fprintf(w, "\nPlan: %d to install, %d to update, %d to remove.\n", adds, changes, destroys)
+	fmt.Fprintf(w, "\nPlan: %d to install, %d to update, %d to refresh, %d to remove.\n", adds, changes, refreshes, destroys)
 }
