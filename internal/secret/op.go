@@ -3,7 +3,9 @@ package secret
 import (
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -17,9 +19,22 @@ type Runner interface {
 type ExecRunner struct{}
 
 // Run executes name with args and returns trimmed stdout. On a non-zero exit
-// it returns the command's trimmed stderr as the error message.
+// it returns the command's trimmed stderr as the error message. A name that
+// is not on PATH is probed in the standard install locations — GUI-spawned
+// processes (the launcher shims' main audience) get a minimal PATH without
+// the Homebrew prefix, where `op` normally lives.
 func (ExecRunner) Run(name string, args ...string) (string, error) {
-	out, err := exec.Command(name, args...).Output()
+	bin := name
+	if _, err := exec.LookPath(name); err != nil {
+		for _, dir := range wellKnownBinDirs() {
+			cand := filepath.Join(dir, name)
+			if info, serr := os.Stat(cand); serr == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+				bin = cand
+				break
+			}
+		}
+	}
+	out, err := exec.Command(bin, args...).Output()
 	if err != nil {
 		var ee *exec.ExitError
 		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
@@ -28,6 +43,16 @@ func (ExecRunner) Run(name string, args ...string) (string, error) {
 		return "", err
 	}
 	return strings.TrimSpace(string(out)), nil
+}
+
+// wellKnownBinDirs are the standard tool install locations probed when a
+// binary is not on PATH: the Homebrew prefixes and the user-local bin dir.
+func wellKnownBinDirs() []string {
+	dirs := []string{"/opt/homebrew/bin", "/usr/local/bin"}
+	if home, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(home, ".local", "bin"))
+	}
+	return dirs
 }
 
 // OpResolver resolves op://... references via the 1Password CLI (`op read`).
