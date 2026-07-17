@@ -148,7 +148,7 @@ func TestInitTeamScansHomeByDefault(t *testing.T) {
 func TestInitTeamEmptyWritesSkeleton(t *testing.T) {
 	parent := t.TempDir()
 	var out bytes.Buffer
-	code := run([]string{"--chdir", parent, "init", "team", "config", "--empty"}, &out, &bytes.Buffer{})
+	code := run([]string{"--chdir", parent, "init", "--empty", "team", "config"}, &out, &bytes.Buffer{})
 	if code != 0 {
 		t.Fatalf("init team --empty: code=%d", code)
 	}
@@ -170,7 +170,7 @@ func TestInitTeamRefusesNonEmptyDir(t *testing.T) {
 	os.WriteFile(filepath.Join(target, "existing.txt"), []byte("x"), 0o644)
 
 	var errOut bytes.Buffer
-	code := run([]string{"--chdir", parent, "init", "team", "claude-config", "--empty"}, &bytes.Buffer{}, &errOut)
+	code := run([]string{"--chdir", parent, "init", "--empty", "team", "claude-config"}, &bytes.Buffer{}, &errOut)
 	if code != 1 || !strings.Contains(errOut.String(), "not empty") {
 		t.Errorf("expected refusal: code=%d err=%q", code, errOut.String())
 	}

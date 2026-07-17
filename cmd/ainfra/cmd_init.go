@@ -72,9 +72,14 @@ func newInitCommand() *cli.Command {
 	return &cli.Command{
 		Name:    "init",
 		Summary: "Scaffold an ainfra.yaml in the current repo, or a team config repo",
+		// Flags precede the `team <path>` positionals. They are registered on
+		// this command's own FlagSet, and Go stops parsing at the first
+		// positional — so `init team <path> --empty` silently dropped --empty
+		// and scanned ~/.claude/ instead of scaffolding a skeleton. The CLI now
+		// rejects that shape rather than ignoring the flag.
 		UsageLine: "ainfra init [--personal | --adopt] [--with-skill] [--force]\n" +
-			"       ainfra init team <path> [--empty] [--with-skill] [--force]",
-		Example: "ainfra init team ../claude-config",
+			"       ainfra init [--empty] [--with-skill] [--force] team <path>",
+		Example: "ainfra init --empty team ../claude-config",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&personal, "personal", false, "scaffold ainfra.personal.yaml instead")
 			fs.BoolVar(&doAdopt, "adopt", false, "import the current repo's ./.claude/ setup into ainfra.yaml")

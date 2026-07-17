@@ -19,7 +19,7 @@ func newRemoveCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "remove",
 		Summary:   "Remove an entry from ainfra.yaml and uninstall it",
-		UsageLine: "ainfra remove <channel> <id> [--personal] [--no-install]",
+		UsageLine: "ainfra remove [--personal] [--no-install] <channel> <id>",
 		Example:   "ainfra remove mcp github\n  ainfra remove --personal mcp local-fs",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&personal, "personal", false, "remove from ainfra.personal.yaml instead of ainfra.yaml")

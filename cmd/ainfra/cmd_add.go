@@ -85,7 +85,7 @@ func newAddCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "add",
 		Summary:   "Add an entry to ainfra.yaml and install it (npm-install-style)",
-		UsageLine: "ainfra add <channel> <id> [source] [--personal | --global] [--no-install]",
+		UsageLine: "ainfra add [--personal | --global] [--no-install] <channel> <id> [source]",
 		Example:   "ainfra add mcp github\n  ainfra add command audit ./commands/audit.md\n  ainfra add --personal mcp local-fs\n  ainfra add --global command ship",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&personal, "personal", false, "write to this repo's ainfra.personal.yaml instead of ainfra.yaml")

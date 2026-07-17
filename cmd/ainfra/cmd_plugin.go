@@ -19,10 +19,11 @@ import (
 // newPluginCommand wires `ainfra plugin build|release`.
 func newPluginCommand() *cli.Command {
 	return &cli.Command{
-		Name:      "plugin",
-		Summary:   "Build and release this repo's own Claude Code plugin",
-		UsageLine: "ainfra plugin <build|release> [--patch|--minor|--major]",
-		Example:   "ainfra plugin release --patch",
+		Name:          "plugin",
+		SubParsesArgs: true, // `plugin release --patch` parses --patch in its own FlagSet
+		Summary:       "Build and release this repo's own Claude Code plugin",
+		UsageLine:     "ainfra plugin <build|release> [--patch|--minor|--major]",
+		Example:       "ainfra plugin release --patch",
 		Run: func(ctx cli.Context) int {
 			return runPlugin(ctx)
 		},
