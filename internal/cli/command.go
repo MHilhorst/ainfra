@@ -221,21 +221,21 @@ func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
 // terminatorConsumed reports whether flag.Parse swallowed a "--" terminator,
 // which it does only when the terminator precedes every positional. In that
 // case the caller asked for the remaining args to be taken literally.
+//
+// Counted rather than "is a -- still present", because Parse strips exactly
+// one: `add -- command ship --global --` leaves the second, literal "--" in
+// place, and treating that as proof no terminator was consumed would flag
+// --global inside an explicitly literal tail.
 func terminatorConsumed(raw, positional []string) bool {
-	inRaw := false
-	for _, a := range raw {
+	return countTerminators(raw) > countTerminators(positional)
+}
+
+func countTerminators(args []string) int {
+	n := 0
+	for _, a := range args {
 		if a == "--" {
-			inRaw = true
-			break
+			n++
 		}
 	}
-	if !inRaw {
-		return false
-	}
-	for _, a := range positional {
-		if a == "--" {
-			return false // still present, so Parse stopped before reaching it
-		}
-	}
-	return true
+	return n
 }

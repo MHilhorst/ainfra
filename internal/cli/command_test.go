@@ -103,6 +103,14 @@ func TestStrayFlag(t *testing.T) {
 			want:       "",
 		},
 		{
+			// Codex third pass: Parse strips only the first "--", so a second
+			// literal one must not read as "no terminator was consumed".
+			name:       "consumed terminator plus a later literal one",
+			raw:        []string{"--", "command", "ship", "--global", "--"},
+			positional: []string{"command", "ship", "--global", "--"},
+			want:       "",
+		},
+		{
 			name:       "a lone dash is a positional, not a flag",
 			raw:        []string{"command", "ship", "-"},
 			positional: []string{"command", "ship", "-"},
