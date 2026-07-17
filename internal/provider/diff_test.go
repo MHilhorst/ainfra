@@ -21,7 +21,7 @@ func TestDiffResources(t *testing.T) {
 	observed := []Resource{res("keep", "h1"), res("changed", "h2old"), res("foreign", "hX")}
 	prior := []Resource{res("keep", "h1"), res("changed", "h2old"), res("gone", "h4")}
 
-	p := DiffResources("skills", desired, observed, prior)
+	p := DiffResources("skills", desired, observed, prior, DiffOpts{})
 
 	want := map[string]ChangeKind{
 		"keep": ChangeNoop, "changed": ChangeUpdate, "new": ChangeCreate, "gone": ChangeDelete,
@@ -49,7 +49,7 @@ func TestDiffResourcesTombstoneDeletesForeignServer(t *testing.T) {
 	observed := []Resource{res("linear-server", "hX")}
 	prior := []Resource{}
 
-	p := DiffResources("mcpServers", desired, observed, prior)
+	p := DiffResources("mcpServers", desired, observed, prior, DiffOpts{})
 
 	c, ok := find(p, "linear-server")
 	if !ok {
@@ -67,7 +67,7 @@ func TestDiffResourcesTombstoneAbsentIsNoop(t *testing.T) {
 	observed := []Resource{res("keep", "h1")}
 	prior := []Resource{}
 
-	p := DiffResources("mcpServers", desired, observed, prior)
+	p := DiffResources("mcpServers", desired, observed, prior, DiffOpts{})
 
 	if c, ok := find(p, "linear-server"); ok {
 		t.Errorf("tombstone for an absent server must emit no change, got %v", c.Kind)
@@ -77,7 +77,7 @@ func TestDiffResourcesTombstoneAbsentIsNoop(t *testing.T) {
 func TestDiffResourcesTombstoneNeverCreates(t *testing.T) {
 	// A tombstone must never be installed, even if absent from the machine.
 	desired := []Resource{{ID: "linear-server", Channel: "mcpServers", Tombstone: true}}
-	p := DiffResources("mcpServers", desired, []Resource{}, []Resource{})
+	p := DiffResources("mcpServers", desired, []Resource{}, []Resource{}, DiffOpts{})
 	for _, c := range p.Changes {
 		if c.ID == "linear-server" && c.Kind == ChangeCreate {
 			t.Fatal("tombstone must never produce a create")
@@ -93,7 +93,7 @@ func TestDiffResourcesCarriesResource(t *testing.T) {
 	observed := []Resource{}
 	prior := []Resource{priorGone}
 
-	p := DiffResources("skills", desired, observed, prior)
+	p := DiffResources("skills", desired, observed, prior, DiffOpts{})
 
 	create, ok := find(p, "new")
 	if !ok {
@@ -121,7 +121,7 @@ func TestDiffResourcesAlwaysRefreshReportsRefreshNotDrift(t *testing.T) {
 	observed := []Resource{res("unpinned", "got")}
 	prior := []Resource{res("unpinned", "got")}
 
-	c, ok := find(DiffResources("plugins", desired, observed, prior), "unpinned")
+	c, ok := find(DiffResources("plugins", desired, observed, prior, DiffOpts{}), "unpinned")
 	if !ok {
 		t.Fatal("unpinned: no change emitted")
 	}
@@ -140,7 +140,7 @@ func TestDiffResourcesAlwaysRefreshStillNoopsWhenHashesMatch(t *testing.T) {
 	desired := []Resource{{ID: "same", ContentHash: "h", AlwaysRefresh: true}}
 	observed := []Resource{res("same", "h")}
 
-	c, ok := find(DiffResources("plugins", desired, observed, nil), "same")
+	c, ok := find(DiffResources("plugins", desired, observed, nil, DiffOpts{}), "same")
 	if !ok {
 		t.Fatal("same: no change emitted")
 	}
@@ -156,11 +156,74 @@ func TestDiffResourcesRefreshIsNotSilentlyAppliedAsUpdate(t *testing.T) {
 	desired := []Resource{res("drifted", "want")}
 	observed := []Resource{res("drifted", "got")}
 
-	c, _ := find(DiffResources("plugins", desired, observed, nil), "drifted")
+	c, _ := find(DiffResources("plugins", desired, observed, nil, DiffOpts{}), "drifted")
 	if c.Kind != ChangeUpdate {
 		t.Errorf("kind = %v, want ChangeUpdate", c.Kind)
 	}
 	if c.Detail != "out of sync — will be updated" {
 		t.Errorf("detail = %q, want the drift phrasing", c.Detail)
+	}
+}
+
+func TestDiffPruneRemovesUntracked(t *testing.T) {
+	desired := []Resource{{ID: "kept", Channel: "skills"}}
+	observed := []Resource{{ID: "kept", Channel: "skills"}, {ID: "stray", Channel: "skills"}}
+	p := DiffResources("skills", desired, observed, nil, DiffOpts{Prune: true})
+
+	c, ok := find(p, "stray")
+	if !ok {
+		t.Fatal("stray not in plan")
+	}
+	if c.Kind != ChangeDelete {
+		t.Errorf("Kind = %v, want ChangeDelete", c.Kind)
+	}
+	if !c.Prune {
+		t.Error("Prune = false, want true")
+	}
+}
+
+func TestDiffWithoutPruneLeavesUntracked(t *testing.T) {
+	desired := []Resource{{ID: "kept", Channel: "skills"}}
+	observed := []Resource{{ID: "kept", Channel: "skills"}, {ID: "stray", Channel: "skills"}}
+	p := DiffResources("skills", desired, observed, nil, DiffOpts{})
+
+	if _, ok := find(p, "stray"); ok {
+		t.Error("stray in plan without Prune; untracked resources must be left alone")
+	}
+}
+
+func TestDiffPruneSkipsTombstonedID(t *testing.T) {
+	desired := []Resource{{ID: "gone", Channel: "skills", Tombstone: true}}
+	observed := []Resource{{ID: "gone", Channel: "skills"}}
+	p := DiffResources("skills", desired, observed, nil, DiffOpts{Prune: true})
+
+	n := 0
+	for _, c := range p.Changes {
+		if c.ID == "gone" && c.Kind == ChangeDelete {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("delete count = %d, want 1 (tombstone must not double up with prune)", n)
+	}
+}
+
+func TestDiffPruneSkipsPriorID(t *testing.T) {
+	observed := []Resource{{ID: "retired", Channel: "skills"}}
+	prior := []Resource{{ID: "retired", Channel: "skills"}}
+	p := DiffResources("skills", nil, observed, prior, DiffOpts{Prune: true})
+
+	n := 0
+	for _, c := range p.Changes {
+		if c.ID == "retired" && c.Kind == ChangeDelete {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("delete count = %d, want 1 (prior delete must not double up with prune)", n)
+	}
+	c, _ := find(p, "retired")
+	if c.Prune {
+		t.Error("Prune = true for a prior-tracked delete; only untracked deletes are prune deletes")
 	}
 }

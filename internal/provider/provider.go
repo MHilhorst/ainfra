@@ -72,6 +72,13 @@ type Change struct {
 	ID       string
 	Detail   string
 	Resource Resource
+	// Prune marks a delete synthesized because the resource is untracked —
+	// present on the machine but in neither the manifest nor the applied
+	// ledger — rather than one the manifest asked for. The orchestrator uses
+	// it to find the deletes subject to the offered-ledger guard and to back
+	// them up. It is a structural flag rather than a Detail string match,
+	// which would be fragile.
+	Prune bool
 }
 
 // ChannelPlan is the set of changes one provider would make.

@@ -104,7 +104,7 @@ func (o *Orchestrator) PlanAll(desired *lockfile.Lock) (map[string]ChannelPlan, 
 				}
 			}
 		}
-		plan := DiffResources(p.Channel(), desiredByCh[p.Channel()], observed, priorForCh)
+		plan := DiffResources(p.Channel(), desiredByCh[p.Channel()], observed, priorForCh, DiffOpts{})
 		result[ch] = plan
 	}
 	return result, nil
@@ -166,7 +166,7 @@ func (o *Orchestrator) PlanAllRendered(rendered map[string][]Resource) (map[stri
 			}
 		}
 		desiredForCh := rendered[p.Channel()]
-		plan := DiffResources(p.Channel(), desiredForCh, observed, priorForCh)
+		plan := DiffResources(p.Channel(), desiredForCh, observed, priorForCh, DiffOpts{})
 		result[ch] = plan
 	}
 	return result, nil

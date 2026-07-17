@@ -554,7 +554,7 @@ func TestPluginsDiff_UnpinnedAlwaysUpdates(t *testing.T) {
 		}),
 	}}
 
-	plan := provider.DiffResources("plugins", desired, observed, desired)
+	plan := provider.DiffResources("plugins", desired, observed, desired, provider.DiffOpts{})
 	if len(plan.Changes) != 1 {
 		t.Fatalf("got %d changes, want 1", len(plan.Changes))
 	}
@@ -586,7 +586,7 @@ func TestPluginsDiff_PinnedInSyncNoops(t *testing.T) {
 		}),
 	}}
 
-	plan := provider.DiffResources("plugins", desired, observed, desired)
+	plan := provider.DiffResources("plugins", desired, observed, desired, provider.DiffOpts{})
 	if len(plan.Changes) != 1 || plan.Changes[0].Kind != provider.ChangeNoop {
 		t.Errorf("want a single Noop for an in-sync pin, got %+v", plan.Changes)
 	}
