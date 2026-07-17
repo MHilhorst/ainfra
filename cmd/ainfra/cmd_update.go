@@ -22,7 +22,7 @@ func newUpdateCommand() *cli.Command {
 	return &cli.Command{
 		Name:      "update",
 		Summary:   "Re-resolve ainfra.yaml into a fresh lockfile and install (use after editing ainfra.yaml)",
-		UsageLine: "ainfra update [<channel> <id>] [--no-install]",
+		UsageLine: "ainfra update [--no-install] [<channel> <id>]",
 		Example:   "ainfra update          # re-resolve all\n  ainfra update mcp github  # one entry",
 		SetFlags: func(fs *flag.FlagSet) {
 			fs.BoolVar(&noInstall, "no-install", false, "re-lock only; skip reconcile")

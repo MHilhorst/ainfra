@@ -9,7 +9,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
+	"github.com/MHilhorst/ainfra/internal/diag"
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
 
@@ -37,6 +39,22 @@ type Command struct {
 	// Use for niche / advanced verbs that we keep working but don't want to
 	// front-page (subscriber-mode helpers, etc.).
 	Hidden bool
+
+	// SubParsesArgs reports, for a given leftover arg list, whether this
+	// command parses the flags among them itself (e.g. `ainfra plugin release
+	// --patch`). When it returns true the command is exempt from the
+	// stray-flag check, because for that shape a flag after a positional is
+	// intended rather than silently dropped.
+	//
+	// It takes the args rather than being a plain bool so a command can exempt
+	// only the shapes it really sub-parses: `init` re-parses flags after `team
+	// <path>`, but plain `ainfra init junk --force` drops --force like any
+	// other command, and blanket-exempting init would hide that.
+	//
+	// Nil means never exempt. Do not return true for a shape the command does
+	// NOT sub-parse: the flag really is dropped there, and this error is the
+	// only thing telling the user their argument did nothing.
+	SubParsesArgs func(args []string) bool
 }
 
 // Registry holds the registered commands and dispatches to them.
@@ -131,6 +149,15 @@ func (r *Registry) Dispatch(args []string) int {
 		ui.RenderError(r.stderr, cz, fmt.Errorf("%s: %v", cmd.Name, err))
 		return 1
 	}
+	subParses := cmd.SubParsesArgs != nil && cmd.SubParsesArgs(fs.Args())
+	if stray := strayFlag(fs, cmdArgs, fs.Args()); stray != "" && !subParses {
+		cz := ui.NewColorizer(r.stderr, *noColor)
+		ui.RenderError(r.stderr, cz, &diag.Diagnostic{
+			Summary: fmt.Sprintf("%s: %s comes after a positional argument, so it was not applied", cmd.Name, stray),
+			Hint:    fmt.Sprintf("Flags must come before the positionals. Try:\n  %s", cmd.UsageLine),
+		})
+		return 2
+	}
 
 	dir := *chdir
 	if dir == "" {
@@ -151,4 +178,58 @@ func (r *Registry) Dispatch(args []string) int {
 		Dir:      dir,
 		Identity: *identity,
 	})
+}
+
+// strayFlag returns the first leftover argument that names a flag this command
+// registered, or "" when there is none.
+//
+// Go's flag package stops parsing at the first positional, so
+// `ainfra add command ship ./x.md --global` silently leaves --global in Args
+// and runs as if it were never passed: the entry lands in the team's
+// ainfra.yaml instead of the user's global manifest, and the user believes
+// they declared it. `--no-install` placed the same way is ignored and the
+// install runs anyway. Both are silent wrong-thing-done outcomes, so the CLI
+// refuses rather than guessing.
+//
+// Two deliberate limits keep this from ever rejecting a command that works
+// today. Between missing a dropped flag and breaking a valid invocation, it
+// misses:
+//
+//   - Any line containing "--" is left alone entirely. Working out which "--"
+//     Parse swallowed, and whether it was a terminator or some flag's value,
+//     means reimplementing the parser — and getting it wrong rejects real
+//     commands (`ainfra list --channel --channel -- --json` parses fine). A
+//     user who reaches for the terminator has said "take the rest literally",
+//     so take them at their word.
+//   - Only tokens the flag package would actually parse as a flag count:
+//     exactly one or two leading dashes naming a registered flag. `---global`
+//     is not a flag to Go, so it is not a dropped one here either.
+func strayFlag(fs *flag.FlagSet, raw, positional []string) string {
+	for _, a := range raw {
+		if a == "--" {
+			return ""
+		}
+	}
+	for _, a := range positional {
+		if name, ok := flagName(a); ok && fs.Lookup(name) != nil {
+			return a
+		}
+	}
+	return ""
+}
+
+// flagName returns the flag name a token would parse as, and whether it is
+// flag-shaped at all. It mirrors what Go's flag package accepts: one or two
+// leading dashes, a non-empty name that does not itself begin with a dash, and
+// an optional "=value" tail.
+func flagName(tok string) (string, bool) {
+	if !strings.HasPrefix(tok, "-") {
+		return "", false
+	}
+	name := strings.TrimPrefix(strings.TrimPrefix(tok, "-"), "-")
+	if name == "" || strings.HasPrefix(name, "-") {
+		return "", false // bare "-", "--", or "---flag": not a flag to Go
+	}
+	name, _, _ = strings.Cut(name, "=")
+	return name, name != ""
 }

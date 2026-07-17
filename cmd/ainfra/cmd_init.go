@@ -72,6 +72,13 @@ func newInitCommand() *cli.Command {
 	return &cli.Command{
 		Name:    "init",
 		Summary: "Scaffold an ainfra.yaml in the current repo, or a team config repo",
+		// Only the `team` form re-parses: runInitTeam pulls
+		// --empty/--with-skill/--force out of the args after `team <path>`, so
+		// a flag there is the documented shape. Every other init form drops a
+		// late flag like any command, and must keep saying so.
+		SubParsesArgs: func(args []string) bool {
+			return len(args) > 0 && args[0] == "team"
+		},
 		UsageLine: "ainfra init [--personal | --adopt] [--with-skill] [--force]\n" +
 			"       ainfra init team <path> [--empty] [--with-skill] [--force]",
 		Example: "ainfra init team ../claude-config",

@@ -36,7 +36,12 @@ func newExecCommand() *cli.Command {
 		// Hidden: launcher-shim plumbing, not a front-page verb. `ainfra help
 		// exec` still documents it.
 		Hidden: true,
-		Run:    runExec,
+		// Everything after `exec` belongs to the child command, including its
+		// flags: `ainfra exec claude --no-color` passes --no-color to claude.
+		// exec registers no flags of its own, so a token here is never a
+		// dropped ainfra flag.
+		SubParsesArgs: func([]string) bool { return true },
+		Run:           runExec,
 	}
 }
 

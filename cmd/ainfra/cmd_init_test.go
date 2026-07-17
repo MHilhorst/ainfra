@@ -226,3 +226,47 @@ func TestInitScaffoldsAgentField(t *testing.T) {
 		t.Errorf("scaffolded manifest does not declare  agent: claude-code\n%s", data)
 	}
 }
+
+// TestInitTeamAcceptsFlagsAfterPath pins the documented shape that the
+// stray-flag check must not break.
+//
+// runInitTeam re-parses --empty/--with-skill/--force out of the args after
+// `team <path>` on purpose, so unlike `add`, a flag there is honored rather
+// than dropped. An earlier revision of the stray-flag check rejected this and
+// would have shipped a backwards-incompatible break of a documented shape.
+func TestInitTeamAcceptsFlagsAfterPath(t *testing.T) {
+	parent := t.TempDir()
+	var out, errOut bytes.Buffer
+	code := run([]string{"--chdir", parent, "init", "team", "config", "--empty"}, &out, &errOut)
+	if code != 0 {
+		t.Fatalf("init team config --empty: code=%d err=%q", code, errOut.String())
+	}
+
+	data, err := os.ReadFile(filepath.Join(parent, "config", "ainfra.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// --empty must actually have taken effect: the skeleton says "Team ainfra
+	// manifest", the ~/.claude/ scan does not.
+	if !strings.Contains(string(data), "Team ainfra manifest") {
+		t.Errorf("--empty was not honored; manifest is not the skeleton:\n%s", data)
+	}
+}
+
+// TestInitNonTeamRejectsLateFlag pins that only the `team` form is exempt from
+// the stray-flag check.
+//
+// A blanket exemption on init would hide a real dropped flag here: plain
+// `ainfra init` does not re-parse its args, so --force after a positional does
+// nothing and the user would believe they had forced an overwrite.
+func TestInitNonTeamRejectsLateFlag(t *testing.T) {
+	dir := t.TempDir()
+	var errOut bytes.Buffer
+	code := run([]string{"--chdir", dir, "init", "junk", "--force"}, &bytes.Buffer{}, &errOut)
+	if code == 0 {
+		t.Error("exited 0; --force here is silently dropped and must be rejected")
+	}
+	if !strings.Contains(errOut.String(), "--force") {
+		t.Errorf("error should name the dropped flag, got %q", errOut.String())
+	}
+}
