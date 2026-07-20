@@ -115,7 +115,17 @@ func resolveSecretEnv(dir string, reg *secret.Registry, committed, personal *loc
 // which manifests already declare, means a box stops warning the moment it gets
 // this binary, with no manifest change and no version-skew window.
 func secretAppliesTo(sec manifest.Secret, ctx resolve.ResolutionContext) bool {
-	if !resolve.SelectorMatches(&manifest.Selector{Identities: sec.Identities}, ctx) {
+	// Match the selector against the NORMALIZED identity, not the raw field.
+	//
+	// resolve.SelectorMatches does a literal contains() on ctx.Identity and knows
+	// nothing about ctx.Agent. Passing ctx unmodified meant the two gates in this
+	// function read identity two different ways: `install --agent codex` leaves
+	// Identity as the default "human", so a secret declared `identities: [codex]`
+	// -- the exact mechanism this exists to provide -- failed the selector and was
+	// silently skipped for the one invocation it was written for.
+	ictx := ctx
+	ictx.Identity = effectiveIdentity(ctx)
+	if !resolve.SelectorMatches(&manifest.Selector{Identities: sec.Identities}, ictx) {
 		return false
 	}
 	// An explicit identities list WINS over the implicit rule. Otherwise
@@ -132,19 +142,37 @@ func secretAppliesTo(sec manifest.Secret, ctx resolve.ResolutionContext) bool {
 // personalAndNotHuman is the implicit rule shared by manifest secrets and
 // lockfile-backed refs: a per-human vault is not addressed to a service account.
 //
-// ctx.Agent participates because `install --agent codex` renders codex-scoped
-// resources by treating the agent as the identity (see resolve.RenderResources
-// AndLocksFor). Reading identity differently here than the renderer does is how
-// an install writes an agent's config while skipping that agent's credentials.
+// It deliberately reads the RAW caller identity and ignores ctx.Agent, which is
+// the opposite of what the selector does. The two questions are different:
+//
+//	selector  -- "which identity is this secret written for?"  --agent counts,
+//	             because scoping a secret to `identities: [codex]` is exactly
+//	             how you say "this one is for the Codex install".
+//	this rule -- "can this caller reach a per-human vault?"     --agent does NOT
+//	             count, because `install --agent codex` on a laptop is the same
+//	             human, the same machine and the same 1Password session, just
+//	             writing config for a different tool. Treating it as a different
+//	             principal would silently drop that human's own personal secrets
+//	             from their Codex install -- the failure this change exists to
+//	             prevent, reintroduced one flag away.
+//
+// An agent identity is a property of the CALLER (AINFRA_IDENTITY on a headless
+// box), not of the output format being written.
 func personalAndNotHuman(scope string, ctx resolve.ResolutionContext) bool {
 	if scope != "personal" {
 		return false
 	}
-	return effectiveIdentity(ctx) != resolve.DefaultIdentity
+	identity := ctx.Identity
+	if identity == "" {
+		identity = resolve.DefaultIdentity
+	}
+	return identity != resolve.DefaultIdentity
 }
 
-// effectiveIdentity mirrors the renderer's precedence exactly: an explicit
-// identity wins, an --agent override stands in for one, otherwise the default.
+// effectiveIdentity is the identity a scope.identities selector is matched
+// against: an explicit identity wins, an --agent override stands in for one,
+// otherwise the default. It mirrors resolve.RenderResourcesAndLocksFor, so a
+// secret and the resources it feeds are gated by the same rule.
 func effectiveIdentity(ctx resolve.ResolutionContext) string {
 	if ctx.Identity != "" && ctx.Identity != resolve.DefaultIdentity {
 		return ctx.Identity
