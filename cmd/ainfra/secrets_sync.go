@@ -35,7 +35,7 @@ func secretSchemesUsedFor(dir string, committed, personal *lockfile.Lock, ctx re
 			continue
 		}
 		for _, sr := range l.Secrets {
-			if sr.Scheme != "" {
+			if sr.Scheme != "" && lockRefAppliesTo(sr, ctx) {
 				set[sr.Scheme] = true
 			}
 		}
@@ -118,14 +118,54 @@ func secretAppliesTo(sec manifest.Secret, ctx resolve.ResolutionContext) bool {
 	if !resolve.SelectorMatches(&manifest.Selector{Identities: sec.Identities}, ctx) {
 		return false
 	}
-	identity := ctx.Identity
-	if identity == "" {
-		identity = resolve.DefaultIdentity
+	// An explicit identities list WINS over the implicit rule. Otherwise
+	// `identities: [agent]` on a personal-scope secret would match the selector
+	// and then be dropped anyway, making a legitimate intent impossible to
+	// express and silently denying a caller a credential it was named for --
+	// which is a worse failure than the noise this gate removes.
+	if len(sec.Identities) > 0 {
+		return true
 	}
-	if sec.Scope == "personal" && identity != resolve.DefaultIdentity {
+	return !personalAndNotHuman(sec.Scope, ctx)
+}
+
+// personalAndNotHuman is the implicit rule shared by manifest secrets and
+// lockfile-backed refs: a per-human vault is not addressed to a service account.
+//
+// ctx.Agent participates because `install --agent codex` renders codex-scoped
+// resources by treating the agent as the identity (see resolve.RenderResources
+// AndLocksFor). Reading identity differently here than the renderer does is how
+// an install writes an agent's config while skipping that agent's credentials.
+func personalAndNotHuman(scope string, ctx resolve.ResolutionContext) bool {
+	if scope != "personal" {
 		return false
 	}
-	return true
+	return effectiveIdentity(ctx) != resolve.DefaultIdentity
+}
+
+// effectiveIdentity mirrors the renderer's precedence exactly: an explicit
+// identity wins, an --agent override stands in for one, otherwise the default.
+func effectiveIdentity(ctx resolve.ResolutionContext) string {
+	if ctx.Identity != "" && ctx.Identity != resolve.DefaultIdentity {
+		return ctx.Identity
+	}
+	if ctx.Agent != "" {
+		return ctx.Agent
+	}
+	if ctx.Identity == "" {
+		return resolve.DefaultIdentity
+	}
+	return ctx.Identity
+}
+
+// lockRefAppliesTo is secretAppliesTo for lockfile-backed refs. The lockfile
+// carries scope but no identities list, so only the implicit rule applies.
+//
+// Gating this path matters: MCP env and header bindings resolve through the
+// lockfile, so without it a service account still attempts a personal vault and
+// the warning this change exists to remove survives by another route.
+func lockRefAppliesTo(sr lockfile.SecretRef, ctx resolve.ResolutionContext) bool {
+	return !personalAndNotHuman(sr.Scope, ctx)
 }
 
 // resolveSecretEnvFor is resolveSecretEnv gated on caller identity, per
@@ -149,6 +189,9 @@ func resolveSecretEnvFor(dir string, reg *secret.Registry, committed, personal *
 	var failures []string
 	for _, v := range slices.Sorted(maps.Keys(refs)) {
 		sr := refs[v]
+		if !lockRefAppliesTo(sr, ctx) {
+			continue
+		}
 		val, err := reg.Resolve(expandUser(sr.Ref))
 		if err != nil {
 			failures = append(failures, "  "+err.Error())
