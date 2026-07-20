@@ -172,8 +172,8 @@ func (Plugins) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Appl
 			switch c.Kind {
 			case provider.ChangeCreate:
 				target := c.ID + "@" + marketplace
-				_, err := env.Runner.Run("claude", "plugin", "install", target)
-				if err != nil && !isAlreadyInstalledError(err) {
+				out, err := env.Runner.Run("claude", "plugin", "install", target)
+				if err != nil && !isAlreadyInstalledError(out, err) {
 					return provider.ApplyResult{}, err
 				}
 				if w, ok := versionMismatchWarning(env, c, marketplace, pinnedVersion); ok {
@@ -201,7 +201,8 @@ func (Plugins) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Appl
 				// channel, and the orchestrator reports a channel error as a
 				// failure of every plugin in the batch -- so one stale delete
 				// made all six plugins look broken.
-				if _, err := env.Runner.Run("claude", "plugin", "uninstall", target); err != nil && !isNotInstalledError(err) {
+				out, err := env.Runner.Run("claude", "plugin", "uninstall", target)
+				if err != nil && !isNotInstalledError(out, err) {
 					return provider.ApplyResult{}, err
 				}
 			}
@@ -236,23 +237,32 @@ func versionMismatchWarning(env provider.Env, c provider.Change, marketplace, pi
 	}, true
 }
 
-// isAlreadyInstalledError reports whether the error from `claude plugin install`
-// indicates the plugin is already installed.
-func isAlreadyInstalledError(err error) bool {
+// cliSaid reports whether a failed `claude` invocation mentioned needle.
+//
+// ExecRunner is exec.Command(...).CombinedOutput(): the error is an
+// *exec.ExitError whose Error() is only "exit status 1", and the message the
+// CLI printed is in the returned bytes. Matching on err.Error() alone
+// therefore never fires against the real runner -- it only appeared to work
+// under FakeRunner, which puts the text in the error. Check both.
+func cliSaid(out []byte, err error, needle string) bool {
 	if err == nil {
 		return false
 	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already installed")
+	if strings.Contains(strings.ToLower(string(out)), needle) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), needle)
 }
 
-// isNotInstalledError reports whether the error from `claude plugin uninstall`
-// indicates the plugin was not installed to begin with. Claude Code says
-// `Plugin "name@marketplace" not found in installed plugins` and exits 1.
-func isNotInstalledError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "not found in installed plugins")
+// isAlreadyInstalledError reports whether `claude plugin install` failed only
+// because the plugin is already installed.
+func isAlreadyInstalledError(out []byte, err error) bool {
+	return cliSaid(out, err, "already installed")
+}
+
+// isNotInstalledError reports whether `claude plugin uninstall` failed only
+// because the plugin was not installed to begin with. Claude Code prints
+// `Plugin "name" not found in installed plugins` and exits 1.
+func isNotInstalledError(out []byte, err error) bool {
+	return cliSaid(out, err, "not found in installed plugins")
 }
