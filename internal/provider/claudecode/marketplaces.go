@@ -5,7 +5,6 @@ import (
 	"errors"
 	iofs "io/fs"
 	"path/filepath"
-	"strings"
 
 	"github.com/MHilhorst/ainfra/internal/provider"
 )
@@ -65,12 +64,17 @@ func (Marketplaces) Apply(env provider.Env, plan provider.ChannelPlan) (provider
 			switch c.Kind {
 			case provider.ChangeCreate, provider.ChangeUpdate:
 				source, _ := c.Resource.Payload["source"].(string)
-				_, err := env.Runner.Run("claude", "plugin", "marketplace", "add", source)
-				if err != nil && !isAlreadyRegisteredError(err) {
+				out, err := env.Runner.Run("claude", "plugin", "marketplace", "add", source)
+				if err != nil && !isAlreadyRegisteredError(out, err) {
 					return provider.ApplyResult{}, err
 				}
 			case provider.ChangeDelete:
-				if _, err := env.Runner.Run("claude", "plugin", "marketplace", "remove", c.ID); err != nil {
+				// Removing a marketplace that is already gone is the desired
+				// end state. Without this, one stale entry fails the whole
+				// channel, which the orchestrator reports as a failure of
+				// every marketplace in the batch.
+				out, err := env.Runner.Run("claude", "plugin", "marketplace", "remove", c.ID)
+				if err != nil && !isNotRegisteredError(out, err) {
 					return provider.ApplyResult{}, err
 				}
 			}
@@ -85,12 +89,19 @@ func (Marketplaces) Apply(env provider.Env, plan provider.ChannelPlan) (provider
 	}, nil
 }
 
-// isAlreadyRegisteredError reports whether the error from `claude plugin
-// marketplace add` indicates the marketplace is already registered.
-func isAlreadyRegisteredError(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "already exists") || strings.Contains(msg, "already added")
+// isAlreadyRegisteredError reports whether `claude plugin marketplace add`
+// failed only because the marketplace is already registered.
+//
+// Matches against the command output, not just the error: ExecRunner is
+// CombinedOutput(), so a failed run yields a bare "exit status 1" error with
+// the real message in the bytes. See cliSaid in plugins.go.
+func isAlreadyRegisteredError(out []byte, err error) bool {
+	return cliSaid(out, err, "already exists") || cliSaid(out, err, "already added")
+}
+
+// isNotRegisteredError reports whether `claude plugin marketplace remove`
+// failed only because the marketplace was not registered. Claude Code prints
+// `Failed to remove marketplace: Marketplace 'name' not found` and exits 1.
+func isNotRegisteredError(out []byte, err error) bool {
+	return cliSaid(out, err, "not found")
 }
