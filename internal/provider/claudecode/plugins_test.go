@@ -1,7 +1,9 @@
 package claudecode_test
 
 import (
+	"errors"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
@@ -285,6 +287,82 @@ func TestPluginsApply_Delete(t *testing.T) {
 	want := "claude plugin uninstall tvt-config@trein-vertraging"
 	if len(runner.Calls) != 1 || runner.Calls[0] != want {
 		t.Errorf("runner.Calls = %v, want [%s]", runner.Calls, want)
+	}
+}
+
+// A plugin that is already uninstalled is the state we wanted. Claude Code
+// still exits 1, and letting that surface aborted the whole plugins channel --
+// which the orchestrator reports as a failure of every plugin in the batch, so
+// one stale delete made five healthy plugins look broken.
+func TestPluginsApply_DeleteAlreadyUninstalledIsNotAnError(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin uninstall gone@somewhere"] = provider.FakeResult{
+		Err: errors.New(`Failed to uninstall plugin "gone@somewhere": Plugin "gone@somewhere" not found in installed plugins`),
+	}
+	runner.Script["claude plugin update keeper@trein-vertraging"] = provider.FakeResult{}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeDelete,
+				ID:   "gone",
+				Resource: provider.Resource{
+					ID: "gone", Channel: "plugins",
+					Payload: map[string]any{"marketplace": "somewhere"},
+				},
+			},
+			{
+				Kind: provider.ChangeRefresh,
+				ID:   "keeper",
+				Resource: provider.Resource{
+					ID: "keeper", Channel: "plugins",
+					Payload: map[string]any{"marketplace": "trein-vertraging"},
+				},
+			},
+		},
+	}
+
+	p := claudecode.Plugins{}
+	result, err := p.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: already-uninstalled plugin must not fail the channel: %v", err)
+	}
+	if len(result.Applied) != 2 {
+		t.Fatalf("result.Applied = %d, want 2 (the stale delete must not drop the rest)", len(result.Applied))
+	}
+	// The change following the stale delete still has to run.
+	if !slices.Contains(runner.Calls, "claude plugin update keeper@trein-vertraging") {
+		t.Errorf("runner.Calls = %v, want the refresh after the stale delete to have run", runner.Calls)
+	}
+}
+
+// A genuine uninstall failure still fails loudly.
+func TestPluginsApply_DeleteRealFailureStillErrors(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin uninstall tvt-config@trein-vertraging"] = provider.FakeResult{
+		Err: errors.New("EACCES: permission denied"),
+	}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "plugins",
+		Changes: []provider.Change{
+			{
+				Kind: provider.ChangeDelete,
+				ID:   "tvt-config",
+				Resource: provider.Resource{
+					ID: "tvt-config", Channel: "plugins",
+					Payload: map[string]any{"marketplace": "trein-vertraging"},
+				},
+			},
+		},
+	}
+
+	p := claudecode.Plugins{}
+	if _, err := p.Apply(env, plan); err == nil {
+		t.Fatal("Apply: expected a real uninstall failure to surface")
 	}
 }
 

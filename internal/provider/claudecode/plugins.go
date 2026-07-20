@@ -196,7 +196,12 @@ func (Plugins) Apply(env provider.Env, plan provider.ChannelPlan) (provider.Appl
 				if marketplace != "" {
 					target = c.ID + "@" + marketplace
 				}
-				if _, err := env.Runner.Run("claude", "plugin", "uninstall", target); err != nil {
+				// Uninstalling a plugin that is already gone is the desired
+				// end state, not a failure. Letting it error aborted the whole
+				// channel, and the orchestrator reports a channel error as a
+				// failure of every plugin in the batch -- so one stale delete
+				// made all six plugins look broken.
+				if _, err := env.Runner.Run("claude", "plugin", "uninstall", target); err != nil && !isNotInstalledError(err) {
 					return provider.ApplyResult{}, err
 				}
 			}
@@ -239,4 +244,15 @@ func isAlreadyInstalledError(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "already installed")
+}
+
+// isNotInstalledError reports whether the error from `claude plugin uninstall`
+// indicates the plugin was not installed to begin with. Claude Code says
+// `Plugin "name@marketplace" not found in installed plugins` and exits 1.
+func isNotInstalledError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "not found in installed plugins")
 }
