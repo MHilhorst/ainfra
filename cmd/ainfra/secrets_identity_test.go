@@ -311,10 +311,18 @@ secrets:
 	if got := effectiveIdentity(ctx); got != "codex" {
 		t.Fatalf("an --agent override must stand in for identity, got %q", got)
 	}
-	_, failures := resolveSecretEnvFor(dir, secret.DefaultRegistry(), empty, empty, ctx)
-	if len(failures) != 0 {
-		t.Errorf("codex install must not attempt a per-human vault: %v", failures)
+	// Assert on `resolved`, not only on `failures`. A silently-skipped secret
+	// produces zero failures, so a failures-only assertion passes while the
+	// credential the install needs is missing -- which is exactly how the gap
+	// this test was written to catch shipped anyway.
+	resolved, _ := resolveSecretEnvFor(dir, secret.DefaultRegistry(), empty, empty, ctx)
+	if resolved["CODEX_KEY"] != "codex-value" {
+		t.Errorf("a secret scoped identities:[codex] must resolve under --agent codex: %v", resolved)
 	}
+	// The human-personal secret in this fixture IS still attempted here, and
+	// that is correct: this is a human on their own laptop writing config for a
+	// different tool, not a different principal. See
+	// TestAgentOverrideDoesNotStripAHumansOwnPersonalSecrets.
 }
 
 // An explicit identity still beats an --agent override, matching the renderer.
@@ -370,5 +378,68 @@ func TestLockfileBackedPersonalSecretsAreGatedToo(t *testing.T) {
 	// secret needs.
 	if got := secretSchemesUsedFor(dir, locks, empty, agent); len(got) != 1 || got[0] != "env" {
 		t.Errorf("preflight schemes for the agent: %v", got)
+	}
+}
+
+// --- second review round ----------------------------------------------------
+
+// `--agent codex` on a laptop is the same human, the same machine and the same
+// 1Password session -- just writing config for a different tool. It must not be
+// read as a different principal, or that human's own personal secrets vanish
+// from their Codex install: the exact failure this whole change exists to stop,
+// reintroduced one flag away.
+func TestAgentOverrideDoesNotStripAHumansOwnPersonalSecrets(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+secrets:
+  my-personal:
+    mode: direct
+    scope: personal
+    ref: "env://MY_BLOB"
+    envFile: true
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("MY_BLOB", "MY_KEY=my-value")
+	empty := &lockfile.Lock{}
+
+	// Exactly what `ainfra install --agent codex` builds on a laptop.
+	ctx := resolve.NewContextFromEnv("", dir, dir)
+	ctx.Agent = "codex"
+	resolved, failures := resolveSecretEnvFor(dir, secret.DefaultRegistry(), empty, empty, ctx)
+	if resolved["MY_KEY"] != "my-value" {
+		t.Errorf("a human's own personal secret must survive --agent: %v (failures %v)", resolved, failures)
+	}
+
+	// A genuine agent caller is still gated, --agent or not.
+	agentCtx := resolve.ResolutionContext{Identity: "agent", Agent: "codex", InvocationPath: "."}
+	agentResolved, _ := resolveSecretEnvFor(dir, secret.DefaultRegistry(), empty, empty, agentCtx)
+	if _, ok := agentResolved["MY_KEY"]; ok {
+		t.Errorf("a service account must not reach a per-human vault: %v", agentResolved)
+	}
+}
+
+// The two gates answer different questions and must read identity differently.
+// Pinned explicitly so a future "simplification" that unifies them fails here
+// with a reason rather than silently losing credentials.
+func TestSelectorAndPersonalRuleReadIdentityDifferently(t *testing.T) {
+	laptopCodex := resolve.ResolutionContext{Identity: resolve.DefaultIdentity, Agent: "codex"}
+
+	// Selector: --agent stands in, so `identities: [codex]` is reachable.
+	if got := effectiveIdentity(laptopCodex); got != "codex" {
+		t.Errorf("selector identity under --agent codex: want codex, got %q", got)
+	}
+	// Personal-vault rule: --agent does NOT stand in, so the human keeps theirs.
+	if personalAndNotHuman("personal", laptopCodex) {
+		t.Error("--agent must not make a human unable to reach their own vault")
+	}
+	// A real agent identity is gated regardless.
+	if !personalAndNotHuman("personal", resolve.ResolutionContext{Identity: "agent"}) {
+		t.Error("a service account must be gated from a per-human vault")
+	}
+	// Shared is never gated.
+	if personalAndNotHuman("shared", resolve.ResolutionContext{Identity: "agent"}) {
+		t.Error("a shared secret must never be gated by scope")
 	}
 }
