@@ -641,7 +641,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict, prune bool, agent
 		// so a no-op install still re-materializes secrets. A backend that is
 		// not ready (offline laptop, vault signed out) degrades to a warning —
 		// it must not fail an otherwise clean install.
-		if failures := preflightSecretBackends(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal); len(failures) > 0 {
+		if failures := preflightSecretBackends(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal, rctx); len(failures) > 0 {
 			c := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 			fmt.Fprintln(ctx.Stderr, c.Yellow("warning: secrets were not refreshed — backend not ready:"))
 			for _, f := range failures {
@@ -649,7 +649,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict, prune bool, agent
 			}
 			return 0
 		}
-		res, serr := syncSecrets(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal)
+		res, serr := syncSecrets(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal, rctx)
 		if serr != nil {
 			ui.RenderError(ctx.Stderr, errColor, serr)
 			return 1
@@ -679,7 +679,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict, prune bool, agent
 	// dry run, which never resolves secrets — so `install --dry-run --strict`
 	// stays usable in CI where no vault is signed in.
 	if !dryRun {
-		if failures := preflightSecretBackends(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal); len(failures) > 0 {
+		if failures := preflightSecretBackends(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal, rctx); len(failures) > 0 {
 			fmt.Fprintln(ctx.Stderr, "Secret backend not ready — fix this before applying:")
 			for _, f := range failures {
 				fmt.Fprintf(ctx.Stderr, "  %s\n", f)
@@ -744,7 +744,7 @@ func runApply(ctx cli.Context, yes, dryRun, noInstall, strict, prune bool, agent
 	// Final step: resolve the manifest's secrets and write them into the
 	// Claude Code settings env block, so a normally-launched Claude has them.
 	// This makes `ainfra apply` a complete setup — config and credentials.
-	res, serr := syncSecrets(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal)
+	res, serr := syncSecrets(dir, secret.DefaultRegistry(), resolvedCommitted, resolvedPersonal, rctx)
 	if serr != nil {
 		ui.RenderError(ctx.Stderr, errColor, serr)
 		return 1

@@ -143,6 +143,17 @@ type Secret struct {
 	// credential file rather than an environment variable. ainfra moves an
 	// opaque blob from the ref to the path — it never composes file content.
 	Path string `yaml:"path"`
+	// Identities restricts which caller identities this secret is resolved
+	// for, matching the scope.identities axis every other channel already has.
+	// Empty means every identity, so this is purely additive.
+	//
+	// Scope (shared/personal) says which VAULT holds the credential; this says
+	// WHO should try to read it. They are different questions, and conflating
+	// them is what made a headless agent box attempt a per-human Private vault
+	// on every launch: reachable in principle, never reachable by a service
+	// account. The result was a resolution warning on every healthy cron run,
+	// which is how a real credential failure stops being noticed.
+	Identities []string `yaml:"identities,omitempty"`
 }
 
 // Param is a typed template input (spec §4.1).
