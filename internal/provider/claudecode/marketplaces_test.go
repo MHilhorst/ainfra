@@ -112,8 +112,12 @@ func TestMarketplacesApply_Create(t *testing.T) {
 
 func TestMarketplacesApply_CreateAlreadyRegistered(t *testing.T) {
 	runner := provider.NewFakeRunner()
+	// Production shape: ExecRunner is CombinedOutput(), so the CLI's message
+	// is in the output and the error is a bare exit status. Scripting the text
+	// into the error made this guard look covered while it was dead code.
 	runner.Script["claude plugin marketplace add github:my-org/plugins"] = provider.FakeResult{
-		Err: fmt.Errorf("marketplace already exists: my-org"),
+		Output: []byte("marketplace already exists: my-org"),
+		Err:    fmt.Errorf("exit status 1"),
 	}
 	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
 
@@ -139,6 +143,64 @@ func TestMarketplacesApply_CreateAlreadyRegistered(t *testing.T) {
 	}
 	if len(result.Applied) != 1 {
 		t.Fatalf("result.Applied: got %d, want 1", len(result.Applied))
+	}
+}
+
+// Removing a marketplace that is already gone is the state we wanted. Claude
+// Code exits 1, and letting that surface fails the whole channel -- which the
+// orchestrator reports as a failure of every marketplace in the batch.
+func TestMarketplacesApply_DeleteAlreadyRemovedIsNotAnError(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin marketplace remove gone"] = provider.FakeResult{
+		Output: []byte("✘ Failed to remove marketplace: Marketplace 'gone' not found"),
+		Err:    fmt.Errorf("exit status 1"),
+	}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "marketplaces",
+		Changes: []provider.Change{
+			{
+				Kind:     provider.ChangeDelete,
+				ID:       "gone",
+				Resource: provider.Resource{ID: "gone", Channel: "marketplaces"},
+			},
+		},
+	}
+
+	m := claudecode.Marketplaces{}
+	result, err := m.Apply(env, plan)
+	if err != nil {
+		t.Fatalf("Apply: already-removed marketplace must not fail the channel: %v", err)
+	}
+	if len(result.Applied) != 1 {
+		t.Fatalf("result.Applied = %d, want 1", len(result.Applied))
+	}
+}
+
+// A genuine removal failure still fails loudly.
+func TestMarketplacesApply_DeleteRealFailureStillErrors(t *testing.T) {
+	runner := provider.NewFakeRunner()
+	runner.Script["claude plugin marketplace remove my-org"] = provider.FakeResult{
+		Output: []byte("EACCES: permission denied"),
+		Err:    fmt.Errorf("exit status 1"),
+	}
+	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
+
+	plan := provider.ChannelPlan{
+		Channel: "marketplaces",
+		Changes: []provider.Change{
+			{
+				Kind:     provider.ChangeDelete,
+				ID:       "my-org",
+				Resource: provider.Resource{ID: "my-org", Channel: "marketplaces"},
+			},
+		},
+	}
+
+	m := claudecode.Marketplaces{}
+	if _, err := m.Apply(env, plan); err == nil {
+		t.Fatal("Apply: expected a real removal failure to surface")
 	}
 }
 
