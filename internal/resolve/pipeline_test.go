@@ -212,6 +212,109 @@ mcpServers:
 	}
 }
 
+// A server that has been locked once and is unreachable on a later re-lock
+// must keep everything the manifest declares (command/args/env) AND the tool
+// pins probed last time. Regression: these five fields were all written inside
+// the introspection success branch, so re-locking with the DB tunnels down
+// silently stripped them from ainfra.lock and exited 0.
+func TestLockPipelineFailureKeepsDeclarativeFieldsAndPriorToolset(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  fs:
+    command: fake-mcp
+    args: ["--root", "."]
+    env:
+      TOKEN: "${SOME_TOKEN}"
+    transport: stdio
+    version: "1.0.0"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// First lock: the server answers, so everything gets pinned.
+	withIntrospectRunner(t, newOkIntrospectRunner())
+	if _, err := RunLockWithResult(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("first RunLockWithResult: %v", err)
+	}
+	before, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := before.Entries.MCPServers["fs"]
+	if first.ToolsetHash == "" || len(first.LockedTools) != 2 {
+		t.Fatalf("setup failed, expected a fully pinned entry; got %+v", first)
+	}
+
+	// Second lock: the server is unreachable (tunnel down).
+	IntrospectRunner = &mcpclient.FakeRunner{StartErr: errSentinel("boom")}
+	res, err := RunLockWithResult(dir, provider.ExecRunner{})
+	if err != nil {
+		t.Fatalf("second RunLockWithResult: %v", err)
+	}
+	if len(res.ToolsetWarnings) != 1 || res.ToolsetWarnings[0].ServerID != "fs" {
+		t.Fatalf("warnings = %+v, want one for fs", res.ToolsetWarnings)
+	}
+
+	after, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := after.Entries.MCPServers["fs"]
+
+	// Declarative fields come from the manifest and never depend on the probe.
+	if got.Command != "fake-mcp" {
+		t.Errorf("Command = %q, want fake-mcp (dropped on unreachable server)", got.Command)
+	}
+	if len(got.Args) != 2 || got.Args[0] != "--root" {
+		t.Errorf("Args = %+v, want [--root .] (dropped on unreachable server)", got.Args)
+	}
+	if got.Env["TOKEN"] == "" {
+		t.Errorf("Env = %+v, want TOKEN preserved (dropped on unreachable server)", got.Env)
+	}
+
+	// Probed fields carry forward: unreachable is not the same as "no tools".
+	if got.ToolsetHash != first.ToolsetHash {
+		t.Errorf("ToolsetHash = %q, want carried forward %q", got.ToolsetHash, first.ToolsetHash)
+	}
+	if len(got.LockedTools) != len(first.LockedTools) {
+		t.Errorf("LockedTools = %d, want %d carried forward", len(got.LockedTools), len(first.LockedTools))
+	}
+}
+
+// With no prior lock there is nothing to carry forward, so the tool pins stay
+// empty — but the manifest-declared fields must still be written.
+func TestLockPipelineFirstLockFailureStillWritesDeclarativeFields(t *testing.T) {
+	withIntrospectRunner(t, &mcpclient.FakeRunner{StartErr: errSentinel("boom")})
+	dir := t.TempDir()
+	yaml := `version: 1
+mcpServers:
+  fs:
+    command: fake-mcp
+    args: ["--root", "."]
+    transport: stdio
+    version: "1.0.0"
+`
+	if err := os.WriteFile(filepath.Join(dir, "ainfra.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunLockWithResult(dir, provider.ExecRunner{}); err != nil {
+		t.Fatalf("RunLockWithResult: %v", err)
+	}
+	lock, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := lock.Entries.MCPServers["fs"]
+	if e.Command != "fake-mcp" || len(e.Args) != 2 {
+		t.Errorf("declarative fields missing on first-lock failure: %+v", e)
+	}
+	if e.ToolsetHash != "" {
+		t.Errorf("ToolsetHash = %q, want empty (nothing to carry forward)", e.ToolsetHash)
+	}
+}
+
 func TestLockPipelineTimeoutRecordsWarning(t *testing.T) {
 	// ResponseDelay greater than the runner's timeout would block forever;
 	// instead we craft a runner whose Start returns a process that never

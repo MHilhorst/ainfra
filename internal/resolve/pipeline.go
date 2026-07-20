@@ -244,14 +244,26 @@ func resolveLocksForAgent(dir string, runner provider.CommandRunner, introspect 
 			entry.Requires = requireRefs(out.MCPServer.Requires)
 			addRequireEdges(g, "mcp:"+ti.id, out.MCPServer.Requires)
 			if introspect {
+				// Command/Args/Env are declarative — they come from the
+				// manifest, not from the probe, so they must be written
+				// whether or not the server answers. Writing them inside the
+				// success branch silently stripped them from the lock every
+				// time a server was unreachable (tunnel down, VPN off).
+				entry.Command = out.MCPServer.Command
+				entry.Args = append([]string(nil), out.MCPServer.Args...)
+				entry.Env = copyStringMap(out.MCPServer.Env)
 				if hash, tools, warn := introspectMCPServer(ti.id, out.MCPServer.Transport, out.MCPServer.Command, out.MCPServer.Args, out.MCPServer.Env); warn != nil {
 					result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
+					// A server we could not reach is not a server with no
+					// tools. Carry the last-known-good pin forward so a
+					// transient outage does not erase drift detection.
+					if p, ok := prior.Entries.MCPServers[ti.id]; ok {
+						entry.ToolsetHash = p.ToolsetHash
+						entry.LockedTools = p.LockedTools
+					}
 				} else {
 					entry.ToolsetHash = hash
 					entry.LockedTools = tools
-					entry.Command = out.MCPServer.Command
-					entry.Args = append([]string(nil), out.MCPServer.Args...)
-					entry.Env = copyStringMap(out.MCPServer.Env)
 				}
 			}
 		}
@@ -355,14 +367,19 @@ func resolveLocksForAgent(dir string, runner provider.CommandRunner, introspect 
 				})),
 			}
 			if introspect {
+				// Declarative fields — see the templated path above.
+				inlineEntry.Command = srv.Command
+				inlineEntry.Args = append([]string(nil), srv.Args...)
+				inlineEntry.Env = copyStringMap(srv.Env)
 				if hash, tools, warn := introspectMCPServer(id, srv.Transport, srv.Command, srv.Args, srv.Env); warn != nil {
 					result.ToolsetWarnings = append(result.ToolsetWarnings, *warn)
+					if p, ok := prior.Entries.MCPServers[id]; ok {
+						inlineEntry.ToolsetHash = p.ToolsetHash
+						inlineEntry.LockedTools = p.LockedTools
+					}
 				} else {
 					inlineEntry.ToolsetHash = hash
 					inlineEntry.LockedTools = tools
-					inlineEntry.Command = srv.Command
-					inlineEntry.Args = append([]string(nil), srv.Args...)
-					inlineEntry.Env = copyStringMap(srv.Env)
 				}
 			}
 			lock.Entries.MCPServers[id] = inlineEntry

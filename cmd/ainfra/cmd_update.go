@@ -4,6 +4,8 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
+	"sort"
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/provider"
@@ -33,6 +35,25 @@ func newUpdateCommand() *cli.Command {
 	}
 }
 
+// renderToolsetWarnings reports every MCP server the lock run could not probe.
+// Their pinned tool lists are carried forward from the previous lock, so the
+// lockfile stays intact — but staying silent about it once let a re-lock run
+// with the DB tunnels down look identical to a clean one.
+func renderToolsetWarnings(w io.Writer, c ui.Colorizer, result *resolve.RunLockResult) {
+	if result == nil || len(result.ToolsetWarnings) == 0 {
+		return
+	}
+	warnings := append([]resolve.ToolsetWarning(nil), result.ToolsetWarnings...)
+	sort.Slice(warnings, func(i, j int) bool { return warnings[i].ServerID < warnings[j].ServerID })
+	fmt.Fprintln(w, c.Yellow(fmt.Sprintf(
+		"warning: could not probe %d MCP server(s); their pinned tool lists were kept from the previous lock:",
+		len(warnings))))
+	for _, wn := range warnings {
+		fmt.Fprintf(w, "  %-38s %s\n", wn.ServerID, wn.Reason)
+	}
+	fmt.Fprintln(w, c.Dim("  A server is usually unreachable because its tunnel or VPN is down. Re-run once it is up to refresh the pins."))
+}
+
 func runUpdate(ctx cli.Context, noInstall bool) int {
 	errColor := ui.NewColorizer(ctx.Stderr, ctx.NoColor)
 
@@ -52,11 +73,13 @@ func runUpdate(ctx cli.Context, noInstall bool) int {
 		}
 	}
 
-	if err := resolve.RunLock(ctx.Dir, provider.ExecRunner{}); err != nil {
+	result, err := resolve.RunLockWithResult(ctx.Dir, provider.ExecRunner{})
+	if err != nil {
 		ui.RenderError(ctx.Stderr, errColor, err)
 		return 1
 	}
 	fmt.Fprintln(ctx.Stdout, "Re-resolved lockfile from ainfra.yaml.")
+	renderToolsetWarnings(ctx.Stderr, errColor, result)
 
 	if noInstall {
 		c := ui.NewColorizer(ctx.Stdout, ctx.NoColor)
