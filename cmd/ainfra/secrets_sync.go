@@ -12,6 +12,7 @@ import (
 
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/manifest"
+	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/secret"
 )
 
@@ -20,13 +21,21 @@ import (
 // through. It is the input to the backend preflight: which credential backends
 // must be ready for this install to materialize secrets.
 func secretSchemesUsed(dir string, committed, personal *lockfile.Lock) []string {
+	return secretSchemesUsedFor(dir, committed, personal, resolve.DefaultContext())
+}
+
+// secretSchemesUsedFor is secretSchemesUsed gated on identity. Without the
+// gate, a box whose only 1Password-backed secret is out of scope still
+// preflights the 1Password backend and fails readiness for a credential it was
+// never going to resolve.
+func secretSchemesUsedFor(dir string, committed, personal *lockfile.Lock, ctx resolve.ResolutionContext) []string {
 	set := map[string]bool{}
 	for _, l := range []*lockfile.Lock{committed, personal} {
 		if l == nil {
 			continue
 		}
 		for _, sr := range l.Secrets {
-			if sr.Scheme != "" {
+			if sr.Scheme != "" && lockRefAppliesTo(sr, ctx) {
 				set[sr.Scheme] = true
 			}
 		}
@@ -39,6 +48,9 @@ func secretSchemesUsed(dir string, committed, personal *lockfile.Lock) []string 
 			}
 			for _, sec := range m.Secrets {
 				if !sec.EnvFile && sec.Path == "" {
+					continue
+				}
+				if !secretAppliesTo(sec, ctx) {
 					continue
 				}
 				if scheme, err := secret.SchemeOf(expandUser(sec.Ref)); err == nil {
@@ -54,9 +66,9 @@ func secretSchemesUsed(dir string, committed, personal *lockfile.Lock) []string 
 // through is ready (e.g. the 1Password CLI is installed and signed in) before
 // apply writes any config, so an unusable backend fails fast instead of leaving
 // a half-configured repo. Backends with no readiness probe are skipped.
-func preflightSecretBackends(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) []string {
+func preflightSecretBackends(dir string, reg *secret.Registry, committed, personal *lockfile.Lock, ctx resolve.ResolutionContext) []string {
 	var failures []string
-	for _, scheme := range secretSchemesUsed(dir, committed, personal) {
+	for _, scheme := range secretSchemesUsedFor(dir, committed, personal, ctx) {
 		if err := reg.CheckBackend(scheme); err != nil {
 			failures = append(failures, err.Error())
 		}
@@ -79,7 +91,92 @@ type syncResult struct {
 // Credential-file (path:) secrets are install-time artifacts and are not
 // resolved here. Resolution failures are returned as messages, not an error —
 // the callers decide whether a failure is fatal (install) or a warning (exec).
+// It resolves for the default identity; callers that know who they are should
+// use resolveSecretEnvFor.
 func resolveSecretEnv(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) (map[string]string, []string) {
+	return resolveSecretEnvFor(dir, reg, committed, personal, resolve.DefaultContext())
+}
+
+// secretAppliesTo reports whether a secret should be resolved for this caller.
+//
+// Two gates, both about relevance and neither about errors:
+//
+//  1. identities: [...] — explicit, matching the scope.identities axis every
+//     other channel has. Empty means everyone.
+//  2. scope: personal — implicit. A personal secret lives in a per-human vault
+//     (op://Private/...), which by construction no service account can read.
+//     A non-human identity attempting it is not a misconfiguration to report,
+//     it is a category error: that credential was never addressed to it.
+//
+// The second gate is what makes this fix deployable. Gating only on an explicit
+// key would require every manifest to add it, and an older ainfra rejects
+// unknown keys outright (strict decoding), so the manifest edit could not land
+// before every machine had upgraded. Deriving the common case from `scope`,
+// which manifests already declare, means a box stops warning the moment it gets
+// this binary, with no manifest change and no version-skew window.
+func secretAppliesTo(sec manifest.Secret, ctx resolve.ResolutionContext) bool {
+	if !resolve.SelectorMatches(&manifest.Selector{Identities: sec.Identities}, ctx) {
+		return false
+	}
+	// An explicit identities list WINS over the implicit rule. Otherwise
+	// `identities: [agent]` on a personal-scope secret would match the selector
+	// and then be dropped anyway, making a legitimate intent impossible to
+	// express and silently denying a caller a credential it was named for --
+	// which is a worse failure than the noise this gate removes.
+	if len(sec.Identities) > 0 {
+		return true
+	}
+	return !personalAndNotHuman(sec.Scope, ctx)
+}
+
+// personalAndNotHuman is the implicit rule shared by manifest secrets and
+// lockfile-backed refs: a per-human vault is not addressed to a service account.
+//
+// ctx.Agent participates because `install --agent codex` renders codex-scoped
+// resources by treating the agent as the identity (see resolve.RenderResources
+// AndLocksFor). Reading identity differently here than the renderer does is how
+// an install writes an agent's config while skipping that agent's credentials.
+func personalAndNotHuman(scope string, ctx resolve.ResolutionContext) bool {
+	if scope != "personal" {
+		return false
+	}
+	return effectiveIdentity(ctx) != resolve.DefaultIdentity
+}
+
+// effectiveIdentity mirrors the renderer's precedence exactly: an explicit
+// identity wins, an --agent override stands in for one, otherwise the default.
+func effectiveIdentity(ctx resolve.ResolutionContext) string {
+	if ctx.Identity != "" && ctx.Identity != resolve.DefaultIdentity {
+		return ctx.Identity
+	}
+	if ctx.Agent != "" {
+		return ctx.Agent
+	}
+	if ctx.Identity == "" {
+		return resolve.DefaultIdentity
+	}
+	return ctx.Identity
+}
+
+// lockRefAppliesTo is secretAppliesTo for lockfile-backed refs. The lockfile
+// carries scope but no identities list, so only the implicit rule applies.
+//
+// Gating this path matters: MCP env and header bindings resolve through the
+// lockfile, so without it a service account still attempts a personal vault and
+// the warning this change exists to remove survives by another route.
+func lockRefAppliesTo(sr lockfile.SecretRef, ctx resolve.ResolutionContext) bool {
+	return !personalAndNotHuman(sr.Scope, ctx)
+}
+
+// resolveSecretEnvFor is resolveSecretEnv gated on caller identity, per
+// secretAppliesTo.
+//
+// Skipping is silent BY DESIGN, and that is the whole point: a secret the
+// caller was never meant to hold is not a failure, and reporting it as one is
+// what produced a warning on every healthy run of a headless box -- which is
+// how a warning that matters stops being read. An in-scope secret that cannot
+// resolve is still reported. Relevance is filtered here, never errors.
+func resolveSecretEnvFor(dir string, reg *secret.Registry, committed, personal *lockfile.Lock, ctx resolve.ResolutionContext) (map[string]string, []string) {
 	// The single-value secret set is the union of both locks.
 	refs := map[string]lockfile.SecretRef{}
 	for _, l := range []*lockfile.Lock{committed, personal} {
@@ -92,6 +189,9 @@ func resolveSecretEnv(dir string, reg *secret.Registry, committed, personal *loc
 	var failures []string
 	for _, v := range slices.Sorted(maps.Keys(refs)) {
 		sr := refs[v]
+		if !lockRefAppliesTo(sr, ctx) {
+			continue
+		}
 		val, err := reg.Resolve(expandUser(sr.Ref))
 		if err != nil {
 			failures = append(failures, "  "+err.Error())
@@ -111,6 +211,9 @@ func resolveSecretEnv(dir string, reg *secret.Registry, committed, personal *loc
 			for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
 				sec := m.Secrets[id]
 				if !sec.EnvFile {
+					continue
+				}
+				if !secretAppliesTo(sec, ctx) {
 					continue
 				}
 				blob, rerr := reg.Resolve(expandUser(sec.Ref))
@@ -138,8 +241,8 @@ func resolveSecretEnv(dir string, reg *secret.Registry, committed, personal *loc
 // Process-environment delivery (what ${VAR} expansion in HTTP MCP server
 // headers needs) is not persisted at all: the launcher shim written here
 // re-resolves secrets through `ainfra exec` at every launch.
-func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile.Lock) (syncResult, error) {
-	resolved, failures := resolveSecretEnv(dir, reg, committed, personal)
+func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile.Lock, ctx resolve.ResolutionContext) (syncResult, error) {
+	resolved, failures := resolveSecretEnvFor(dir, reg, committed, personal, ctx)
 
 	// path secrets write the resolved value to a credential file.
 	fileSet := map[string]bool{}
@@ -152,6 +255,9 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 			for _, id := range slices.Sorted(maps.Keys(m.Secrets)) {
 				sec := m.Secrets[id]
 				if sec.Path == "" || sec.EnvFile {
+					continue
+				}
+				if !secretAppliesTo(sec, ctx) {
 					continue
 				}
 				blob, rerr := reg.Resolve(expandUser(sec.Ref))

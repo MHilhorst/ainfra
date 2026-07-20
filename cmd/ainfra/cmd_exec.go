@@ -12,6 +12,7 @@ import (
 
 	"github.com/MHilhorst/ainfra/internal/cli"
 	"github.com/MHilhorst/ainfra/internal/lockfile"
+	"github.com/MHilhorst/ainfra/internal/resolve"
 	"github.com/MHilhorst/ainfra/internal/secret"
 	"github.com/MHilhorst/ainfra/internal/ui"
 )
@@ -71,7 +72,12 @@ func runExec(ctx cli.Context) int {
 	if err != nil {
 		personal = &lockfile.Lock{}
 	}
-	resolved, failures := resolveSecretEnv(ctx.Dir, secret.DefaultRegistry(), committed, personal)
+	// Identity-gated: a secret scoped to identities the caller is not in is
+	// skipped rather than attempted. On a headless box that is the difference
+	// between a clean launch and a per-human vault miss warned about on every
+	// single run.
+	rctx := resolve.NewContextFromEnv(ctx.Identity, ctx.Dir, ctx.Dir)
+	resolved, failures := resolveSecretEnvFor(ctx.Dir, secret.DefaultRegistry(), committed, personal, rctx)
 	for _, f := range failures {
 		warn(strings.TrimSpace(f) + " — launching without it")
 	}
