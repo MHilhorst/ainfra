@@ -119,7 +119,9 @@ func TestPluginsApply_Create(t *testing.T) {
 func TestPluginsApply_CreateAlreadyInstalled(t *testing.T) {
 	runner := provider.NewFakeRunner()
 	runner.Script["claude plugin install tvt-config@trein-vertraging"] = provider.FakeResult{
-		Err: fmt.Errorf("plugin already installed: tvt-config"),
+		// Production shape: message in the output, bare *exec.ExitError.
+		Output: []byte("plugin already installed: tvt-config"),
+		Err:    fmt.Errorf("exit status 1"),
 	}
 	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
 
@@ -296,8 +298,12 @@ func TestPluginsApply_Delete(t *testing.T) {
 // one stale delete made five healthy plugins look broken.
 func TestPluginsApply_DeleteAlreadyUninstalledIsNotAnError(t *testing.T) {
 	runner := provider.NewFakeRunner()
+	// Production shape: ExecRunner is CombinedOutput(), so the CLI's message
+	// arrives in the output bytes and the error is a bare *exec.ExitError.
+	// Scripting the text into the error instead is what hid this bug.
 	runner.Script["claude plugin uninstall gone@somewhere"] = provider.FakeResult{
-		Err: errors.New(`Failed to uninstall plugin "gone@somewhere": Plugin "gone@somewhere" not found in installed plugins`),
+		Output: []byte(`✘ Failed to uninstall plugin "gone@somewhere": Plugin "gone@somewhere" not found in installed plugins`),
+		Err:    errors.New("exit status 1"),
 	}
 	runner.Script["claude plugin update keeper@trein-vertraging"] = provider.FakeResult{}
 	env := provider.Env{FS: provider.NewMemFilesystem(), Home: "/home/user", Runner: runner}
