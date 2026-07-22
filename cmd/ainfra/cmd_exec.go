@@ -60,15 +60,25 @@ func runExec(ctx cli.Context) int {
 	// unreachable backend (offline laptop, locked vault, deleted repo).
 	// Whatever resolves is injected; the rest is a warning, and the settings
 	// env block written by `ainfra install` remains the at-rest fallback.
-	if !fileExists(filepath.Join(ctx.Dir, "ainfra.lock")) && !fileExists(filepath.Join(ctx.Dir, "ainfra.yaml")) {
-		warn(fmt.Sprintf("no ainfra manifest in %s — launching without secret injection", ctx.Dir))
+	// A shim baked against a since-deleted git worktree would otherwise drop
+	// every secret on every launch, machine-wide, until someone reinstalled.
+	// Recover the repo that worktree belonged to — and only that, never a
+	// manifest merely found nearby.
+	dir := ctx.Dir
+	if !hasManifest(dir) {
+		if recovered, ok := recoveredWorktreeRepo(dir); ok {
+			warn(fmt.Sprintf("no ainfra manifest in %s — using %s instead (stale launcher shim; run `ainfra install` there to repoint it)", dir, recovered))
+			dir = recovered
+		} else {
+			warn(fmt.Sprintf("no ainfra manifest in %s — launching without secret injection", dir))
+		}
 	}
-	committed, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.lock"))
+	committed, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
-		warn(fmt.Sprintf("unreadable ainfra.lock in %s — launching without secret injection", ctx.Dir))
+		warn(fmt.Sprintf("unreadable ainfra.lock in %s — launching without secret injection", dir))
 		committed = &lockfile.Lock{}
 	}
-	personal, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.personal.lock"))
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
 	if err != nil {
 		personal = &lockfile.Lock{}
 	}
@@ -76,8 +86,8 @@ func runExec(ctx cli.Context) int {
 	// skipped rather than attempted. On a headless box that is the difference
 	// between a clean launch and a per-human vault miss warned about on every
 	// single run.
-	rctx := resolve.NewContextFromEnv(ctx.Identity, ctx.Dir, ctx.Dir)
-	resolved, failures := resolveSecretEnvFor(ctx.Dir, secret.DefaultRegistry(), committed, personal, rctx)
+	rctx := resolve.NewContextFromEnv(ctx.Identity, dir, dir)
+	resolved, failures := resolveSecretEnvFor(dir, secret.DefaultRegistry(), committed, personal, rctx)
 	for _, f := range failures {
 		warn(strings.TrimSpace(f) + " — launching without it")
 	}
@@ -98,6 +108,83 @@ func runExec(ctx cli.Context) int {
 		return 126
 	}
 	return 0
+}
+
+// hasManifest reports whether dir is a manifest dir — either file is enough,
+// matching what runExec goes on to read.
+func hasManifest(dir string) bool {
+	return fileExists(filepath.Join(dir, "ainfra.lock")) || fileExists(filepath.Join(dir, "ainfra.yaml"))
+}
+
+// worktreeContainers are the directory layouts that hold linked worktrees:
+// <repo>/.claude/worktrees/<name> and <repo>/.worktrees/<name>. Both are in
+// active use by the repos this shim serves.
+var worktreeContainers = [][]string{
+	{".claude", "worktrees"},
+	{".worktrees"},
+}
+
+// recoveredWorktreeRepo maps a dead shim path back to the repo it was a
+// worktree of, returning false unless that relationship is provable from the
+// path's own shape.
+//
+// This exists for one specific accident: a shim baked against
+// <repo>/.claude/worktrees/<name> keeps pointing there after the worktree is
+// removed. Recovering <repo> is safe because the dead path demonstrably
+// belonged to it.
+//
+// It is deliberately NOT a search. An earlier cut walked up to the nearest
+// ancestor holding a manifest, which meant a stale or mistyped --chdir
+// anywhere under a monorepo, a shared checkout, or any parent dir carrying an
+// ainfra.yaml would resolve THAT project's credentials into the child. Secret
+// injection has to be earned: dir must sit exactly one segment below a known
+// worktree container, and the repo above it must hold a manifest, be a git
+// checkout root, and not be the home directory. Anything else returns false
+// and the caller launches with no secrets, exactly as it did before recovery
+// existed.
+func recoveredWorktreeRepo(dir string) (string, bool) {
+	// filepath.Dir is lexical, so a relative dir would bottom out at "."
+	// (the process cwd) rather than at its real ancestors.
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	// Drop <name>, then the container segments, innermost first.
+	repo := filepath.Dir(abs)
+	for _, container := range worktreeContainers {
+		candidate := repo
+		matched := true
+		for i := len(container) - 1; i >= 0; i-- {
+			if filepath.Base(candidate) != container[i] {
+				matched = false
+				break
+			}
+			candidate = filepath.Dir(candidate)
+		}
+		if !matched {
+			continue
+		}
+		if isRecoverableRepo(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// isRecoverableRepo reports whether dir is a git checkout root holding a
+// manifest, and is not the home directory — the one ancestor nearly every
+// path shares, and so never a defensible source of secrets by inference.
+func isRecoverableRepo(dir string) bool {
+	if home, err := os.UserHomeDir(); err == nil && home != "" && dir == home {
+		return false
+	}
+	if !hasManifest(dir) {
+		return false
+	}
+	// Both spellings count: a .git directory in a normal clone, and a .git
+	// file in a worktree or a --separate-git-dir clone.
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // stripShimDirFromPath removes ainfra's shim dir from the PATH entry of an
