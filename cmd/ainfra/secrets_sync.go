@@ -413,12 +413,17 @@ exec %q --chdir %q exec -- %q "$@"
 	return shim, note, os.Chmod(shim, 0o755)
 }
 
-// manifestInputs are every file `ainfra exec` reads from the baked dir to
-// resolve secrets. Redirecting the shim is only safe when all of them are
-// byte-identical between the two dirs — the lock is what exec actually
-// resolves from, and the personal lock is per-checkout, so comparing
-// ainfra.yaml alone would miss both.
-var manifestInputs = []string{"ainfra.yaml", "ainfra.lock", "ainfra.personal.lock"}
+// manifestInputs are every file read from the baked dir when secrets are
+// resolved from it. Redirecting the shim is only safe when all of them are
+// byte-identical between the two dirs.
+//
+// The list must stay in step with what resolution actually opens, or the
+// redirect starts guessing again: ainfra.lock is what single-value secrets
+// resolve from, ainfra.personal.lock is per-checkout, and
+// ainfra.personal.yaml carries envFile/path secrets that are declared in the
+// manifest and never appear in any lock (manifest.LoadLayers). Comparing
+// ainfra.yaml alone would miss all three.
+var manifestInputs = []string{"ainfra.yaml", "ainfra.lock", "ainfra.personal.yaml", "ainfra.personal.lock"}
 
 // durableManifestDir maps a manifest dir that lives in a linked git worktree
 // onto the repo's main worktree, which outlives it. It returns the dir to bake

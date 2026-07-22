@@ -195,87 +195,140 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 	}
 }
 
-// The self-heal half: a shim already baked against a since-deleted worktree
-// must recover the enclosing repo rather than dropping every secret.
-func TestExecRecoversFromDeletedWorktreeDir(t *testing.T) {
-	root := t.TempDir()
-	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
-	mkdirs(t, repo, home)
-	t.Setenv("HOME", home)
-	t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=recovered-key\n")
-
-	writeSecretFixture(t, repo)
-	gitRepo(t, repo)
-	if code := run([]string{"--chdir", repo, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
-		t.Fatal("lock failed")
+// manifestInputs drives the divergence check, so a test that merely iterates
+// it cannot notice an entry going missing. Pin the set literally: every file
+// secret resolution reads from the baked dir must be compared before the shim
+// is allowed to point somewhere else. ainfra.personal.yaml is the one that was
+// forgotten once — it carries envFile/path secrets that never reach any lock.
+func TestManifestInputsCoversEverySecretSource(t *testing.T) {
+	want := map[string]bool{
+		"ainfra.yaml":          true,
+		"ainfra.lock":          true,
+		"ainfra.personal.yaml": true,
+		"ainfra.personal.lock": true,
 	}
-
-	// The path the shim was baked against, now gone.
-	dead := filepath.Join(repo, ".claude", "worktrees", "deleted")
-
-	call := captureExec(t)
-	var out, errOut bytes.Buffer
-	if code := run([]string{"--chdir", dead, "exec", "--", "sh", "-c", "true"}, &out, &errOut); code != 0 {
-		t.Fatalf("exec: code=%d err=%q", code, errOut.String())
+	got := map[string]bool{}
+	for _, n := range manifestInputs {
+		got[n] = true
 	}
-	if got, ok := envValue(call.env, "EXCALIDRAW_API_KEY"); !ok || got != "recovered-key" {
-		t.Errorf("child EXCALIDRAW_API_KEY = %q (present=%v), want recovered-key", got, ok)
+	for n := range want {
+		if !got[n] {
+			t.Errorf("manifestInputs is missing %s — a redirect could swap it silently", n)
+		}
 	}
-	if !strings.Contains(errOut.String(), "stale launcher shim") {
-		t.Errorf("expected a stale-shim warning naming the fix, got: %q", errOut.String())
-	}
-	if strings.Contains(errOut.String(), "without secret injection") {
-		t.Errorf("recovery still claimed secrets were dropped: %q", errOut.String())
+	for n := range got {
+		if !want[n] {
+			t.Errorf("manifestInputs has an unexpected entry %s; update this test deliberately", n)
+		}
 	}
 }
 
-// Recovery must never reach sideways into an unrelated project. An ancestor
-// holding a manifest is not enough — a shared parent dir (~/clients, a scratch
-// dir, anything another process can write) would otherwise hand its
-// credentials to whatever the stale shim launches.
-func TestExecRefusesUnrelatedAncestorManifest(t *testing.T) {
-	for _, tc := range []struct {
-		name     string
-		repoRoot bool
-	}{
-		{"ancestor is not a repo root", false},
-		{"ancestor is a repo root", true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			root := t.TempDir()
-			// The manifest sits in a shared parent, two levels above the dead
-			// path, with an unrelated project in between.
-			shared := filepath.Join(root, "shared")
-			dead := filepath.Join(shared, "someproject", "worktrees", "gone")
-			home := filepath.Join(root, "home")
-			mkdirs(t, shared, home)
-			t.Setenv("HOME", home)
-			t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=not-yours\n")
+// A diverged ainfra.personal.yaml must block the redirect, named explicitly
+// rather than via manifestInputs, so this survives the list being edited.
+func TestWriteLauncherShimKeepsWorktreeWhenPersonalManifestDiverges(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "ainfra.personal.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, repo)
 
-			writeSecretFixture(t, shared)
-			if tc.repoRoot {
-				gitRepo(t, shared)
-			}
-			if code := run([]string{"--chdir", shared, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	// Personal manifests are gitignored, so the worktree's copy is its own.
+	if err := os.WriteFile(filepath.Join(wt, "ainfra.personal.yaml"), []byte("version: 1\nsecrets: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.personal.yaml") {
+		t.Errorf("diverged personal manifest was not reported, note = %q", note)
+	}
+}
+
+// The self-heal half: a shim already baked against a since-deleted worktree
+// must recover the repo that worktree belonged to rather than dropping every
+// secret. Both container layouts in worktreeContainers count.
+func TestExecRecoversFromDeletedWorktreeDir(t *testing.T) {
+	for _, container := range worktreeContainers {
+		t.Run(filepath.Join(container...), func(t *testing.T) {
+			root := t.TempDir()
+			repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+			mkdirs(t, repo, home)
+			t.Setenv("HOME", home)
+			t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=recovered-key\n")
+
+			writeSecretFixture(t, repo)
+			gitRepo(t, repo)
+			if code := run([]string{"--chdir", repo, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
 				t.Fatal("lock failed")
 			}
+
+			// The path the shim was baked against, now gone.
+			dead := filepath.Join(append(append([]string{repo}, container...), "deleted")...)
 
 			call := captureExec(t)
 			var out, errOut bytes.Buffer
 			if code := run([]string{"--chdir", dead, "exec", "--", "sh", "-c", "true"}, &out, &errOut); code != 0 {
 				t.Fatalf("exec: code=%d err=%q", code, errOut.String())
 			}
-			got, ok := envValue(call.env, "EXCALIDRAW_API_KEY")
-			if tc.repoRoot {
-				// A repo root enclosing the dead path is the legitimate
-				// recovery case this feature exists for.
-				if !ok || got != "not-yours" {
-					t.Errorf("expected recovery from the enclosing repo, got %q (present=%v)", got, ok)
-				}
-				return
+			if got, ok := envValue(call.env, "EXCALIDRAW_API_KEY"); !ok || got != "recovered-key" {
+				t.Errorf("child EXCALIDRAW_API_KEY = %q (present=%v), want recovered-key", got, ok)
 			}
-			if ok {
-				t.Errorf("leaked an unrelated dir's secret: EXCALIDRAW_API_KEY=%q", got)
+			if !strings.Contains(errOut.String(), "stale launcher shim") {
+				t.Errorf("expected a stale-shim warning naming the fix, got: %q", errOut.String())
+			}
+			if strings.Contains(errOut.String(), "without secret injection") {
+				t.Errorf("recovery still claimed secrets were dropped: %q", errOut.String())
+			}
+		})
+	}
+}
+
+// Recovery must never reach sideways into a project the dead path cannot be
+// shown to have belonged to. Merely sitting under a repo that has a manifest
+// is not proof — a monorepo, a shared checkout, a mistyped --chdir, or any
+// parent dir carrying an ainfra.yaml would otherwise hand its credentials to
+// whatever the stale shim launches. Only the worktree layouts in
+// worktreeContainers qualify.
+func TestExecRefusesUnprovableRecovery(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		// dead is relative to the repo root holding the manifest.
+		dead []string
+	}{
+		{"not a worktree path at all", []string{"src", "pkg", "gone"}},
+		{"worktrees dir but wrong parent", []string{"someproject", "worktrees", "gone"}},
+		{"nested too deep under the container", []string{".claude", "worktrees", "a", "b"}},
+		{"container with no name segment", []string{".claude", "worktrees"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+			mkdirs(t, repo, home)
+			t.Setenv("HOME", home)
+			t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=not-yours\n")
+
+			writeSecretFixture(t, repo)
+			gitRepo(t, repo)
+			if code := run([]string{"--chdir", repo, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+				t.Fatal("lock failed")
+			}
+			dead := filepath.Join(append([]string{repo}, tc.dead...)...)
+
+			call := captureExec(t)
+			var out, errOut bytes.Buffer
+			if code := run([]string{"--chdir", dead, "exec", "--", "sh", "-c", "true"}, &out, &errOut); code != 0 {
+				t.Fatalf("exec: code=%d err=%q", code, errOut.String())
+			}
+			if got, ok := envValue(call.env, "EXCALIDRAW_API_KEY"); ok {
+				t.Errorf("injected secrets for an unprovable path: EXCALIDRAW_API_KEY=%q", got)
 			}
 			if !strings.Contains(errOut.String(), "without secret injection") {
 				t.Errorf("expected a plain fail-open warning, got: %q", errOut.String())
@@ -284,51 +337,20 @@ func TestExecRefusesUnrelatedAncestorManifest(t *testing.T) {
 	}
 }
 
-// The home directory is the one ancestor nearly every path shares, so a
-// manifest sitting in it must never be adopted by recovery.
-func TestExecRefusesHomeDirManifest(t *testing.T) {
-	root := t.TempDir()
-	home := filepath.Join(root, "home")
-	mkdirs(t, home)
-	t.Setenv("HOME", home)
-	t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=home-key\n")
-
-	writeSecretFixture(t, home)
-	gitRepo(t, home)
-	if code := run([]string{"--chdir", home, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
-		t.Fatal("lock failed")
-	}
-
-	dead := filepath.Join(home, "projects", "gone", "worktrees", "x")
-
-	call := captureExec(t)
-	var out, errOut bytes.Buffer
-	if code := run([]string{"--chdir", dead, "exec", "--", "sh", "-c", "true"}, &out, &errOut); code != 0 {
-		t.Fatalf("exec: code=%d err=%q", code, errOut.String())
-	}
-	if got, ok := envValue(call.env, "EXCALIDRAW_API_KEY"); ok {
-		t.Errorf("adopted the home directory's manifest: EXCALIDRAW_API_KEY=%q", got)
-	}
-	if !strings.Contains(errOut.String(), "without secret injection") {
-		t.Errorf("expected a plain fail-open warning, got: %q", errOut.String())
-	}
-}
-
 // filepath.Dir is lexical, so a relative dir would bottom out at "." and stop
-// at the process cwd instead of reaching the real ancestors above it.
-func TestNearestManifestDirHandlesRelativePaths(t *testing.T) {
+// at the process cwd instead of resolving against the real filesystem.
+func TestRecoveredWorktreeRepoHandlesRelativePaths(t *testing.T) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
-	dead := filepath.Join(repo, ".claude", "worktrees", "gone")
 	mkdirs(t, repo)
 	writeSecretFixture(t, repo)
 	gitRepo(t, repo)
 
 	// cwd is inside the repo, and the input names the dead path relatively.
 	t.Chdir(repo)
-	got, ok := nearestManifestDir(filepath.Join(".claude", "worktrees", "gone"))
+	got, ok := recoveredWorktreeRepo(filepath.Join(".claude", "worktrees", "gone"))
 	if !ok {
-		t.Fatalf("relative path %q did not recover the enclosing repo", dead)
+		t.Fatal("relative worktree path did not recover the enclosing repo")
 	}
 	wantDir, err := filepath.EvalSymlinks(repo)
 	if err != nil {
@@ -340,5 +362,34 @@ func TestNearestManifestDirHandlesRelativePaths(t *testing.T) {
 	}
 	if gotResolved != wantDir {
 		t.Errorf("recovered %q, want %q", gotResolved, wantDir)
+	}
+}
+
+// The home directory is the one ancestor nearly every path shares. Even in a
+// valid-looking worktree layout it must never be adopted.
+func TestExecRefusesHomeDirRepo(t *testing.T) {
+	root := t.TempDir()
+	home := filepath.Join(root, "home")
+	mkdirs(t, home)
+	t.Setenv("HOME", home)
+	t.Setenv("TEAM_ENV_BLOB", "EXCALIDRAW_API_KEY=home-key\n")
+
+	writeSecretFixture(t, home)
+	gitRepo(t, home)
+	if code := run([]string{"--chdir", home, "lock"}, &bytes.Buffer{}, &bytes.Buffer{}); code != 0 {
+		t.Fatal("lock failed")
+	}
+	dead := filepath.Join(home, ".claude", "worktrees", "x")
+
+	call := captureExec(t)
+	var out, errOut bytes.Buffer
+	if code := run([]string{"--chdir", dead, "exec", "--", "sh", "-c", "true"}, &out, &errOut); code != 0 {
+		t.Fatalf("exec: code=%d err=%q", code, errOut.String())
+	}
+	if got, ok := envValue(call.env, "EXCALIDRAW_API_KEY"); ok {
+		t.Errorf("adopted the home directory's manifest: EXCALIDRAW_API_KEY=%q", got)
+	}
+	if !strings.Contains(errOut.String(), "without secret injection") {
+		t.Errorf("expected a plain fail-open warning, got: %q", errOut.String())
 	}
 }

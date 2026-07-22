@@ -60,13 +60,13 @@ func runExec(ctx cli.Context) int {
 	// unreachable backend (offline laptop, locked vault, deleted repo).
 	// Whatever resolves is injected; the rest is a warning, and the settings
 	// env block written by `ainfra install` remains the at-rest fallback.
-	// A shim baked against a since-deleted directory (typically a git worktree
-	// the install ran from) would otherwise drop every secret on every launch,
-	// machine-wide, until someone reinstalled. Recover by walking up to the
-	// nearest enclosing manifest instead.
+	// A shim baked against a since-deleted git worktree would otherwise drop
+	// every secret on every launch, machine-wide, until someone reinstalled.
+	// Recover the repo that worktree belonged to — and only that, never a
+	// manifest merely found nearby.
 	dir := ctx.Dir
 	if !hasManifest(dir) {
-		if recovered, ok := nearestManifestDir(dir); ok {
+		if recovered, ok := recoveredWorktreeRepo(dir); ok {
 			warn(fmt.Sprintf("no ainfra manifest in %s — using %s instead (stale launcher shim; run `ainfra install` there to repoint it)", dir, recovered))
 			dir = recovered
 		} else {
@@ -116,50 +116,73 @@ func hasManifest(dir string) bool {
 	return fileExists(filepath.Join(dir, "ainfra.lock")) || fileExists(filepath.Join(dir, "ainfra.yaml"))
 }
 
-// nearestManifestDir walks up from dir looking for the git repository that
-// enclosed it, returning false when there is no defensible candidate.
-//
-// dir itself usually does not exist here — that is the case worth recovering.
-// A shim pinned to <repo>/.claude/worktrees/<name> resolves back to <repo>
-// after that worktree is removed, so secrets keep flowing from the same
-// manifest the dead worktree was a checkout of.
-//
-// An ancestor qualifies only if it holds a manifest AND is a git repository
-// root AND is not the home directory. Injecting secrets is not a
-// best-effort operation: a bare "nearest manifest" walk would happily resolve
-// an unrelated project's credentials into the child whenever a shared parent
-// dir — ~/clients, a scratch dir, anything another process can write —
-// happened to contain an ainfra.yaml. The repo-root requirement ties the
-// recovered dir to the checkout layout the dead path actually came from, and
-// the home-dir exclusion refuses the one ancestor almost every path shares.
-// Finding nothing that qualifies is a fine outcome: the caller falls back to
-// launching with no secrets, which is what it did before recovery existed.
-func nearestManifestDir(dir string) (string, bool) {
-	// filepath.Dir is lexical, so a relative dir would bottom out at "."
-	// (the process cwd) and stop there, never reaching its real ancestors.
-	if abs, err := filepath.Abs(dir); err == nil {
-		dir = abs
-	}
-	home, _ := os.UserHomeDir()
-	for {
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return "", false
-		}
-		dir = parent
-		if home != "" && dir == home {
-			return "", false
-		}
-		if hasManifest(dir) && isRepoRoot(dir) {
-			return dir, true
-		}
-	}
+// worktreeContainers are the directory layouts that hold linked worktrees:
+// <repo>/.claude/worktrees/<name> and <repo>/.worktrees/<name>. Both are in
+// active use by the repos this shim serves.
+var worktreeContainers = [][]string{
+	{".claude", "worktrees"},
+	{".worktrees"},
 }
 
-// isRepoRoot reports whether dir is the top of a git checkout. Both spellings
-// count: a .git directory in a normal clone, and a .git file in a worktree or
-// a --separate-git-dir clone.
-func isRepoRoot(dir string) bool {
+// recoveredWorktreeRepo maps a dead shim path back to the repo it was a
+// worktree of, returning false unless that relationship is provable from the
+// path's own shape.
+//
+// This exists for one specific accident: a shim baked against
+// <repo>/.claude/worktrees/<name> keeps pointing there after the worktree is
+// removed. Recovering <repo> is safe because the dead path demonstrably
+// belonged to it.
+//
+// It is deliberately NOT a search. An earlier cut walked up to the nearest
+// ancestor holding a manifest, which meant a stale or mistyped --chdir
+// anywhere under a monorepo, a shared checkout, or any parent dir carrying an
+// ainfra.yaml would resolve THAT project's credentials into the child. Secret
+// injection has to be earned: dir must sit exactly one segment below a known
+// worktree container, and the repo above it must hold a manifest, be a git
+// checkout root, and not be the home directory. Anything else returns false
+// and the caller launches with no secrets, exactly as it did before recovery
+// existed.
+func recoveredWorktreeRepo(dir string) (string, bool) {
+	// filepath.Dir is lexical, so a relative dir would bottom out at "."
+	// (the process cwd) rather than at its real ancestors.
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", false
+	}
+	// Drop <name>, then the container segments, innermost first.
+	repo := filepath.Dir(abs)
+	for _, container := range worktreeContainers {
+		candidate := repo
+		matched := true
+		for i := len(container) - 1; i >= 0; i-- {
+			if filepath.Base(candidate) != container[i] {
+				matched = false
+				break
+			}
+			candidate = filepath.Dir(candidate)
+		}
+		if !matched {
+			continue
+		}
+		if isRecoverableRepo(candidate) {
+			return candidate, true
+		}
+	}
+	return "", false
+}
+
+// isRecoverableRepo reports whether dir is a git checkout root holding a
+// manifest, and is not the home directory — the one ancestor nearly every
+// path shares, and so never a defensible source of secrets by inference.
+func isRecoverableRepo(dir string) bool {
+	if home, err := os.UserHomeDir(); err == nil && home != "" && dir == home {
+		return false
+	}
+	if !hasManifest(dir) {
+		return false
+	}
+	// Both spellings count: a .git directory in a normal clone, and a .git
+	// file in a worktree or a --separate-git-dir clone.
 	_, err := os.Stat(filepath.Join(dir, ".git"))
 	return err == nil
 }
