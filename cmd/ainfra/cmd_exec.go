@@ -116,24 +116,52 @@ func hasManifest(dir string) bool {
 	return fileExists(filepath.Join(dir, "ainfra.lock")) || fileExists(filepath.Join(dir, "ainfra.yaml"))
 }
 
-// nearestManifestDir walks up from dir looking for an enclosing manifest,
-// returning false at the filesystem root.
+// nearestManifestDir walks up from dir looking for the git repository that
+// enclosed it, returning false when there is no defensible candidate.
 //
 // dir itself usually does not exist here — that is the case worth recovering.
 // A shim pinned to <repo>/.claude/worktrees/<name> resolves back to <repo>
 // after that worktree is removed, so secrets keep flowing from the same
 // manifest the dead worktree was a checkout of.
+//
+// An ancestor qualifies only if it holds a manifest AND is a git repository
+// root AND is not the home directory. Injecting secrets is not a
+// best-effort operation: a bare "nearest manifest" walk would happily resolve
+// an unrelated project's credentials into the child whenever a shared parent
+// dir — ~/clients, a scratch dir, anything another process can write —
+// happened to contain an ainfra.yaml. The repo-root requirement ties the
+// recovered dir to the checkout layout the dead path actually came from, and
+// the home-dir exclusion refuses the one ancestor almost every path shares.
+// Finding nothing that qualifies is a fine outcome: the caller falls back to
+// launching with no secrets, which is what it did before recovery existed.
 func nearestManifestDir(dir string) (string, bool) {
+	// filepath.Dir is lexical, so a relative dir would bottom out at "."
+	// (the process cwd) and stop there, never reaching its real ancestors.
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	home, _ := os.UserHomeDir()
 	for {
 		parent := filepath.Dir(dir)
 		if parent == dir {
 			return "", false
 		}
 		dir = parent
-		if hasManifest(dir) {
+		if home != "" && dir == home {
+			return "", false
+		}
+		if hasManifest(dir) && isRepoRoot(dir) {
 			return dir, true
 		}
 	}
+}
+
+// isRepoRoot reports whether dir is the top of a git checkout. Both spellings
+// count: a .git directory in a normal clone, and a .git file in a worktree or
+// a --separate-git-dir clone.
+func isRepoRoot(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".git"))
+	return err == nil
 }
 
 // stripShimDirFromPath removes ainfra's shim dir from the PATH entry of an

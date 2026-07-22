@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -81,6 +82,7 @@ type syncResult struct {
 	EnvCount     int      // environment variables written to the settings file
 	SettingsPath string   // the settings file written
 	ShimPath     string   // launcher shim that injects secrets at startup, "" when no secrets
+	ShimNote     string   // why the shim was baked against the dir it was, "" when unremarkable
 	Files        []string // credential files written, by path
 }
 
@@ -322,9 +324,9 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 	// secrets fresh into the process env at every launch. Skipped entirely
 	// when the manifest declares no secrets — a secretless install must not
 	// touch the user's shell config.
-	shimPath := ""
+	shimPath, shimNote := "", ""
 	if len(resolved) > 0 {
-		shimPath, err = writeLauncherShim(home, dir)
+		shimPath, shimNote, err = writeLauncherShim(home, dir)
 		if err != nil {
 			return syncResult{}, err
 		}
@@ -343,6 +345,7 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 		EnvCount:     len(resolved),
 		SettingsPath: settingsPath,
 		ShimPath:     shimPath,
+		ShimNote:     shimNote,
 		Files:        slices.Sorted(maps.Keys(fileSet)),
 	}, nil
 }
@@ -357,19 +360,21 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 // (durableManifestDir). There is one shim per machine, so installing from a
 // throwaway worktree would otherwise pin every future claude launch — from
 // every directory — to a path that disappears when that worktree is removed,
-// silently dropping secret injection until the next install.
+// silently dropping secret injection until the next install. The returned note
+// is non-empty when the user needs to know which dir was baked and why; the
+// caller is responsible for surfacing it.
 //
 // A second shim, `claude-app`, targets the real claude binary by absolute
 // path (resolved at install time). It exists for GUI hosts that launch claude
 // by a configured path instead of PATH lookup — e.g. cmux's "Claude Binary
 // Path" setting — where the name-based shim either never runs or would
 // resolve the host's own wrapper. Skipped when no native binary is found.
-func writeLauncherShim(home, manifestDir string) (string, error) {
+func writeLauncherShim(home, manifestDir string) (string, string, error) {
 	binDir := filepath.Join(home, ".config", "ainfra", "bin")
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
-		return "", err
+		return "", "", err
 	}
-	manifestDir = durableManifestDir(manifestDir)
+	manifestDir, note := durableManifestDir(manifestDir)
 	// The ainfra binary is referenced absolutely: GUI-spawned processes (the
 	// exact audience of these shims) get a minimal PATH without /opt/homebrew
 	// /bin, so a bare `ainfra` fails with "not found" there. LookPath gives
@@ -387,7 +392,7 @@ func writeLauncherShim(home, manifestDir string) (string, error) {
 exec %q --chdir %q exec -- claude "$@"
 `, ainfraBin, manifestDir)
 	if err := os.WriteFile(shim, []byte(content), 0o755); err != nil {
-		return "", err
+		return "", "", err
 	}
 	if real := findRealClaude(binDir); real != "" {
 		app := filepath.Join(binDir, "claude-app")
@@ -398,49 +403,88 @@ exec %q --chdir %q exec -- claude "$@"
 exec %q --chdir %q exec -- %q "$@"
 `, ainfraBin, manifestDir, real)
 		if err := os.WriteFile(app, []byte(appContent), 0o755); err != nil {
-			return "", err
+			return "", "", err
 		}
 		if err := os.Chmod(app, 0o755); err != nil {
-			return "", err
+			return "", "", err
 		}
 	}
 	// WriteFile's mode only applies on creation; re-assert on updates.
-	return shim, os.Chmod(shim, 0o755)
+	return shim, note, os.Chmod(shim, 0o755)
 }
 
+// manifestInputs are every file `ainfra exec` reads from the baked dir to
+// resolve secrets. Redirecting the shim is only safe when all of them are
+// byte-identical between the two dirs — the lock is what exec actually
+// resolves from, and the personal lock is per-checkout, so comparing
+// ainfra.yaml alone would miss both.
+var manifestInputs = []string{"ainfra.yaml", "ainfra.lock", "ainfra.personal.lock"}
+
 // durableManifestDir maps a manifest dir that lives in a linked git worktree
-// onto the repo's main worktree, which outlives it. Everything else is
-// returned unchanged.
+// onto the repo's main worktree, which outlives it. It returns the dir to bake
+// and a note for the user, empty when nothing worth reporting happened.
 //
-// Worktrees are per-task and get deleted; the shim they would be baked into is
-// per-machine and permanent. The two checkouts hold the same tracked
-// ainfra.yaml, so pointing at the main one loses nothing.
+// Worktrees are per-task and get deleted; the shim baked from one is
+// per-machine and permanent, so a worktree path silently stops injecting
+// secrets the day that worktree is removed.
 //
-// Conservative by construction: the redirect only happens when the main
-// worktree actually holds a manifest. No git, not a repo, a bare repo, or a
-// main worktree whose manifest is untracked or on another branch all fall
-// through to the original dir — a stale-but-present path beats a confidently
-// wrong one.
-func durableManifestDir(manifestDir string) string {
+// The redirect is only safe when it changes nothing about what exec will
+// resolve, so it requires every file in manifestInputs to be byte-identical
+// across the two dirs. A linked worktree usually sits on its own branch and
+// may add, drop, or retarget secrets; baking main's path then would inject a
+// different branch's credentials at every future launch. Divergence therefore
+// keeps the worktree path and says so — the caller surfaces the note, because
+// that path is the known-ephemeral one and the user needs to re-run install
+// from the main checkout to get a durable shim.
+//
+// Everything git cannot vouch for falls through unchanged: no git on PATH,
+// not a repo, a bare repo, or a main worktree with no manifest at all.
+func durableManifestDir(manifestDir string) (string, string) {
 	gitDir, err := gitRevParse(manifestDir, "--git-dir")
 	if err != nil {
-		return manifestDir
+		return manifestDir, ""
 	}
 	commonDir, err := gitRevParse(manifestDir, "--git-common-dir")
 	if err != nil {
-		return manifestDir
+		return manifestDir, ""
 	}
 	// Equal paths mean the main worktree — nothing to redirect. They differ
 	// only inside a linked worktree, where --git-dir is
 	// <common>/worktrees/<name>.
 	if gitDir == commonDir {
-		return manifestDir
+		return manifestDir, ""
 	}
 	mainWorktree := filepath.Dir(commonDir)
 	if !fileExists(filepath.Join(mainWorktree, "ainfra.yaml")) && !fileExists(filepath.Join(mainWorktree, "ainfra.lock")) {
-		return manifestDir
+		return manifestDir, ""
 	}
-	return mainWorktree
+	if differing, ok := firstDifferingInput(manifestDir, mainWorktree); !ok {
+		return manifestDir, fmt.Sprintf(
+			"%s and %s differ — the launcher shim stays pinned to this worktree, and stops injecting secrets when it is removed.\nRun `ainfra install` from %s once this work is merged.",
+			filepath.Join(manifestDir, differing), filepath.Join(mainWorktree, differing), mainWorktree)
+	}
+	return mainWorktree, ""
+}
+
+// firstDifferingInput compares every manifestInputs file across two dirs. It
+// returns ok=true when all match, otherwise the name of the first that does
+// not. A file missing from both sides counts as matching; missing from one
+// only does not.
+func firstDifferingInput(a, b string) (string, bool) {
+	for _, name := range manifestInputs {
+		// An unreadable file is treated as differing, not as absent: failing
+		// closed here costs a redirect, failing open could bake a path whose
+		// secrets were never actually compared.
+		aBytes, aErr := os.ReadFile(filepath.Join(a, name))
+		bBytes, bErr := os.ReadFile(filepath.Join(b, name))
+		if os.IsNotExist(aErr) && os.IsNotExist(bErr) {
+			continue
+		}
+		if aErr != nil || bErr != nil || !bytes.Equal(aBytes, bBytes) {
+			return name, false
+		}
+	}
+	return "", true
 }
 
 // gitRevParse returns one absolute rev-parse path for dir. --path-format keeps

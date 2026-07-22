@@ -761,6 +761,9 @@ func renderSyncResult(w io.Writer, res syncResult) {
 		if res.ShimPath != "" {
 			fmt.Fprintf(w, "Launcher shim %s injects them fresh at every launch.\n", res.ShimPath)
 		}
+		if res.ShimNote != "" {
+			fmt.Fprintf(w, "%s\n", res.ShimNote)
+		}
 	}
 	for _, f := range res.Files {
 		fmt.Fprintf(w, "Wrote credential file %s\n", f)
