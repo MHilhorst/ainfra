@@ -353,6 +353,12 @@ func syncSecrets(dir string, reg *secret.Registry, committed, personal *lockfile
 // time because the shim runs from any working directory. The shim holds no
 // secret values, so 0755 is fine.
 //
+// The baked path is first redirected out of any linked git worktree
+// (durableManifestDir). There is one shim per machine, so installing from a
+// throwaway worktree would otherwise pin every future claude launch — from
+// every directory — to a path that disappears when that worktree is removed,
+// silently dropping secret injection until the next install.
+//
 // A second shim, `claude-app`, targets the real claude binary by absolute
 // path (resolved at install time). It exists for GUI hosts that launch claude
 // by a configured path instead of PATH lookup — e.g. cmux's "Claude Binary
@@ -363,6 +369,7 @@ func writeLauncherShim(home, manifestDir string) (string, error) {
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", err
 	}
+	manifestDir = durableManifestDir(manifestDir)
 	// The ainfra binary is referenced absolutely: GUI-spawned processes (the
 	// exact audience of these shims) get a minimal PATH without /opt/homebrew
 	// /bin, so a bare `ainfra` fails with "not found" there. LookPath gives
@@ -399,6 +406,57 @@ exec %q --chdir %q exec -- %q "$@"
 	}
 	// WriteFile's mode only applies on creation; re-assert on updates.
 	return shim, os.Chmod(shim, 0o755)
+}
+
+// durableManifestDir maps a manifest dir that lives in a linked git worktree
+// onto the repo's main worktree, which outlives it. Everything else is
+// returned unchanged.
+//
+// Worktrees are per-task and get deleted; the shim they would be baked into is
+// per-machine and permanent. The two checkouts hold the same tracked
+// ainfra.yaml, so pointing at the main one loses nothing.
+//
+// Conservative by construction: the redirect only happens when the main
+// worktree actually holds a manifest. No git, not a repo, a bare repo, or a
+// main worktree whose manifest is untracked or on another branch all fall
+// through to the original dir — a stale-but-present path beats a confidently
+// wrong one.
+func durableManifestDir(manifestDir string) string {
+	gitDir, err := gitRevParse(manifestDir, "--git-dir")
+	if err != nil {
+		return manifestDir
+	}
+	commonDir, err := gitRevParse(manifestDir, "--git-common-dir")
+	if err != nil {
+		return manifestDir
+	}
+	// Equal paths mean the main worktree — nothing to redirect. They differ
+	// only inside a linked worktree, where --git-dir is
+	// <common>/worktrees/<name>.
+	if gitDir == commonDir {
+		return manifestDir
+	}
+	mainWorktree := filepath.Dir(commonDir)
+	if !fileExists(filepath.Join(mainWorktree, "ainfra.yaml")) && !fileExists(filepath.Join(mainWorktree, "ainfra.lock")) {
+		return manifestDir
+	}
+	return mainWorktree
+}
+
+// gitRevParse returns one absolute rev-parse path for dir. --path-format keeps
+// the answer absolute; git otherwise reports --git-dir as a bare ".git"
+// relative to dir, which would make the caller's comparison meaningless.
+func gitRevParse(dir, flag string) (string, error) {
+	cmd := exec.Command("git", "-C", dir, "rev-parse", "--path-format=absolute", flag)
+	out, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	path := strings.TrimSpace(string(out))
+	if path == "" {
+		return "", fmt.Errorf("git rev-parse %s: empty result for %s", flag, dir)
+	}
+	return filepath.Clean(path), nil
 }
 
 // findRealClaude returns the absolute path of the first claude on PATH that

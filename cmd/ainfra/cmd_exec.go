@@ -60,15 +60,25 @@ func runExec(ctx cli.Context) int {
 	// unreachable backend (offline laptop, locked vault, deleted repo).
 	// Whatever resolves is injected; the rest is a warning, and the settings
 	// env block written by `ainfra install` remains the at-rest fallback.
-	if !fileExists(filepath.Join(ctx.Dir, "ainfra.lock")) && !fileExists(filepath.Join(ctx.Dir, "ainfra.yaml")) {
-		warn(fmt.Sprintf("no ainfra manifest in %s — launching without secret injection", ctx.Dir))
+	// A shim baked against a since-deleted directory (typically a git worktree
+	// the install ran from) would otherwise drop every secret on every launch,
+	// machine-wide, until someone reinstalled. Recover by walking up to the
+	// nearest enclosing manifest instead.
+	dir := ctx.Dir
+	if !hasManifest(dir) {
+		if recovered, ok := nearestManifestDir(dir); ok {
+			warn(fmt.Sprintf("no ainfra manifest in %s — using %s instead (stale launcher shim; run `ainfra install` there to repoint it)", dir, recovered))
+			dir = recovered
+		} else {
+			warn(fmt.Sprintf("no ainfra manifest in %s — launching without secret injection", dir))
+		}
 	}
-	committed, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.lock"))
+	committed, err := lockfile.Read(filepath.Join(dir, "ainfra.lock"))
 	if err != nil {
-		warn(fmt.Sprintf("unreadable ainfra.lock in %s — launching without secret injection", ctx.Dir))
+		warn(fmt.Sprintf("unreadable ainfra.lock in %s — launching without secret injection", dir))
 		committed = &lockfile.Lock{}
 	}
-	personal, err := lockfile.Read(filepath.Join(ctx.Dir, "ainfra.personal.lock"))
+	personal, err := lockfile.Read(filepath.Join(dir, "ainfra.personal.lock"))
 	if err != nil {
 		personal = &lockfile.Lock{}
 	}
@@ -76,8 +86,8 @@ func runExec(ctx cli.Context) int {
 	// skipped rather than attempted. On a headless box that is the difference
 	// between a clean launch and a per-human vault miss warned about on every
 	// single run.
-	rctx := resolve.NewContextFromEnv(ctx.Identity, ctx.Dir, ctx.Dir)
-	resolved, failures := resolveSecretEnvFor(ctx.Dir, secret.DefaultRegistry(), committed, personal, rctx)
+	rctx := resolve.NewContextFromEnv(ctx.Identity, dir, dir)
+	resolved, failures := resolveSecretEnvFor(dir, secret.DefaultRegistry(), committed, personal, rctx)
 	for _, f := range failures {
 		warn(strings.TrimSpace(f) + " — launching without it")
 	}
@@ -98,6 +108,32 @@ func runExec(ctx cli.Context) int {
 		return 126
 	}
 	return 0
+}
+
+// hasManifest reports whether dir is a manifest dir — either file is enough,
+// matching what runExec goes on to read.
+func hasManifest(dir string) bool {
+	return fileExists(filepath.Join(dir, "ainfra.lock")) || fileExists(filepath.Join(dir, "ainfra.yaml"))
+}
+
+// nearestManifestDir walks up from dir looking for an enclosing manifest,
+// returning false at the filesystem root.
+//
+// dir itself usually does not exist here — that is the case worth recovering.
+// A shim pinned to <repo>/.claude/worktrees/<name> resolves back to <repo>
+// after that worktree is removed, so secrets keep flowing from the same
+// manifest the dead worktree was a checkout of.
+func nearestManifestDir(dir string) (string, bool) {
+	for {
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", false
+		}
+		dir = parent
+		if hasManifest(dir) {
+			return dir, true
+		}
+	}
 }
 
 // stripShimDirFromPath removes ainfra's shim dir from the PATH entry of an
