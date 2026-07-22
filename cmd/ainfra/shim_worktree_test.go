@@ -92,8 +92,10 @@ func TestWriteLauncherShimRedirectsOutOfWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertBaked(t, shimText(t, home), wantDir)
-	if note != "" {
-		t.Errorf("clean redirect should be silent, got note: %q", note)
+	// A redirect is never silent: the shim now resolves from a different dir
+	// than this install did, and only this line makes that visible.
+	if !strings.Contains(note, wantDir) {
+		t.Errorf("redirect was not reported to the user, note = %q", note)
 	}
 }
 
@@ -159,7 +161,8 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 			mkdirs(t, repo, home)
 			writeSecretFixture(t, repo)
 			// Both dirs must hold every input, so that this subtest's file is
-			// the only thing that differs.
+			// the only thing that differs — differing CONTENT, never presence,
+			// which is a separate case with its own tests.
 			for _, n := range manifestInputs {
 				if err := os.WriteFile(filepath.Join(repo, n), []byte("shared: main\n"), 0o644); err != nil {
 					t.Fatal(err)
@@ -220,6 +223,170 @@ func TestManifestInputsCoversEverySecretSource(t *testing.T) {
 		if !want[n] {
 			t.Errorf("manifestInputs has an unexpected entry %s; update this test deliberately", n)
 		}
+	}
+}
+
+// A file the destination TRACKS is one git would have put in the worktree, so
+// its absence there is a real difference and must refuse — even though it is
+// one of the personal files that are untracked in most repos. Which files a
+// repo ignores is the repo's business, so the check asks git rather than
+// assuming from the filename.
+func TestWriteLauncherShimKeepsWorktreeWhenDestinationTracksTheFile(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	// Committed, so git tracks it — the opposite of the usual gitignored case.
+	if err := os.WriteFile(filepath.Join(repo, "ainfra.personal.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, repo)
+
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	// The branch removed the tracked personal manifest.
+	if err := os.Remove(filepath.Join(wt, "ainfra.personal.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.personal.yaml") {
+		t.Errorf("a tracked file missing from the worktree must refuse, note = %q", note)
+	}
+}
+
+// Unreadable is not absent. A destination file that exists but cannot be read
+// must never be waved through by the untracked-file excuse — its bytes were
+// never compared, so the redirect would be taken on no evidence.
+func TestFirstDifferingInputRefusesUnreadableDestinationFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads regardless of mode bits")
+	}
+	root := t.TempDir()
+	from, to := filepath.Join(root, "wt"), filepath.Join(root, "repo")
+	mkdirs(t, from, to)
+	for _, d := range []string{from, to} {
+		if err := os.WriteFile(filepath.Join(d, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Present only at the destination, and unreadable. Without the read-error
+	// check this is exactly the shape the untracked excuse lets through.
+	secret := filepath.Join(to, "ainfra.personal.yaml")
+	if err := os.WriteFile(secret, []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(secret, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(secret, 0o644) })
+
+	name, ok := firstDifferingInput(from, to)
+	if ok {
+		t.Error("an unreadable destination file was treated as no divergence")
+	}
+	if name != "ainfra.personal.yaml" {
+		t.Errorf("reported %q, want ainfra.personal.yaml", name)
+	}
+}
+
+// The case that made the first cut inert. ainfra.personal.yaml is gitignored,
+// so no linked worktree ever has one while the main checkout does — true for
+// all 68 worktrees on the machine this was found on. Refusing to redirect
+// there meant every real worktree install kept pinning the shim to a throwaway
+// dir, which is the entire bug.
+func TestWriteLauncherShimRedirectsWhenOnlyDestinationHasPersonalManifest(t *testing.T) {
+	for _, name := range []string{"ainfra.personal.yaml", "ainfra.personal.lock"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+			mkdirs(t, repo, home)
+			writeSecretFixture(t, repo)
+			gitRepo(t, repo)
+
+			wt := filepath.Join(repo, ".claude", "worktrees", "task")
+			gitAddWorktree(t, repo, wt, "task")
+			// Written after the worktree exists, so only main has it —
+			// exactly what gitignoring produces.
+			if err := os.WriteFile(filepath.Join(repo, name), []byte("version: 1\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, note, err := writeLauncherShim(home, wt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDir, err := filepath.EvalSymlinks(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertBaked(t, shimText(t, home), wantDir)
+			if strings.Contains(note, "differ") {
+				t.Errorf("a destination-only untracked file is not divergence, got note: %q", note)
+			}
+			if !strings.Contains(note, wantDir) {
+				t.Errorf("redirect was not reported, note = %q", note)
+			}
+		})
+	}
+}
+
+// The opposite direction still refuses: redirecting away from a worktree that
+// has its own personal manifest would drop those secrets entirely.
+func TestWriteLauncherShimKeepsWorktreeWhenOnlySourceHasPersonalManifest(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	gitRepo(t, repo)
+
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	if err := os.WriteFile(filepath.Join(wt, "ainfra.personal.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.personal.yaml") {
+		t.Errorf("dropping the worktree's own personal manifest was not reported, note = %q", note)
+	}
+}
+
+// A TRACKED file missing on one side is a real difference in shared config —
+// the branch removed it deliberately — and must never be excused the way a
+// gitignored one is.
+func TestWriteLauncherShimKeepsWorktreeWhenTrackedInputAsymmetric(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "ainfra.lock"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, repo)
+
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	// The branch dropped the tracked lock.
+	if err := os.Remove(filepath.Join(wt, "ainfra.lock")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.lock") {
+		t.Errorf("asymmetric tracked file was not reported, note = %q", note)
 	}
 }
 

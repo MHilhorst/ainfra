@@ -413,16 +413,12 @@ exec %q --chdir %q exec -- %q "$@"
 	return shim, note, os.Chmod(shim, 0o755)
 }
 
-// manifestInputs are every file read from the baked dir when secrets are
-// resolved from it. Redirecting the shim is only safe when all of them are
-// byte-identical between the two dirs.
-//
-// The list must stay in step with what resolution actually opens, or the
-// redirect starts guessing again: ainfra.lock is what single-value secrets
-// resolve from, ainfra.personal.lock is per-checkout, and
-// ainfra.personal.yaml carries envFile/path secrets that are declared in the
-// manifest and never appear in any lock (manifest.LoadLayers). Comparing
-// ainfra.yaml alone would miss all three.
+// manifestInputs are the files read from the baked dir when secrets are
+// resolved from it. The list must stay in step with what resolution actually
+// opens, or the redirect starts guessing: ainfra.lock is what single-value
+// secrets resolve from, and ainfra.personal.yaml carries envFile/path secrets
+// that are declared in the manifest and never appear in any lock
+// (manifest.LoadLayers). Comparing ainfra.yaml alone would miss both.
 var manifestInputs = []string{"ainfra.yaml", "ainfra.lock", "ainfra.personal.yaml", "ainfra.personal.lock"}
 
 // durableManifestDir maps a manifest dir that lives in a linked git worktree
@@ -468,28 +464,83 @@ func durableManifestDir(manifestDir string) (string, string) {
 			"%s and %s differ — the launcher shim stays pinned to this worktree, and stops injecting secrets when it is removed.\nRun `ainfra install` from %s once this work is merged.",
 			filepath.Join(manifestDir, differing), filepath.Join(mainWorktree, differing), mainWorktree)
 	}
-	return mainWorktree, ""
+	// Say it even on the happy path. The shim now resolves from a different
+	// directory than this install just resolved from, which is deliberate but
+	// invisible, and the settings file written moments ago came from the
+	// worktree. A user chasing a secret that behaves differently in a launched
+	// session than it did during install has no other way to see this.
+	return mainWorktree, fmt.Sprintf(
+		"Launcher shim points at %s, not the worktree you installed from — a worktree path stops injecting secrets once it is removed.",
+		mainWorktree)
 }
 
-// firstDifferingInput compares every manifestInputs file across two dirs. It
-// returns ok=true when all match, otherwise the name of the first that does
-// not. A file missing from both sides counts as matching; missing from one
-// only does not.
-func firstDifferingInput(a, b string) (string, bool) {
+// firstDifferingInput compares every manifestInput between the dir being
+// installed from and the dir the shim would be redirected to. It returns
+// ok=true when the redirect changes nothing about what gets resolved,
+// otherwise the name of the first file that would change.
+//
+// The test is "does redirecting drop or alter a secret source", not "are the
+// two dirs identical". Those differ for exactly one case, and it is the common
+// one: ainfra.personal.yaml is gitignored, so a linked worktree never receives
+// the copy sitting in the main checkout. Treating that as divergence refused
+// every real redirect and left the shim pinned to throwaway worktrees — the
+// bug this whole mechanism exists to prevent. A per-checkout file present only
+// at the destination is therefore fine; the worktree simply never overrode it.
+//
+// Every other asymmetry still refuses. Present only in the source dir means
+// the redirect would drop a secret source. A tracked file present only at the
+// destination means the branch deliberately removed it, which is a real
+// difference in shared config.
+func firstDifferingInput(from, to string) (string, bool) {
 	for _, name := range manifestInputs {
-		// An unreadable file is treated as differing, not as absent: failing
-		// closed here costs a redirect, failing open could bake a path whose
-		// secrets were never actually compared.
-		aBytes, aErr := os.ReadFile(filepath.Join(a, name))
-		bBytes, bErr := os.ReadFile(filepath.Join(b, name))
-		if os.IsNotExist(aErr) && os.IsNotExist(bErr) {
+		fromBytes, fromErr := os.ReadFile(filepath.Join(from, name))
+		toBytes, toErr := os.ReadFile(filepath.Join(to, name))
+		fromMissing, toMissing := os.IsNotExist(fromErr), os.IsNotExist(toErr)
+
+		switch {
+		// Unreadable is not absent. These cases come first so that no later
+		// branch can excuse a file whose bytes were never actually compared —
+		// failing closed only costs a redirect.
+		case fromErr != nil && !fromMissing:
+			return name, false
+		case toErr != nil && !toMissing:
+			return name, false
+
+		case fromMissing && toMissing:
 			continue
-		}
-		if aErr != nil || bErr != nil || !bytes.Equal(aBytes, bBytes) {
+
+		// The one asymmetry that is not a difference: git cannot put an
+		// untracked file into a linked worktree, so its absence there is an
+		// artifact of how the worktree was made rather than a decision, and
+		// the destination's copy is the canonical one. Asked of git per file
+		// rather than assumed from the filename — consuming repos disagree
+		// about which of these they ignore, and a tracked file missing on one
+		// side is a real difference in shared config.
+		case fromMissing && !gitTracks(to, name):
+			continue
+
+		case fromMissing || toMissing:
+			return name, false
+		case !bytes.Equal(fromBytes, toBytes):
 			return name, false
 		}
 	}
 	return "", true
+}
+
+// gitTracks reports whether name is a tracked file in dir's checkout. It
+// answers conservatively: any doubt (no git, not a repo, command failure)
+// reports true, which makes the caller treat an asymmetry as real and refuse
+// the redirect.
+func gitTracks(dir, name string) bool {
+	cmd := exec.Command("git", "-C", dir, "ls-files", "--error-unmatch", "--", name)
+	if err := cmd.Run(); err == nil {
+		return true
+	} else if _, ok := err.(*exec.ExitError); ok {
+		// Clean non-zero exit is git's answer: not tracked.
+		return false
+	}
+	return true
 }
 
 // gitRevParse returns one absolute rev-parse path for dir. --path-format keeps
