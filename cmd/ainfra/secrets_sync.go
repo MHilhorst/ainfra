@@ -413,17 +413,26 @@ exec %q --chdir %q exec -- %q "$@"
 	return shim, note, os.Chmod(shim, 0o755)
 }
 
-// manifestInputs are every file read from the baked dir when secrets are
-// resolved from it. Redirecting the shim is only safe when all of them are
-// byte-identical between the two dirs.
-//
-// The list must stay in step with what resolution actually opens, or the
-// redirect starts guessing again: ainfra.lock is what single-value secrets
-// resolve from, ainfra.personal.lock is per-checkout, and
-// ainfra.personal.yaml carries envFile/path secrets that are declared in the
-// manifest and never appear in any lock (manifest.LoadLayers). Comparing
-// ainfra.yaml alone would miss all three.
-var manifestInputs = []string{"ainfra.yaml", "ainfra.lock", "ainfra.personal.yaml", "ainfra.personal.lock"}
+// manifestInput is one file read from the baked dir when secrets are resolved
+// from it. The list must stay in step with what resolution actually opens, or
+// the redirect starts guessing: ainfra.lock is what single-value secrets
+// resolve from, and ainfra.personal.yaml carries envFile/path secrets that are
+// declared in the manifest and never appear in any lock
+// (manifest.LoadLayers). Comparing ainfra.yaml alone would miss both.
+type manifestInput struct {
+	name string
+	// perCheckout marks a file git cannot propagate into a linked worktree
+	// because it is gitignored. Its absence there is an artifact of how the
+	// worktree was created, never a decision, so it is not divergence.
+	perCheckout bool
+}
+
+var manifestInputs = []manifestInput{
+	{"ainfra.yaml", false},
+	{"ainfra.lock", false},
+	{"ainfra.personal.yaml", true},
+	{"ainfra.personal.lock", true},
+}
 
 // durableManifestDir maps a manifest dir that lives in a linked git worktree
 // onto the repo's main worktree, which outlives it. It returns the dir to bake
@@ -471,22 +480,45 @@ func durableManifestDir(manifestDir string) (string, string) {
 	return mainWorktree, ""
 }
 
-// firstDifferingInput compares every manifestInputs file across two dirs. It
-// returns ok=true when all match, otherwise the name of the first that does
-// not. A file missing from both sides counts as matching; missing from one
-// only does not.
-func firstDifferingInput(a, b string) (string, bool) {
-	for _, name := range manifestInputs {
-		// An unreadable file is treated as differing, not as absent: failing
-		// closed here costs a redirect, failing open could bake a path whose
+// firstDifferingInput compares every manifestInput between the dir being
+// installed from and the dir the shim would be redirected to. It returns
+// ok=true when the redirect changes nothing about what gets resolved,
+// otherwise the name of the first file that would change.
+//
+// The test is "does redirecting drop or alter a secret source", not "are the
+// two dirs identical". Those differ for exactly one case, and it is the common
+// one: ainfra.personal.yaml is gitignored, so a linked worktree never receives
+// the copy sitting in the main checkout. Treating that as divergence refused
+// every real redirect and left the shim pinned to throwaway worktrees — the
+// bug this whole mechanism exists to prevent. A per-checkout file present only
+// at the destination is therefore fine; the worktree simply never overrode it.
+//
+// Every other asymmetry still refuses. Present only in the source dir means
+// the redirect would drop a secret source. A tracked file present only at the
+// destination means the branch deliberately removed it, which is a real
+// difference in shared config.
+func firstDifferingInput(from, to string) (string, bool) {
+	for _, in := range manifestInputs {
+		// An unreadable file counts as differing, not as absent: failing
+		// closed costs a redirect, failing open could bake a path whose
 		// secrets were never actually compared.
-		aBytes, aErr := os.ReadFile(filepath.Join(a, name))
-		bBytes, bErr := os.ReadFile(filepath.Join(b, name))
-		if os.IsNotExist(aErr) && os.IsNotExist(bErr) {
+		fromBytes, fromErr := os.ReadFile(filepath.Join(from, in.name))
+		toBytes, toErr := os.ReadFile(filepath.Join(to, in.name))
+		fromMissing, toMissing := os.IsNotExist(fromErr), os.IsNotExist(toErr)
+
+		switch {
+		case fromMissing && toMissing:
 			continue
-		}
-		if aErr != nil || bErr != nil || !bytes.Equal(aBytes, bBytes) {
-			return name, false
+		case fromMissing && in.perCheckout:
+			// Git could not have put it there. The destination's copy is the
+			// canonical one for this repo.
+			continue
+		case fromMissing || toMissing:
+			return in.name, false
+		case fromErr != nil || toErr != nil:
+			return in.name, false
+		case !bytes.Equal(fromBytes, toBytes):
+			return in.name, false
 		}
 	}
 	return "", true

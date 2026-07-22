@@ -152,16 +152,18 @@ func TestWriteLauncherShimKeepsWorktreeWhenMainHasNoManifest(t *testing.T) {
 // checked separately because exec reads all of them, and comparing only
 // ainfra.yaml would miss a diverged lock.
 func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
-	for _, name := range manifestInputs {
+	for _, in := range manifestInputs {
+		name := in.name
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
 			mkdirs(t, repo, home)
 			writeSecretFixture(t, repo)
 			// Both dirs must hold every input, so that this subtest's file is
-			// the only thing that differs.
+			// the only thing that differs — differing CONTENT, never presence,
+			// which is a separate case with its own tests.
 			for _, n := range manifestInputs {
-				if err := os.WriteFile(filepath.Join(repo, n), []byte("shared: main\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(repo, n.name), []byte("shared: main\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -170,7 +172,7 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 			wt := filepath.Join(repo, ".claude", "worktrees", "task")
 			gitAddWorktree(t, repo, wt, "task")
 			for _, n := range manifestInputs {
-				if err := os.WriteFile(filepath.Join(wt, n), []byte("shared: main\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(wt, n.name), []byte("shared: main\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -201,25 +203,125 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 // is allowed to point somewhere else. ainfra.personal.yaml is the one that was
 // forgotten once — it carries envFile/path secrets that never reach any lock.
 func TestManifestInputsCoversEverySecretSource(t *testing.T) {
+	// perCheckout must match .gitignore: only files git cannot propagate into
+	// a linked worktree may be excused when the worktree lacks them.
 	want := map[string]bool{
-		"ainfra.yaml":          true,
-		"ainfra.lock":          true,
+		"ainfra.yaml":          false,
+		"ainfra.lock":          false,
 		"ainfra.personal.yaml": true,
 		"ainfra.personal.lock": true,
 	}
 	got := map[string]bool{}
-	for _, n := range manifestInputs {
-		got[n] = true
+	for _, in := range manifestInputs {
+		got[in.name] = in.perCheckout
 	}
-	for n := range want {
-		if !got[n] {
+	for n, per := range want {
+		gotPer, ok := got[n]
+		if !ok {
 			t.Errorf("manifestInputs is missing %s — a redirect could swap it silently", n)
+			continue
+		}
+		if gotPer != per {
+			t.Errorf("%s perCheckout = %v, want %v", n, gotPer, per)
 		}
 	}
 	for n := range got {
-		if !want[n] {
+		if _, ok := want[n]; !ok {
 			t.Errorf("manifestInputs has an unexpected entry %s; update this test deliberately", n)
 		}
+	}
+}
+
+// The case that made the first cut inert. ainfra.personal.yaml is gitignored,
+// so no linked worktree ever has one while the main checkout does — true for
+// all 68 worktrees on the machine this was found on. Refusing to redirect
+// there meant every real worktree install kept pinning the shim to a throwaway
+// dir, which is the entire bug.
+func TestWriteLauncherShimRedirectsWhenOnlyDestinationHasPersonalManifest(t *testing.T) {
+	for _, name := range []string{"ainfra.personal.yaml", "ainfra.personal.lock"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+			mkdirs(t, repo, home)
+			writeSecretFixture(t, repo)
+			gitRepo(t, repo)
+
+			wt := filepath.Join(repo, ".claude", "worktrees", "task")
+			gitAddWorktree(t, repo, wt, "task")
+			// Written after the worktree exists, so only main has it —
+			// exactly what gitignoring produces.
+			if err := os.WriteFile(filepath.Join(repo, name), []byte("version: 1\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+
+			_, note, err := writeLauncherShim(home, wt)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantDir, err := filepath.EvalSymlinks(repo)
+			if err != nil {
+				t.Fatal(err)
+			}
+			assertBaked(t, shimText(t, home), wantDir)
+			if note != "" {
+				t.Errorf("a destination-only per-checkout file is not divergence, got note: %q", note)
+			}
+		})
+	}
+}
+
+// The opposite direction still refuses: redirecting away from a worktree that
+// has its own personal manifest would drop those secrets entirely.
+func TestWriteLauncherShimKeepsWorktreeWhenOnlySourceHasPersonalManifest(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	gitRepo(t, repo)
+
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	if err := os.WriteFile(filepath.Join(wt, "ainfra.personal.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.personal.yaml") {
+		t.Errorf("dropping the worktree's own personal manifest was not reported, note = %q", note)
+	}
+}
+
+// A TRACKED file missing on one side is a real difference in shared config —
+// the branch removed it deliberately — and must never be excused the way a
+// gitignored one is.
+func TestWriteLauncherShimKeepsWorktreeWhenTrackedInputAsymmetric(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	if err := os.WriteFile(filepath.Join(repo, "ainfra.lock"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, repo)
+
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	// The branch dropped the tracked lock.
+	if err := os.Remove(filepath.Join(wt, "ainfra.lock")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.lock") {
+		t.Errorf("asymmetric tracked file was not reported, note = %q", note)
 	}
 }
 
