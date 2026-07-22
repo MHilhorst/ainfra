@@ -413,26 +413,13 @@ exec %q --chdir %q exec -- %q "$@"
 	return shim, note, os.Chmod(shim, 0o755)
 }
 
-// manifestInput is one file read from the baked dir when secrets are resolved
-// from it. The list must stay in step with what resolution actually opens, or
-// the redirect starts guessing: ainfra.lock is what single-value secrets
-// resolve from, and ainfra.personal.yaml carries envFile/path secrets that are
-// declared in the manifest and never appear in any lock
+// manifestInputs are the files read from the baked dir when secrets are
+// resolved from it. The list must stay in step with what resolution actually
+// opens, or the redirect starts guessing: ainfra.lock is what single-value
+// secrets resolve from, and ainfra.personal.yaml carries envFile/path secrets
+// that are declared in the manifest and never appear in any lock
 // (manifest.LoadLayers). Comparing ainfra.yaml alone would miss both.
-type manifestInput struct {
-	name string
-	// perCheckout marks a file git cannot propagate into a linked worktree
-	// because it is gitignored. Its absence there is an artifact of how the
-	// worktree was created, never a decision, so it is not divergence.
-	perCheckout bool
-}
-
-var manifestInputs = []manifestInput{
-	{"ainfra.yaml", false},
-	{"ainfra.lock", false},
-	{"ainfra.personal.yaml", true},
-	{"ainfra.personal.lock", true},
-}
+var manifestInputs = []string{"ainfra.yaml", "ainfra.lock", "ainfra.personal.yaml", "ainfra.personal.lock"}
 
 // durableManifestDir maps a manifest dir that lives in a linked git worktree
 // onto the repo's main worktree, which outlives it. It returns the dir to bake
@@ -477,7 +464,14 @@ func durableManifestDir(manifestDir string) (string, string) {
 			"%s and %s differ — the launcher shim stays pinned to this worktree, and stops injecting secrets when it is removed.\nRun `ainfra install` from %s once this work is merged.",
 			filepath.Join(manifestDir, differing), filepath.Join(mainWorktree, differing), mainWorktree)
 	}
-	return mainWorktree, ""
+	// Say it even on the happy path. The shim now resolves from a different
+	// directory than this install just resolved from, which is deliberate but
+	// invisible, and the settings file written moments ago came from the
+	// worktree. A user chasing a secret that behaves differently in a launched
+	// session than it did during install has no other way to see this.
+	return mainWorktree, fmt.Sprintf(
+		"Launcher shim points at %s, not the worktree you installed from — a worktree path stops injecting secrets once it is removed.",
+		mainWorktree)
 }
 
 // firstDifferingInput compares every manifestInput between the dir being
@@ -498,30 +492,55 @@ func durableManifestDir(manifestDir string) (string, string) {
 // destination means the branch deliberately removed it, which is a real
 // difference in shared config.
 func firstDifferingInput(from, to string) (string, bool) {
-	for _, in := range manifestInputs {
-		// An unreadable file counts as differing, not as absent: failing
-		// closed costs a redirect, failing open could bake a path whose
-		// secrets were never actually compared.
-		fromBytes, fromErr := os.ReadFile(filepath.Join(from, in.name))
-		toBytes, toErr := os.ReadFile(filepath.Join(to, in.name))
+	for _, name := range manifestInputs {
+		fromBytes, fromErr := os.ReadFile(filepath.Join(from, name))
+		toBytes, toErr := os.ReadFile(filepath.Join(to, name))
 		fromMissing, toMissing := os.IsNotExist(fromErr), os.IsNotExist(toErr)
 
 		switch {
+		// Unreadable is not absent. These cases come first so that no later
+		// branch can excuse a file whose bytes were never actually compared —
+		// failing closed only costs a redirect.
+		case fromErr != nil && !fromMissing:
+			return name, false
+		case toErr != nil && !toMissing:
+			return name, false
+
 		case fromMissing && toMissing:
 			continue
-		case fromMissing && in.perCheckout:
-			// Git could not have put it there. The destination's copy is the
-			// canonical one for this repo.
+
+		// The one asymmetry that is not a difference: git cannot put an
+		// untracked file into a linked worktree, so its absence there is an
+		// artifact of how the worktree was made rather than a decision, and
+		// the destination's copy is the canonical one. Asked of git per file
+		// rather than assumed from the filename — consuming repos disagree
+		// about which of these they ignore, and a tracked file missing on one
+		// side is a real difference in shared config.
+		case fromMissing && !gitTracks(to, name):
 			continue
+
 		case fromMissing || toMissing:
-			return in.name, false
-		case fromErr != nil || toErr != nil:
-			return in.name, false
+			return name, false
 		case !bytes.Equal(fromBytes, toBytes):
-			return in.name, false
+			return name, false
 		}
 	}
 	return "", true
+}
+
+// gitTracks reports whether name is a tracked file in dir's checkout. It
+// answers conservatively: any doubt (no git, not a repo, command failure)
+// reports true, which makes the caller treat an asymmetry as real and refuse
+// the redirect.
+func gitTracks(dir, name string) bool {
+	cmd := exec.Command("git", "-C", dir, "ls-files", "--error-unmatch", "--", name)
+	if err := cmd.Run(); err == nil {
+		return true
+	} else if _, ok := err.(*exec.ExitError); ok {
+		// Clean non-zero exit is git's answer: not tracked.
+		return false
+	}
+	return true
 }
 
 // gitRevParse returns one absolute rev-parse path for dir. --path-format keeps

@@ -92,8 +92,10 @@ func TestWriteLauncherShimRedirectsOutOfWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertBaked(t, shimText(t, home), wantDir)
-	if note != "" {
-		t.Errorf("clean redirect should be silent, got note: %q", note)
+	// A redirect is never silent: the shim now resolves from a different dir
+	// than this install did, and only this line makes that visible.
+	if !strings.Contains(note, wantDir) {
+		t.Errorf("redirect was not reported to the user, note = %q", note)
 	}
 }
 
@@ -152,8 +154,7 @@ func TestWriteLauncherShimKeepsWorktreeWhenMainHasNoManifest(t *testing.T) {
 // checked separately because exec reads all of them, and comparing only
 // ainfra.yaml would miss a diverged lock.
 func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
-	for _, in := range manifestInputs {
-		name := in.name
+	for _, name := range manifestInputs {
 		t.Run(name, func(t *testing.T) {
 			root := t.TempDir()
 			repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
@@ -163,7 +164,7 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 			// the only thing that differs — differing CONTENT, never presence,
 			// which is a separate case with its own tests.
 			for _, n := range manifestInputs {
-				if err := os.WriteFile(filepath.Join(repo, n.name), []byte("shared: main\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(repo, n), []byte("shared: main\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -172,7 +173,7 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 			wt := filepath.Join(repo, ".claude", "worktrees", "task")
 			gitAddWorktree(t, repo, wt, "task")
 			for _, n := range manifestInputs {
-				if err := os.WriteFile(filepath.Join(wt, n.name), []byte("shared: main\n"), 0o644); err != nil {
+				if err := os.WriteFile(filepath.Join(wt, n), []byte("shared: main\n"), 0o644); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -203,32 +204,93 @@ func TestWriteLauncherShimKeepsWorktreeWhenManifestsDiverge(t *testing.T) {
 // is allowed to point somewhere else. ainfra.personal.yaml is the one that was
 // forgotten once — it carries envFile/path secrets that never reach any lock.
 func TestManifestInputsCoversEverySecretSource(t *testing.T) {
-	// perCheckout must match .gitignore: only files git cannot propagate into
-	// a linked worktree may be excused when the worktree lacks them.
 	want := map[string]bool{
-		"ainfra.yaml":          false,
-		"ainfra.lock":          false,
+		"ainfra.yaml":          true,
+		"ainfra.lock":          true,
 		"ainfra.personal.yaml": true,
 		"ainfra.personal.lock": true,
 	}
 	got := map[string]bool{}
-	for _, in := range manifestInputs {
-		got[in.name] = in.perCheckout
+	for _, n := range manifestInputs {
+		got[n] = true
 	}
-	for n, per := range want {
-		gotPer, ok := got[n]
-		if !ok {
+	for n := range want {
+		if !got[n] {
 			t.Errorf("manifestInputs is missing %s — a redirect could swap it silently", n)
-			continue
-		}
-		if gotPer != per {
-			t.Errorf("%s perCheckout = %v, want %v", n, gotPer, per)
 		}
 	}
 	for n := range got {
-		if _, ok := want[n]; !ok {
+		if !want[n] {
 			t.Errorf("manifestInputs has an unexpected entry %s; update this test deliberately", n)
 		}
+	}
+}
+
+// A file the destination TRACKS is one git would have put in the worktree, so
+// its absence there is a real difference and must refuse — even though it is
+// one of the personal files that are untracked in most repos. Which files a
+// repo ignores is the repo's business, so the check asks git rather than
+// assuming from the filename.
+func TestWriteLauncherShimKeepsWorktreeWhenDestinationTracksTheFile(t *testing.T) {
+	root := t.TempDir()
+	repo, home := filepath.Join(root, "repo"), filepath.Join(root, "home")
+	mkdirs(t, repo, home)
+	writeSecretFixture(t, repo)
+	// Committed, so git tracks it — the opposite of the usual gitignored case.
+	if err := os.WriteFile(filepath.Join(repo, "ainfra.personal.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	gitRepo(t, repo)
+
+	wt := filepath.Join(repo, ".claude", "worktrees", "task")
+	gitAddWorktree(t, repo, wt, "task")
+	// The branch removed the tracked personal manifest.
+	if err := os.Remove(filepath.Join(wt, "ainfra.personal.yaml")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, note, err := writeLauncherShim(home, wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertBaked(t, shimText(t, home), wt)
+	if !strings.Contains(note, "ainfra.personal.yaml") {
+		t.Errorf("a tracked file missing from the worktree must refuse, note = %q", note)
+	}
+}
+
+// Unreadable is not absent. A destination file that exists but cannot be read
+// must never be waved through by the untracked-file excuse — its bytes were
+// never compared, so the redirect would be taken on no evidence.
+func TestFirstDifferingInputRefusesUnreadableDestinationFile(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads regardless of mode bits")
+	}
+	root := t.TempDir()
+	from, to := filepath.Join(root, "wt"), filepath.Join(root, "repo")
+	mkdirs(t, from, to)
+	for _, d := range []string{from, to} {
+		if err := os.WriteFile(filepath.Join(d, "ainfra.yaml"), []byte("version: 1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Present only at the destination, and unreadable. Without the read-error
+	// check this is exactly the shape the untracked excuse lets through.
+	secret := filepath.Join(to, "ainfra.personal.yaml")
+	if err := os.WriteFile(secret, []byte("version: 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(secret, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(secret, 0o644) })
+
+	name, ok := firstDifferingInput(from, to)
+	if ok {
+		t.Error("an unreadable destination file was treated as no divergence")
+	}
+	if name != "ainfra.personal.yaml" {
+		t.Errorf("reported %q, want ainfra.personal.yaml", name)
 	}
 }
 
@@ -263,8 +325,11 @@ func TestWriteLauncherShimRedirectsWhenOnlyDestinationHasPersonalManifest(t *tes
 				t.Fatal(err)
 			}
 			assertBaked(t, shimText(t, home), wantDir)
-			if note != "" {
-				t.Errorf("a destination-only per-checkout file is not divergence, got note: %q", note)
+			if strings.Contains(note, "differ") {
+				t.Errorf("a destination-only untracked file is not divergence, got note: %q", note)
+			}
+			if !strings.Contains(note, wantDir) {
+				t.Errorf("redirect was not reported, note = %q", note)
 			}
 		})
 	}
