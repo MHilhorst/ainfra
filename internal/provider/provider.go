@@ -79,6 +79,18 @@ type Change struct {
 	// them up. It is a structural flag rather than a Detail string match,
 	// which would be fragile.
 	Prune bool
+	// Adopts marks a write over a resource that is on the machine but was
+	// never installed by ainfra — present in observed, absent from prior. The
+	// user made that file themselves, so the write destroys their only copy;
+	// the orchestrator backs it up first and the plan says so rather than
+	// calling it routine drift.
+	//
+	// The first run after a channel gains a resource is the whole exposure:
+	// prior is empty for every id, so without this flag adopting a stranger's
+	// file and correcting ainfra's own drift are the same code path and the
+	// same plan line. Structural rather than a Detail string match, for the
+	// same reason as Prune.
+	Adopts bool
 }
 
 // ChannelPlan is the set of changes one provider would make.
