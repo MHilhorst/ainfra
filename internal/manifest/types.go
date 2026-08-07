@@ -225,7 +225,13 @@ type Hook struct {
 
 // Command is a Claude Code slash command — a sourced markdown file (spec §12).
 type Command struct {
-	Source      string    `yaml:"source"`
+	Source string `yaml:"source"`
+	// Target is where the command file is written. Empty (the default) is the
+	// repo's own .claude/commands/, which Claude Code loads only in this repo.
+	// The single other accepted value is "~/.claude/commands", which installs
+	// the command user-wide so it is available in every repo — see
+	// claudecode.UserCommandsTarget for why the set is closed.
+	Target      string    `yaml:"target"`
 	Description string    `yaml:"description"`
 	Version     string    `yaml:"version"`
 	Requires    []Require `yaml:"requires"`

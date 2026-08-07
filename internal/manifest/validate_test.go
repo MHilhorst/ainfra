@@ -44,6 +44,33 @@ func TestValidateAcceptsPinnedMCPVersion(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnsupportedCommandTarget(t *testing.T) {
+	m := &Manifest{Version: 1, Commands: map[string]Command{
+		"pr": {Source: "./commands/pr.md", Target: "~/somewhere/else"},
+	}}
+	d := asDiagnostic(t, Validate(m))
+	if !strings.Contains(d.Summary, "unsupported command target") {
+		t.Errorf("summary = %q", d.Summary)
+	}
+	if d.Path != "commands.pr" {
+		t.Errorf("path = %q, want commands.pr", d.Path)
+	}
+	if !strings.Contains(d.Hint, userCommandsTarget) {
+		t.Errorf("hint should name the one supported target, got %q", d.Hint)
+	}
+}
+
+func TestValidateAcceptsCommandTargets(t *testing.T) {
+	for _, target := range []string{"", userCommandsTarget} {
+		m := &Manifest{Version: 1, Commands: map[string]Command{
+			"pr": {Source: "./commands/pr.md", Target: target},
+		}}
+		if err := Validate(m); err != nil {
+			t.Errorf("target %q: unexpected error: %v", target, err)
+		}
+	}
+}
+
 func TestValidateRejectsUnknownTemplate(t *testing.T) {
 	m := &Manifest{Version: 1, MCPServers: map[string]MCPServer{
 		"s": {Template: "missing"},

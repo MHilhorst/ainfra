@@ -14,6 +14,12 @@ import (
 // such servers must pin an exact version (spec §5.1).
 var packageLaunchers = map[string]bool{"npx": true, "uvx": true, "pipx": true}
 
+// userCommandsTarget is the only non-default value `commands.<id>.target` may
+// take. Kept as a literal rather than imported from the claudecode provider so
+// manifest validation stays free of a dependency on any provider; the two must
+// move together (claudecode.UserCommandsTarget).
+const userCommandsTarget = "~/.claude/commands"
+
 // hookEvents are the Claude Code lifecycle events a hook may bind to (spec §11).
 var hookEvents = map[string]bool{
 	"SessionStart": true, "SessionEnd": true, "UserPromptSubmit": true,
@@ -116,12 +122,25 @@ func Validate(m *Manifest) error {
 		}
 	}
 	for _, id := range slices.Sorted(maps.Keys(m.Commands)) {
-		if m.Commands[id].Source == "" {
+		c := m.Commands[id]
+		if c.Source == "" {
 			return &diag.Diagnostic{
 				Summary: "command declares no source",
 				Path:    "commands." + id,
 				Detail:  fmt.Sprintf("Command %q has no source file.", id),
 				Hint:    "Add a source field pointing at the command's .md file.",
+			}
+		}
+		// The set is closed on purpose: the desired hash is built where the
+		// home directory is not known, so the manifest string is the only
+		// token the diff's two sides can agree on. See
+		// claudecode.UserCommandsTarget.
+		if c.Target != "" && c.Target != userCommandsTarget {
+			return &diag.Diagnostic{
+				Summary: fmt.Sprintf("unsupported command target %q", c.Target),
+				Path:    "commands." + id,
+				Detail:  fmt.Sprintf("Command %q targets %q. A command is written either to the repo's own .claude/commands/ or to the user's home.", id, c.Target),
+				Hint:    fmt.Sprintf("Drop the target field for a repo-local command, or set it to %q to install user-wide.", userCommandsTarget),
 			}
 		}
 	}

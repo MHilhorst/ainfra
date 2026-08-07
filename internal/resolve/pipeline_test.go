@@ -11,6 +11,7 @@ import (
 	"github.com/MHilhorst/ainfra/internal/lockfile"
 	"github.com/MHilhorst/ainfra/internal/mcpclient"
 	"github.com/MHilhorst/ainfra/internal/provider"
+	"github.com/MHilhorst/ainfra/internal/provider/claudecode"
 )
 
 // withIntrospectRunner swaps IntrospectRunner for the duration of a test and
@@ -551,7 +552,7 @@ commands:
 	if !ok {
 		t.Fatalf("commands.drop-me missing from lock")
 	}
-	want := lockfile.ContentHash("")
+	want := claudecode.CommandContentHash("", "")
 	if entry.ContentHash != want {
 		t.Errorf("contentHash = %q, want empty-content hash %q (drift loop bug)", entry.ContentHash, want)
 	}
