@@ -195,6 +195,162 @@ func TestCommandsApply_Delete(t *testing.T) {
 	}
 }
 
+// userTargetEnv is an Env with a home distinct from the repo, so the two
+// candidate command directories are actually different paths.
+func userTargetEnv(mem *provider.MemFilesystem) provider.Env {
+	return provider.Env{FS: mem, Root: "/repo", Home: "/home/dev"}
+}
+
+func userCommandPlan(kind provider.ChangeKind, id, content, target string) provider.ChannelPlan {
+	return provider.ChannelPlan{
+		Channel: "commands",
+		Changes: []provider.Change{{
+			Kind: kind,
+			ID:   id,
+			Resource: provider.Resource{
+				ID:      id,
+				Channel: "commands",
+				Payload: map[string]any{"content": content, "target": target},
+			},
+		}},
+	}
+}
+
+func TestCommandsApply_UserTargetWritesToHome(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := userTargetEnv(mem)
+
+	p := claudecode.Commands{}
+	if _, err := p.Apply(env, userCommandPlan(provider.ChangeCreate, "pr", "open a PR", claudecode.UserCommandsTarget)); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	raw, err := mem.ReadFile("/home/dev/.claude/commands/pr.md")
+	if err != nil {
+		t.Fatalf("user-wide command not written: %v", err)
+	}
+	if string(raw) != "open a PR" {
+		t.Errorf("content = %q, want %q", raw, "open a PR")
+	}
+	if _, err := mem.ReadFile("/repo/.claude/commands/pr.md"); !os.IsNotExist(err) {
+		t.Errorf("a user-targeted command must not land in the repo, err = %v", err)
+	}
+}
+
+func TestCommandsApply_RetargetRemovesTheOldCopy(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := userTargetEnv(mem)
+	if err := mem.MkdirAll("/repo/.claude/commands", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.WriteFile("/repo/.claude/commands/pr.md", []byte("open a PR"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := claudecode.Commands{}
+	if _, err := p.Apply(env, userCommandPlan(provider.ChangeUpdate, "pr", "open a PR", claudecode.UserCommandsTarget)); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if _, err := mem.ReadFile("/home/dev/.claude/commands/pr.md"); err != nil {
+		t.Fatalf("command not written to the new target: %v", err)
+	}
+	// Claude Code would load both copies, and Observe's de-duplication prefers
+	// the repo one — so leaving it behind is a drift that never converges.
+	if _, err := mem.ReadFile("/repo/.claude/commands/pr.md"); !os.IsNotExist(err) {
+		t.Errorf("stale repo copy survived the retarget, err = %v", err)
+	}
+}
+
+func TestCommandsApply_DeleteRemovesBothLocations(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := userTargetEnv(mem)
+	for _, dir := range []string{"/repo/.claude/commands", "/home/dev/.claude/commands"} {
+		if err := mem.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := mem.WriteFile(dir+"/pr.md", []byte("open a PR"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// A delete's resource comes from the applied ledger, which carries no
+	// payload — so the provider cannot know which target it was installed to.
+	plan := provider.ChannelPlan{
+		Channel: "commands",
+		Changes: []provider.Change{{
+			Kind:     provider.ChangeDelete,
+			ID:       "pr",
+			Resource: provider.Resource{ID: "pr", Channel: "commands"},
+		}},
+	}
+
+	p := claudecode.Commands{}
+	if _, err := p.Apply(env, plan); err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+	for _, path := range []string{"/repo/.claude/commands/pr.md", "/home/dev/.claude/commands/pr.md"} {
+		if _, err := mem.ReadFile(path); !os.IsNotExist(err) {
+			t.Errorf("%s survived the delete, err = %v", path, err)
+		}
+	}
+}
+
+func TestCommandsObserve_FindsUserWideCommands(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := userTargetEnv(mem)
+	if err := mem.MkdirAll("/home/dev/.claude/commands", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.WriteFile("/home/dev/.claude/commands/pr.md", []byte("open a PR"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := claudecode.Commands{}
+	resources, err := p.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if len(resources) != 1 || resources[0].ID != "pr" {
+		t.Fatalf("Observe = %+v, want one resource 'pr'", resources)
+	}
+	// The hash has to reproduce what the pipeline computes for a user-targeted
+	// command, or the diff reports drift no run can resolve.
+	want := claudecode.CommandContentHash("open a PR", claudecode.UserCommandsTarget)
+	if resources[0].ContentHash != want {
+		t.Errorf("ContentHash = %q, want %q", resources[0].ContentHash, want)
+	}
+}
+
+func TestCommandsObserve_RepoCopyWinsOverUserWide(t *testing.T) {
+	mem := provider.NewMemFilesystem()
+	env := userTargetEnv(mem)
+	for _, dir := range []string{"/repo/.claude/commands", "/home/dev/.claude/commands"} {
+		if err := mem.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := mem.WriteFile("/repo/.claude/commands/pr.md", []byte("repo version"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := mem.WriteFile("/home/dev/.claude/commands/pr.md", []byte("user version"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := claudecode.Commands{}
+	resources, err := p.Observe(env)
+	if err != nil {
+		t.Fatalf("Observe: %v", err)
+	}
+	if len(resources) != 1 {
+		t.Fatalf("Observe returned %d resources, want 1 (de-duplicated by id)", len(resources))
+	}
+	want := claudecode.CommandContentHash("repo version", "")
+	if resources[0].ContentHash != want {
+		t.Errorf("the narrower repo declaration should win, ContentHash = %q, want %q", resources[0].ContentHash, want)
+	}
+}
+
 func TestCommandsApply_DryRun(t *testing.T) {
 	mem := provider.NewMemFilesystem()
 	env := provider.Env{FS: mem, Root: "/repo", DryRun: true}

@@ -333,6 +333,7 @@ func RenderResourcesAndLocksFor(dir string, runner provider.CommandRunner, ctx R
 				Requires:    entry.Requires,
 				Payload: map[string]any{
 					"content": content,
+					"target":  c.Target,
 				},
 			})
 		}

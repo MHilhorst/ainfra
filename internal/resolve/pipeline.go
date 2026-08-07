@@ -305,19 +305,23 @@ func resolveLocksForAgent(dir string, runner provider.CommandRunner, introspect 
 			node := "cmd:" + id
 			g.AddNode(node)
 			addRequireEdges(g, node, c.Requires)
-			// Hash the materialized content (file bytes) so a hand-edit to the
-			// rendered .claude/commands/<id>.md surfaces as drift. Falls back to
-			// the manifest-shape hash only when the source file cannot be read
-			// (remote source not yet supported, broken path, etc.). A source
-			// file that exists but is empty hashes as empty content — Apply
-			// writes an empty file and Observe re-hashes it identically, so
-			// the next run sees no drift.
+			// Hash the materialized content (file bytes) together with the
+			// target, so a hand-edit to the rendered .claude/commands/<id>.md
+			// surfaces as drift and so does moving the command between the repo
+			// and the user's home. Must stay byte-identical to
+			// claudecode.Commands.Observe — the diff compares the two directly.
+			// Falls back to the manifest-shape hash only when the source file
+			// cannot be read (remote source not yet supported, broken path,
+			// etc.). A source file that exists but is empty hashes as empty
+			// content — Apply writes an empty file and Observe re-hashes it
+			// identically, so the next run sees no drift.
 			var contentHash string
 			if content, ok := readSourceForLayerExists(dir, layerName, c.Source); ok {
-				contentHash = lockfile.ContentHash(content)
+				contentHash = claudecode.CommandContentHash(content, c.Target)
 			} else {
 				contentHash = lockfile.ContentHash(map[string]any{
-					"source": c.Source, "description": c.Description, "version": c.Version,
+					"source": c.Source, "description": c.Description,
+					"version": c.Version, "target": c.Target,
 				})
 			}
 			lock.Entries.Commands[id] = lockfile.Entry{
