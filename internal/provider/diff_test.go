@@ -155,13 +155,57 @@ func TestDiffResourcesRefreshIsNotSilentlyAppliedAsUpdate(t *testing.T) {
 	// path, genuine divergence would be downgraded to routine noise.
 	desired := []Resource{res("drifted", "want")}
 	observed := []Resource{res("drifted", "got")}
+	// Prior matters: drift is what ainfra installed and something changed.
+	// With no prior this is an adoption, covered separately below.
+	prior := []Resource{res("drifted", "installed")}
 
-	c, _ := find(DiffResources("plugins", desired, observed, nil, DiffOpts{}), "drifted")
+	c, _ := find(DiffResources("plugins", desired, observed, prior, DiffOpts{}), "drifted")
 	if c.Kind != ChangeUpdate {
 		t.Errorf("kind = %v, want ChangeUpdate", c.Kind)
 	}
 	if c.Detail != "out of sync — will be updated" {
 		t.Errorf("detail = %q, want the drift phrasing", c.Detail)
+	}
+	if c.Adopts {
+		t.Error("a resource ainfra installed is not an adoption")
+	}
+}
+
+func TestDiffResourcesFlagsOverwriteOfAFileAinfraNeverInstalled(t *testing.T) {
+	// The user already had a file at this id and ainfra never recorded it, so
+	// the write destroys their only copy. It must not be reported as routine
+	// drift, and the orchestrator needs the flag to back the file up first.
+	desired := []Resource{res("stop", "ours")}
+	observed := []Resource{res("stop", "theirs")}
+
+	c, ok := find(DiffResources("commands", desired, observed, nil, DiffOpts{}), "stop")
+	if !ok {
+		t.Fatal("stop: no change emitted")
+	}
+	if c.Kind != ChangeUpdate {
+		t.Errorf("kind = %v, want ChangeUpdate", c.Kind)
+	}
+	if !c.Adopts {
+		t.Error("overwriting a file absent from prior must set Adopts")
+	}
+	if c.Detail == "out of sync — will be updated" {
+		t.Error("adoption must not borrow the drift phrasing — that is what hid it")
+	}
+}
+
+func TestDiffResourcesMatchingUntrackedFileIsStillANoop(t *testing.T) {
+	// Adoption is about writes, not about being untracked. A file whose
+	// content already matches is not overwritten, so nothing is at risk and
+	// nothing should be backed up.
+	desired := []Resource{res("stop", "same")}
+	observed := []Resource{res("stop", "same")}
+
+	c, _ := find(DiffResources("commands", desired, observed, nil, DiffOpts{}), "stop")
+	if c.Kind != ChangeNoop {
+		t.Errorf("kind = %v, want ChangeNoop", c.Kind)
+	}
+	if c.Adopts {
+		t.Error("a noop writes nothing and must not be flagged as an adoption")
 	}
 }
 

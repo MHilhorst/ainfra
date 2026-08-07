@@ -221,8 +221,56 @@ func (o *Orchestrator) backupPrunes(p Provider, plan ChannelPlan) (ChannelPlan, 
 	return out, failed
 }
 
+// backupAdoptions copies the on-disk state of each Adopts change into the run's
+// backup directory, dropping any change whose backup failed. Same rule as
+// backupPrunes and for the same reason: the file about to be replaced was
+// written by the user, not by ainfra, so it may be their only copy — and unlike
+// a delete, an overwrite leaves nothing behind to recover from.
+//
+// Unlike prune deletes this is NOT gated on --prune. Adoption happens on an
+// ordinary `ainfra install` the first time a channel names a resource the user
+// already had, which is precisely when nobody is expecting a destructive write.
+//
+// A provider that cannot back up (does not implement Pruner) keeps its changes:
+// its channel does not own user-authored files — see the Pruner doc comment for
+// which channels those are and why.
+func (o *Orchestrator) backupAdoptions(p Provider, plan ChannelPlan) (ChannelPlan, []ChangeFailure) {
+	pr, ok := p.(Pruner)
+	if !ok {
+		return plan, nil
+	}
+	out := ChannelPlan{Channel: plan.Channel}
+	var failed []ChangeFailure
+	for _, c := range plan.Changes {
+		if !c.Adopts {
+			out.Changes = append(out.Changes, c)
+			continue
+		}
+		dir, derr := o.runBackupDir()
+		if derr != nil {
+			failed = append(failed, ChangeFailure{
+				Change: c,
+				Err:    fmt.Errorf("no backup directory, not overwriting: %w", derr),
+			})
+			continue
+		}
+		if err := pr.Backup(o.env, c.Resource, dir); err != nil {
+			failed = append(failed, ChangeFailure{
+				Change: c,
+				Err:    fmt.Errorf("backup failed, not overwriting: %w", err),
+			})
+			continue
+		}
+		out.Changes = append(out.Changes, c)
+	}
+	return out, failed
+}
+
 // runBackupDir is this run's backup directory, computed once so every channel
-// shares one timestamped tree.
+// shares one timestamped tree. It holds two kinds of rescue copy: prune
+// deletes, and the adoption overwrites backupAdoptions saves. The directory is
+// still named "pruned" because moving it would strand the backups users
+// already have; read it as "things ainfra removed or replaced".
 //
 // It lives outside the repo, under $XDG_CONFIG_HOME/ainfra/pruned/. ainfra
 // never git-ignores .ainfra/ (init writes only the `ainfra.personal.*`
@@ -471,6 +519,14 @@ func (o *Orchestrator) ApplyAllRendered(rendered map[string][]Resource, desired 
 		var backupFailed []ChangeFailure
 		if o.prune && !o.env.DryRun {
 			runnable, backupFailed = o.backupPrunes(p, runnable)
+		}
+		// Adoptions are backed up on every run, not only under --prune: an
+		// overwrite of a file ainfra never installed destroys the user's only
+		// copy, and it happens on a plain `ainfra install`.
+		if !o.env.DryRun {
+			var adoptFailed []ChangeFailure
+			runnable, adoptFailed = o.backupAdoptions(p, runnable)
+			backupFailed = append(backupFailed, adoptFailed...)
 		}
 
 		res := ApplyResult{Channel: ch}

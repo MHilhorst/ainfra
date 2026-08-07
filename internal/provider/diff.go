@@ -104,6 +104,21 @@ func DiffResources(channel string, desired, observed, prior []Resource, opts Dif
 				Resource: want,
 			})
 		case got.ContentHash != want.ContentHash:
+			// A differing resource that ainfra never recorded is not its own
+			// drift: the file belongs to the user, and overwriting it without
+			// saying so destroys their only copy. Flag it so the orchestrator
+			// backs it up, and name it in the plan — "out of sync" reads as
+			// routine correction and is exactly what hides this.
+			if _, known := pr[id]; !known {
+				plan.Changes = append(plan.Changes, Change{
+					Kind:     ChangeUpdate,
+					ID:       id,
+					Detail:   "not installed by ainfra — will be overwritten (a copy is kept)",
+					Resource: want,
+					Adopts:   true,
+				})
+				continue
+			}
 			plan.Changes = append(plan.Changes, Change{
 				Kind:     ChangeUpdate,
 				ID:       id,
